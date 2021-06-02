@@ -55,6 +55,7 @@ cvar_t		sys_throttle = {"sys_throttle", "0.02", CVAR_ARCHIVE};
 #define	MAX_HANDLES		32	/* johnfitz -- was 10 */
 static FILE		*sys_handles[MAX_HANDLES];
 
+static double counter_freq;
 
 static int findhandle (void)
 {
@@ -349,6 +350,8 @@ void Sys_Init (void)
 #endif
 	host_parms->numcpus = Sys_NumCPUs ();
 	Sys_Printf("Detected %d CPUs.\n", host_parms->numcpus);
+
+	counter_freq = (double)SDL_GetPerformanceFrequency();
 }
 
 void Sys_mkdir (const char *path)
@@ -410,7 +413,7 @@ void Sys_Quit (void)
 
 double Sys_DoubleTime (void)
 {
-	return SDL_GetTicks() / 1000.0;
+	return (double)SDL_GetPerformanceCounter() / counter_freq;
 }
 
 const char *Sys_ConsoleInput (void)
