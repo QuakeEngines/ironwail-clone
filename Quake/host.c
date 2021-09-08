@@ -266,7 +266,6 @@ void Host_InitLocal (void)
 	Cvar_RegisterVariable (&devstats); //johnfitz
 
 	Cvar_RegisterVariable (&sys_ticrate);
-	Cvar_RegisterVariable (&sys_throttle);
 	Cvar_RegisterVariable (&serverprofile);
 
 	Cvar_RegisterVariable (&fraglimit);
