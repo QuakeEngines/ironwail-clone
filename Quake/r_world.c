@@ -142,7 +142,7 @@ void R_MarkSurfaces (void)
 					if (surf->visframe != r_visframecount)
 					{
 						surf->visframe = r_visframecount;
-						if (!R_CullBox(surf->mins, surf->maxs) && !R_BackFaceCull (surf))
+						if (!R_BackFaceCull (surf))
 						{
 							rs_brushpolys++; //count wpolys here
 							R_ChainSurface(surf, chain_world);

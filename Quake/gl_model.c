@@ -1171,43 +1171,6 @@ void Mod_PolyForUnlitSurface (msurface_t *fa)
 
 /*
 =================
-Mod_CalcSurfaceBounds -- johnfitz -- calculate bounding box for per-surface frustum culling
-=================
-*/
-void Mod_CalcSurfaceBounds (msurface_t *s)
-{
-	int			i, e;
-	mvertex_t	*v;
-
-	s->mins[0] = s->mins[1] = s->mins[2] = FLT_MAX;
-	s->maxs[0] = s->maxs[1] = s->maxs[2] = -FLT_MAX;
-
-	for (i=0 ; i<s->numedges ; i++)
-	{
-		e = loadmodel->surfedges[s->firstedge+i];
-		if (e >= 0)
-			v = &loadmodel->vertexes[loadmodel->edges[e].v[0]];
-		else
-			v = &loadmodel->vertexes[loadmodel->edges[-e].v[1]];
-
-		if (s->mins[0] > v->position[0])
-			s->mins[0] = v->position[0];
-		if (s->mins[1] > v->position[1])
-			s->mins[1] = v->position[1];
-		if (s->mins[2] > v->position[2])
-			s->mins[2] = v->position[2];
-
-		if (s->maxs[0] < v->position[0])
-			s->maxs[0] = v->position[0];
-		if (s->maxs[1] < v->position[1])
-			s->maxs[1] = v->position[1];
-		if (s->maxs[2] < v->position[2])
-			s->maxs[2] = v->position[2];
-	}
-}
-
-/*
-=================
 Mod_LoadFaces
 =================
 */
@@ -1282,8 +1245,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 		out->texinfo = loadmodel->texinfo + texinfon;
 
 		CalcSurfaceExtents (out);
-
-		Mod_CalcSurfaceBounds (out); //johnfitz -- for per-surface frustum culling
 
 	// lighting info
 		if (loadmodel->bspversion == BSPVERSION_QUAKE64)

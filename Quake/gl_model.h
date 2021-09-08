@@ -141,8 +141,6 @@ typedef struct glpoly_s
 typedef struct msurface_s
 {
 	int			visframe;		// should be drawn when node is crossed
-	float		mins[3];		// johnfitz -- for frustum culling
-	float		maxs[3];		// johnfitz -- for frustum culling
 
 	mplane_t	*plane;
 	int			flags;
