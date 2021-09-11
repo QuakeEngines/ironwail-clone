@@ -412,8 +412,8 @@ void R_SetFrustum (float fovx, float fovy)
 	if (r_stereo.value)
 		fovx += 10; //silly hack so that polygons don't drop out becuase of stereo skew
 
-	TurnVector(frustum[0].normal, vpn, vright, fovx/2 - 90); //left plane
-	TurnVector(frustum[1].normal, vpn, vright, 90 - fovx/2); //right plane
+	TurnVector(frustum[0].normal, vpn, vright, fovx/2 - 90); //right plane
+	TurnVector(frustum[1].normal, vpn, vright, 90 - fovx/2); //left plane
 	TurnVector(frustum[2].normal, vpn, vup, 90 - fovy/2); //bottom plane
 	TurnVector(frustum[3].normal, vpn, vup, fovy/2 - 90); //top plane
 
