@@ -112,20 +112,18 @@ void GLDraw_CreateShaders (void)
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
-		"layout(location=1) uniform vec4 Color;\n"
-		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
+		"layout(location=0) in vec2 in_pos;\n"
 		"layout(location=1) in vec2 in_uv;\n"
+		"layout(location=2) in vec4 in_color;\n"
 		"\n"
 		"layout(location=0) out vec2 out_uv;\n"
 		"layout(location=1) out vec4 out_color;\n"
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
+		"	gl_Position = vec4(in_pos, -1.0, 1.0);\n"
 		"	out_uv = in_uv;\n"
-		"	out_color = Color;\n"
+		"	out_color = in_color;\n"
 		"}\n";
 	
 	const GLchar *fragSource = \
@@ -155,16 +153,20 @@ typedef struct
 typedef struct guivertex_t {
 	float		pos[2];
 	float		uv[2];
+	GLubyte		color[4];
 } guivertex_t;
 
-#define MAX_QUADS 256
+#define MAX_BATCH_QUADS 2048
 
-static guivertex_t quadverts[4 * MAX_QUADS];
-static unsigned short quadindices[6 * MAX_QUADS];
+static int numbatchquads = 0;
+static guivertex_t batchverts[4 * MAX_BATCH_QUADS];
+static GLushort batchindices[6 * MAX_BATCH_QUADS];
 
 static canvastype currentcanvas = CANVAS_NONE; //johnfitz -- for GL_SetCanvas
-static float canvasmatrix[16];
-static vec4_t canvascolor = {1.f, 1.f, 1.f, 1.f};
+static float canvasoffset[2];
+static float canvasscale[2];
+static GLubyte canvascolor[4] = {255, 255, 255, 255};
+static gltexture_t *canvastexture = NULL;
 
 //==============================================================================
 //
@@ -464,14 +466,14 @@ void Draw_Init (void)
 	Cvar_RegisterVariable (&scr_conalpha);
 
 	// init quad indices
-	for (i = 0; i < MAX_QUADS; i++)
+	for (i = 0; i < MAX_BATCH_QUADS; i++)
 	{
-		quadindices[i*6 + 0] = i*4 + 0;
-		quadindices[i*6 + 1] = i*4 + 1;
-		quadindices[i*6 + 2] = i*4 + 2;
-		quadindices[i*6 + 3] = i*4 + 0;
-		quadindices[i*6 + 4] = i*4 + 2;
-		quadindices[i*6 + 5] = i*4 + 3;
+		batchindices[i*6 + 0] = i*4 + 0;
+		batchindices[i*6 + 1] = i*4 + 1;
+		batchindices[i*6 + 2] = i*4 + 2;
+		batchindices[i*6 + 3] = i*4 + 0;
+		batchindices[i*6 + 4] = i*4 + 2;
+		batchindices[i*6 + 5] = i*4 + 3;
 	}
 
 	// clear scrap and allocate gltextures
@@ -497,26 +499,91 @@ void Draw_Init (void)
 
 /*
 ================
+Draw_Flush
+================
+*/
+void Draw_Flush (void)
+{
+	if (!numbatchquads)
+		return;
+
+	GL_UseProgram (r_gui_program);
+	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
+	GL_Bind (GL_TEXTURE0, canvastexture);
+
+	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
+	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), &batchverts[0].pos);
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), &batchverts[0].uv);
+	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(batchverts[0]), &batchverts[0].color);
+
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, 0);
+	glDrawElements (GL_TRIANGLES, numbatchquads * 6, GL_UNSIGNED_SHORT, batchindices);
+
+	numbatchquads = 0;
+}
+
+/*
+================
+Draw_SetTexture
+================
+*/
+static void Draw_SetTexture (gltexture_t *tex)
+{
+	if (tex == canvastexture)
+		return;
+	Draw_Flush ();
+	canvastexture = tex;
+}
+
+/*
+================
 GL_SetCanvasColor
 ================
 */
 void GL_SetCanvasColor (float r, float g, float b, float a)
 {
-	canvascolor[0] = r;
-	canvascolor[1] = g;
-	canvascolor[2] = b;
-	canvascolor[3] = a;
+	canvascolor[0] = (int) CLAMP(0.f, r * 255.f + 0.5f, 255.f);
+	canvascolor[1] = (int) CLAMP(0.f, g * 255.f + 0.5f, 255.f);
+	canvascolor[2] = (int) CLAMP(0.f, b * 255.f + 0.5f, 255.f);
+	canvascolor[3] = (int) CLAMP(0.f, a * 255.f + 0.5f, 255.f);
 }
 
 /*
 ================
-Draw_FillCharacterQuad -- johnfitz -- seperate function to spit out verts
+Draw_AllocQuad
 ================
 */
-void Draw_FillCharacterQuad (int x, int y, char num, guivertex_t *verts)
+static guivertex_t* Draw_AllocQuad (void)
+{
+	if (numbatchquads == MAX_BATCH_QUADS)
+		Draw_Flush ();
+	return batchverts + 4 * numbatchquads++;
+}
+
+/*
+================
+Draw_SetVertex
+================
+*/
+static void Draw_SetVertex (guivertex_t *v, float x, float y, float s, float t)
+{
+	v->pos[0] = x * canvasscale[0] + canvasoffset[0];
+	v->pos[1] = y * canvasscale[1] + canvasoffset[1];
+	v->uv[0] = s;
+	v->uv[1] = t;
+	memcpy (v->color, canvascolor, 4 * sizeof(GLubyte));
+}
+
+/*
+================
+Draw_CharacterQuad -- johnfitz -- seperate function to spit out verts
+================
+*/
+void Draw_CharacterQuad (int x, int y, char num)
 {
 	int				row, col;
 	float			frow, fcol, size;
+	guivertex_t		*verts;
 
 	row = num>>4;
 	col = num&15;
@@ -525,26 +592,20 @@ void Draw_FillCharacterQuad (int x, int y, char num, guivertex_t *verts)
 	fcol = col*0.0625;
 	size = 0.0625;
 
-	#define ADD_VERTEX(uvx, uvy, px, py)\
-		verts->pos[0] = px; verts->pos[1] = py; verts->uv[0] = uvx; verts->uv[1] = uvy; ++verts
-
-	ADD_VERTEX(fcol, frow, x, y);
-	ADD_VERTEX(fcol + size, frow, x+8, y);
-	ADD_VERTEX(fcol + size, frow + size, x+8, y+8);
-	ADD_VERTEX(fcol, frow + size, x, y+8);
-
-	#undef ADD_VERTEX
+	verts = Draw_AllocQuad ();
+	Draw_SetVertex (verts++, x,   y,   fcol,        frow);
+	Draw_SetVertex (verts++, x+8, y,   fcol + size, frow);
+	Draw_SetVertex (verts++, x+8, y+8, fcol + size, frow + size);
+	Draw_SetVertex (verts++, x,   y+8, fcol,        frow + size);
 }
 
 /*
 ================
-Draw_Character -- johnfitz -- modified to call Draw_FillCharacterQuad
+Draw_Character -- johnfitz -- modified to call Draw_CharacterQuad
 ================
 */
 void Draw_Character (int x, int y, int num)
 {
-	guivertex_t verts[4];
-
 	if (y <= -8)
 		return;			// totally off screen
 
@@ -553,64 +614,29 @@ void Draw_Character (int x, int y, int num)
 	if (num == 32)
 		return; //don't waste verts on spaces
 
-	Draw_FillCharacterQuad (x, y, (char) num, verts);
-
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].uv);
-
-	GL_Bind (GL_TEXTURE0, char_texture);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	Draw_SetTexture (char_texture);
+	Draw_CharacterQuad (x, y, (char) num);
 }
 
 /*
 ================
-Draw_String -- johnfitz -- modified to call Draw_FillCharacterQuad
+Draw_String -- johnfitz -- modified to call Draw_CharacterQuad
 ================
 */
 void Draw_String (int x, int y, const char *str)
 {
-	int numverts = 0;
-
 	if (y <= -8)
 		return;			// totally off screen
 
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(quadverts[0]), &quadverts[0].uv);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, sizeof(quadverts[0]), &quadverts[0].pos);
-
-	GL_Bind (GL_TEXTURE0, char_texture);
+	Draw_SetTexture (char_texture);
 
 	while (*str)
 	{
-		if (numverts == countof(quadverts))
-		{
-			glDrawElements(GL_TRIANGLES, numverts + (numverts >> 1), GL_UNSIGNED_SHORT, quadindices);
-			numverts = 0;
-		}
 		if (*str != 32) //don't waste verts on spaces
-		{
-			Draw_FillCharacterQuad (x, y, *str, quadverts + numverts);
-			numverts += 4;
-		}
+			Draw_CharacterQuad (x, y, *str);
 		str++;
 		x += 8;
 	}
-
-	if (numverts)
-		glDrawElements(GL_TRIANGLES, numverts + (numverts >> 1), GL_UNSIGNED_SHORT, quadindices);
 }
 
 /*
@@ -621,37 +647,18 @@ Draw_Pic -- johnfitz -- modified
 void Draw_Pic (int x, int y, qpic_t *pic)
 {
 	glpic_t		*gl;
-	float		quad_pos[4 * 2];
-	float		quad_uv[4 * 2];
-	float		*pos = quad_pos;
-	float		*uv = quad_uv;
+	guivertex_t	*verts;
 
 	if (scrap_dirty)
 		Scrap_Upload ();
 	gl = (glpic_t *)pic->data;
+	Draw_SetTexture (gl->gltexture);
 
-	#define ADD_VERTEX(uvx, uvy, px, py)\
-		*pos++ = px; *pos++ = py; *uv++ = uvx; *uv++ = uvy
-
-	ADD_VERTEX(gl->sl, gl->tl, x, y);
-	ADD_VERTEX(gl->sh, gl->tl, x+pic->width, y);
-	ADD_VERTEX(gl->sh, gl->th, x+pic->width, y+pic->height);
-	ADD_VERTEX(gl->sl, gl->th, x, y+pic->height);
-
-	#undef ADD_VERTEX
-
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, 0, quad_pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, 0, quad_uv);
-
-	GL_Bind (GL_TEXTURE0, gl->gltexture);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	verts = Draw_AllocQuad ();
+	Draw_SetVertex (verts++, x,            y,             gl->sl, gl->tl);
+	Draw_SetVertex (verts++, x+pic->width, y,             gl->sh, gl->tl);
+	Draw_SetVertex (verts++, x+pic->width, y+pic->height, gl->sh, gl->th);
+	Draw_SetVertex (verts++, x,            y+pic->height, gl->sl, gl->th);
 }
 
 /*
@@ -714,39 +721,20 @@ refresh window.
 */
 void Draw_TileClear (int x, int y, int w, int h)
 {
-	float quad_pos[4 * 2];
-	float quad_uv[4 * 2];
-	float *pos = quad_pos;
-	float *uv = quad_uv;
-
 	glpic_t	*gl;
+	guivertex_t *verts;
 
 	gl = (glpic_t *)draw_backtile->data;
 
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
 
-	#define ADD_VERTEX(uvx, uvy, px, py)\
-		*pos++ = px; *pos++ = py; *uv++ = uvx; *uv++ = uvy
+	Draw_SetTexture (gl->gltexture);
 
-	ADD_VERTEX(x/64.0, y/64.0, x, y);
-	ADD_VERTEX((x+w)/64.0, y/64.0, x+w, y);
-	ADD_VERTEX((x+w)/64.0, (y+h)/64.0, x+w, y+h);
-	ADD_VERTEX(x/64.0, (y+h)/64.0, x, y+h);
-
-	#undef ADD_VERTEX
-
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, 0, quad_pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, 0, quad_uv);
-
-	GL_Bind (GL_TEXTURE0, gl->gltexture);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	verts = Draw_AllocQuad ();
+	Draw_SetVertex (verts++, x,   y,   x/64.0,     y/64.0);
+	Draw_SetVertex (verts++, x+w, y,   (x+w)/64.0, y/64.0);
+	Draw_SetVertex (verts++, x+w, y+h, (x+w)/64.0, (y+h)/64.0);
+	Draw_SetVertex (verts++, x,   y+h, x/64.0,     (y+h)/64.0);
 }
 
 /*
@@ -759,35 +747,16 @@ Fills a box of pixels with a single color
 void Draw_Fill (int x, int y, int w, int h, int c, float alpha) //johnfitz -- added alpha
 {
 	byte *pal = (byte *)d_8to24table; //johnfitz -- use d_8to24table instead of host_basepal
-
-	float quad_pos[4 * 2];
-	float quad_uv[4 * 2] = { 0 };
-	float *pos = quad_pos;
+	guivertex_t *verts;
 
 	GL_SetCanvasColor (pal[c*4]/255.0, pal[c*4+1]/255.0, pal[c*4+2]/255.0, alpha); //johnfitz -- added alpha
+	Draw_SetTexture (whitetexture);
 
-	#define ADD_VERTEX(px, py)\
-		*pos++ = px; *pos++ = py
-
-	ADD_VERTEX(x, y);
-	ADD_VERTEX(x+w, y);
-	ADD_VERTEX(x+w, y+h);
-	ADD_VERTEX(x, y+h);
-
-	#undef ADD_VERTEX
-
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, 0, quad_pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, 0, quad_uv);
-
-	GL_Bind (GL_TEXTURE0, whitetexture);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	verts = Draw_AllocQuad ();
+	Draw_SetVertex (verts++, x,   y,   0.f, 0.f);
+	Draw_SetVertex (verts++, x+w, y,   0.f, 0.f);
+	Draw_SetVertex (verts++, x+w, y+h, 0.f, 0.f);
+	Draw_SetVertex (verts++, x,   y+h, 0.f, 0.f);
 
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
 }
@@ -799,35 +768,17 @@ Draw_FadeScreen -- johnfitz -- revised
 */
 void Draw_FadeScreen (void)
 {
-	float quad_pos[4 * 2];
-	float quad_uv[4 * 2] = { 0 };
-	float *pos = quad_pos;
+	guivertex_t *verts;
 
 	GL_SetCanvas (CANVAS_DEFAULT);
 	GL_SetCanvasColor (0.f, 0.f, 0.f, 0.5f);
+	Draw_SetTexture (whitetexture);
 
-	#define ADD_VERTEX(px, py)\
-		*pos++ = px; *pos++ = py
-
-	ADD_VERTEX(0, 0);
-	ADD_VERTEX(glwidth, 0);
-	ADD_VERTEX(glwidth, glheight);
-	ADD_VERTEX(0, glheight);
-
-	#undef ADD_VERTEX
-
-	GL_UseProgram (r_gui_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, canvasmatrix);
-	GL_Uniform4fvFunc (1, 1, canvascolor);
-
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, 0, quad_pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, 0, quad_uv);
-
-	GL_Bind (GL_TEXTURE0, whitetexture);
-
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	verts = Draw_AllocQuad ();
+	Draw_SetVertex (verts++, 0,       0,        0.f, 0.f);
+	Draw_SetVertex (verts++, glwidth, 0,        0.f, 0.f);
+	Draw_SetVertex (verts++, glwidth, glheight, 0.f, 0.f);
+	Draw_SetVertex (verts++, 0,       glheight, 0.f, 0.f);
 
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
 
@@ -836,31 +787,18 @@ void Draw_FadeScreen (void)
 
 /*
 ================
-GL_OrthoMatrix
+Draw_SetTransform
 ================
 */
-static void GL_OrthoMatrix(float left, float right, float bottom, float top, float n, float f)
+static void Draw_SetTransform (float left, float right, float bottom, float top)
 {
 	float tx = -(right + left) / (right - left);
 	float ty = -(top + bottom) / (top - bottom);
-	float tz = -(f + n) / (f - n);
 
-	memset(&canvasmatrix, 0, sizeof(canvasmatrix));
-
-	// First column
-	canvasmatrix[0*4 + 0] = 2.0f / (right-left);
-
-	// Second column
-	canvasmatrix[1*4 + 1] = 2.0f / (top-bottom);
-	
-	// Third column
-	canvasmatrix[2*4 + 2] = 2.0f / (f-n);
-
-	// Fourth column
-	canvasmatrix[3*4 + 0] = tx;
-	canvasmatrix[3*4 + 1] = ty;
-	canvasmatrix[3*4 + 2] = tz;
-	canvasmatrix[3*4 + 3] = 1.0f;
+	canvasscale[0] = 2.0f / (right - left);
+	canvasscale[1] = 2.0f / (top - bottom);
+	canvasoffset[0] = tx;
+	canvasoffset[1] = ty;
 }
 
 /*
@@ -877,57 +815,59 @@ void GL_SetCanvas (canvastype newcanvas)
 	if (newcanvas == currentcanvas)
 		return;
 
+	Draw_Flush ();
 	currentcanvas = newcanvas;
+	canvastexture = NULL;
 
 	switch(newcanvas)
 	{
 	case CANVAS_DEFAULT:
-		GL_OrthoMatrix (0, glwidth, glheight, 0, -99999, 99999);
+		Draw_SetTransform (0, glwidth, glheight, 0);
 		glViewport (glx, gly, glwidth, glheight);
 		break;
 	case CANVAS_CONSOLE:
 		lines = vid.conheight - (scr_con_current * vid.conheight / glheight);
-		GL_OrthoMatrix (0, vid.conwidth, vid.conheight + lines, lines, -99999, 99999);
+		Draw_SetTransform (0, vid.conwidth, vid.conheight + lines, lines);
 		glViewport (glx, gly, glwidth, glheight);
 		break;
 	case CANVAS_MENU:
 		s = q_min((float)glwidth / 320.0, (float)glheight / 200.0);
 		s = CLAMP (1.0, scr_menuscale.value, s);
 		// ericw -- doubled width to 640 to accommodate long keybindings
-		GL_OrthoMatrix (0, 640, 200, 0, -99999, 99999);
+		Draw_SetTransform (0, 640, 200, 0);
 		glViewport (glx + (glwidth - 320*s) / 2, gly + (glheight - 200*s) / 2, 640*s, 200*s);
 		break;
 	case CANVAS_SBAR:
 		s = CLAMP (1.0, scr_sbarscale.value, (float)glwidth / 320.0);
 		if (cl.gametype == GAME_DEATHMATCH)
 		{
-			GL_OrthoMatrix (0, glwidth / s, 48, 0, -99999, 99999);
+			Draw_SetTransform (0, glwidth / s, 48, 0);
 			glViewport (glx, gly, glwidth, 48*s);
 		}
 		else
 		{
-			GL_OrthoMatrix (0, 320, 48, 0, -99999, 99999);
+			Draw_SetTransform (0, 320, 48, 0);
 			glViewport (glx + (glwidth - 320*s) / 2, gly, 320*s, 48*s);
 		}
 		break;
 	case CANVAS_CROSSHAIR: //0,0 is center of viewport
 		s = CLAMP (1.0, scr_crosshairscale.value, 10.0);
-		GL_OrthoMatrix (scr_vrect.width/-2/s, scr_vrect.width/2/s, scr_vrect.height/2/s, scr_vrect.height/-2/s, -99999, 99999);
+		Draw_SetTransform (scr_vrect.width/-2/s, scr_vrect.width/2/s, scr_vrect.height/2/s, scr_vrect.height/-2/s);
 		glViewport (scr_vrect.x, glheight - scr_vrect.y - scr_vrect.height, scr_vrect.width & ~1, scr_vrect.height & ~1);
 		break;
 	case CANVAS_BOTTOMLEFT: //used by devstats
 		s = (float)glwidth/vid.conwidth; //use console scale
-		GL_OrthoMatrix (0, 320, 200, 0, -99999, 99999);
+		Draw_SetTransform (0, 320, 200, 0);
 		glViewport (glx, gly, 320*s, 200*s);
 		break;
 	case CANVAS_BOTTOMRIGHT: //used by fps/clock
 		s = (float)glwidth/vid.conwidth; //use console scale
-		GL_OrthoMatrix (0, 320, 200, 0, -99999, 99999);
+		Draw_SetTransform (0, 320, 200, 0);
 		glViewport (glx+glwidth-320*s, gly, 320*s, 200*s);
 		break;
 	case CANVAS_TOPRIGHT: //used by disc
 		s = 1;
-		GL_OrthoMatrix (0, 320, 200, 0, -99999, 99999);
+		Draw_SetTransform (0, 320, 200, 0);
 		glViewport (glx+glwidth-320*s, gly+glheight-200*s, 320*s, 200*s);
 		break;
 	default:
@@ -943,6 +883,7 @@ GL_Set2D
 void GL_Set2D (void)
 {
 	currentcanvas = CANVAS_INVALID;
+	canvastexture = NULL;
 	GL_SetCanvas (CANVAS_DEFAULT);
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
 }

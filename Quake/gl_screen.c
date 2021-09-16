@@ -1129,6 +1129,8 @@ void SCR_UpdateScreen (void)
 		M_Draw ();
 	}
 
+	Draw_Flush ();
+
 	V_UpdateBlend (); //johnfitz -- V_UpdatePalette cleaned up and renamed
 
 	GL_EndGroup ();

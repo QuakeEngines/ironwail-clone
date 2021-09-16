@@ -40,6 +40,7 @@ void Draw_FadeScreen (void);
 void Draw_String (int x, int y, const char *str);
 qpic_t *Draw_PicFromWad (const char *name);
 qpic_t *Draw_CachePic (const char *path);
+void Draw_Flush (void);
 void Draw_NewGame (void);
 
 void GL_SetCanvas (canvastype newcanvas); //johnfitz
