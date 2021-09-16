@@ -23,6 +23,63 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
+typedef struct spritevert_t {
+	vec3_t		pos;
+	float		uv[2];
+} spritevert_t;
+
+static GLuint r_sprite_program;
+
+/*
+=============
+GLSprite_CreateShaders
+=============
+*/
+void GLSprite_CreateShaders (void)
+{
+	const GLchar *vertSource = \
+		"#version 430\n"
+		"\n"
+		"layout(location=0) uniform mat4 MVP;\n"
+		"\n"
+		"layout(location=0) in vec4 in_pos;\n"
+		"layout(location=1) in vec2 in_uv;\n"
+		"\n"
+		"layout(location=0) out vec2 out_uv;\n"
+		"layout(location=1) out float out_fogdist;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	gl_Position = MVP * in_pos;\n"
+		"	out_fogdist = gl_Position.w;\n"
+		"	out_uv = in_uv;\n"
+		"}\n";
+
+	const GLchar *fragSource = \
+		"#version 430\n"
+		"\n"
+		"layout(binding=0) uniform sampler2D Tex;\n"
+		"layout(location=2) uniform vec4 Fog;\n"
+		"\n"
+		"layout(location=0) in vec2 in_uv;\n"
+		"layout(location=1) in float in_fogdist;\n"
+		"\n"
+		"layout(location=0) out vec4 out_fragcolor;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	vec4 result = texture2D(Tex, in_uv);\n"
+		"	if (result.a < 0.666)\n"
+		"		discard;\n"
+		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
+		"	fog = clamp(fog, 0.0, 1.0);\n"
+		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
+		"	out_fragcolor = result;\n"
+		"}\n";
+
+	r_sprite_program = GL_CreateProgram (vertSource, fragSource, "sprite");
+}
+
 /*
 ================
 R_GetSpriteFrame
@@ -79,13 +136,16 @@ mspriteframe_t *R_GetSpriteFrame (entity_t *currentent)
 R_DrawSpriteModel -- johnfitz -- rewritten: now supports all orientations
 =================
 */
-void R_DrawSpriteModel (entity_t *e)
+static int lastfogframe = 0;
+static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 {
 	vec3_t			point, v_forward, v_right, v_up;
 	msprite_t		*psprite;
 	mspriteframe_t	*frame;
 	float			*s_up, *s_right;
 	float			angle, sr, cr;
+	spritevert_t	verts[4];
+	int				i = 0;
 
 	//TODO: frustum cull it?
 
@@ -140,43 +200,81 @@ void R_DrawSpriteModel (entity_t *e)
 		return;
 	}
 
+	GL_BeginGroup (e->model->name);
+
 	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
 		GL_PolygonOffset (OFFSET_DECAL);
 
-	glColor3f (1,1,1);
+	GL_UseProgram (r_sprite_program);
+	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
 
-	GL_DisableMultitexture();
+	if (lastfogframe != r_framecount)
+	{
+		lastfogframe = r_framecount;
+		GL_Uniform4fvFunc (2, 1, fog_data);
+	}
 
-	GL_Bind(frame->gltexture);
+	if (showtris)
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
+	else
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
-	glEnable (GL_ALPHA_TEST);
-	glBegin (GL_TRIANGLE_FAN); //was GL_QUADS, but changed to support r_showtris
+	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].pos);
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].uv);
 
-	glTexCoord2f (0, frame->tmax);
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : frame->gltexture);
+
+	#define ADD_VERTEX(uvx, uvy, p)		\
+		VectorCopy(p, verts[i].pos);	\
+		verts[i].uv[0] = uvx;			\
+		verts[i].uv[1] = uvy;			\
+		++i
+
 	VectorMA (e->origin, frame->down, s_up, point);
 	VectorMA (point, frame->left, s_right, point);
-	glVertex3fv (point);
+	ADD_VERTEX (0, frame->tmax, point);
 
-	glTexCoord2f (0, 0);
 	VectorMA (e->origin, frame->up, s_up, point);
 	VectorMA (point, frame->left, s_right, point);
-	glVertex3fv (point);
+	ADD_VERTEX (0, 0, point);
 
-	glTexCoord2f (frame->smax, 0);
 	VectorMA (e->origin, frame->up, s_up, point);
 	VectorMA (point, frame->right, s_right, point);
-	glVertex3fv (point);
+	ADD_VERTEX (frame->smax, 0, point);
 
-	glTexCoord2f (frame->smax, frame->tmax);
 	VectorMA (e->origin, frame->down, s_up, point);
 	VectorMA (point, frame->right, s_right, point);
-	glVertex3fv (point);
+	ADD_VERTEX (frame->smax, frame->tmax, point);
 
-	glEnd ();
-	glDisable (GL_ALPHA_TEST);
+	#undef ADD_VERTEX
+
+	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
 
 	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
 		GL_PolygonOffset (OFFSET_NONE);
+
+	GL_EndGroup ();
+}
+
+/*
+=================
+R_DrawSpriteModel
+=================
+*/
+void R_DrawSpriteModel (entity_t *e)
+{
+	R_DrawSpriteModel_Real (e, false);
+}
+
+/*
+=================
+R_DrawSpriteModel_ShowTris
+=================
+*/
+void R_DrawSpriteModel_ShowTris (entity_t *e)
+{
+	R_DrawSpriteModel_Real (e, true);
 }

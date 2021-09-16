@@ -42,7 +42,68 @@ gltexture_t *particletexture, *particletexture1, *particletexture2, *particletex
 float texturescalefactor; //johnfitz -- compensate for apparent size of different particle textures
 
 cvar_t	r_particles = {"r_particles","1", CVAR_ARCHIVE}; //johnfitz
-cvar_t	r_quadparticles = {"r_quadparticles","1", CVAR_ARCHIVE}; //johnfitz
+
+typedef struct particlevert_t {
+	vec3_t		pos;
+	float		uv[2];
+	GLubyte		color[4];
+} particlevert_t;
+
+static GLuint r_particle_program;
+
+/*
+=============
+GLParticle_CreateShaders
+=============
+*/
+void GLParticle_CreateShaders (void)
+{
+	const GLchar *vertSource = \
+		"#version 430\n"
+		"\n"
+		"layout(location=0) uniform mat4 MVP;\n"
+		"\n"
+		"layout(location=0) in vec4 in_pos;\n"
+		"layout(location=1) in vec2 in_uv;\n"
+		"layout(location=2) in vec4 in_color;\n"
+		"\n"
+		"layout(location=0) out vec2 out_uv;\n"
+		"layout(location=1) out vec4 out_color;\n"
+		"layout(location=2) out float out_fogdist;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	gl_Position = MVP * in_pos;\n"
+		"	out_fogdist = gl_Position.w;\n"
+		"	out_uv = in_uv;\n"
+		"	out_color = in_color;\n"
+		"}\n";
+
+	const GLchar *fragSource = \
+		"#version 430\n"
+		"\n"
+		"layout(binding=0) uniform sampler2D Tex;\n"
+		"\n"
+		"layout(location=2) uniform vec4 Fog;\n"
+		"\n"
+		"layout(location=0) in vec2 in_uv;\n"
+		"layout(location=1) in vec4 in_color;\n"
+		"layout(location=2) in float in_fogdist;\n"
+		"\n"
+		"layout(location=0) out vec4 out_fragcolor;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	vec4 result = texture2D(Tex, in_uv);\n"
+		"	result *= in_color;\n"
+		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
+		"	fog = clamp(fog, 0.0, 1.0);\n"
+		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
+		"	out_fragcolor = result;\n"
+		"}\n";
+
+	r_particle_program = GL_CreateProgram (vertSource, fragSource, "particle");
+}
 
 /*
 ===============
@@ -168,7 +229,6 @@ void R_InitParticles (void)
 
 	Cvar_RegisterVariable (&r_particles); //johnfitz
 	Cvar_SetCallback (&r_particles, R_SetParticleTexture_f);
-	Cvar_RegisterVariable (&r_quadparticles); //johnfitz
 
 	R_InitParticleTextures (); //johnfitz
 }
@@ -821,51 +881,59 @@ void CL_RunParticles (void)
 
 /*
 ===============
-R_DrawParticles -- johnfitz -- moved all non-drawing code to CL_RunParticles
+R_DrawParticles_Real -- johnfitz -- moved all non-drawing code to CL_RunParticles
 ===============
 */
-void R_DrawParticles (void)
+static void R_DrawParticles_Real (qboolean showtris)
 {
 	particle_t		*p;
 	float			scale;
-	vec3_t			up, right, p_up, p_right, p_upright; //johnfitz -- p_ vectors
-	GLubyte			color[4], *c; //johnfitz -- particle transparency
+	vec3_t			up, right, p_up, p_right; //johnfitz -- p_ vectors
+	GLubyte			color[4] = {255, 255, 255, 255}, *c; //johnfitz -- particle transparency
 	extern	cvar_t	r_particles; //johnfitz
+	particlevert_t	verts[3 * 1024];
+	int				numverts = 0;
 	//float			alpha; //johnfitz -- particle transparency
 
 	if (!r_particles.value)
 		return;
 
-	//ericw -- avoid empty glBegin(),glEnd() pair below; causes issues on AMD
 	if (!active_particles)
 		return;
+
+	GL_BeginGroup ("Particles");
+
+	GL_UseProgram (r_particle_program);
+	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
+	GL_Uniform4fvFunc (2, 1, fog_data);
+
+	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
+
+	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].pos);
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].uv);
+	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(verts[0]), &verts[0].color);
+
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	VectorScale (vup, 1.5, up);
 	VectorScale (vright, 1.5, right);
 
-	GL_Bind(particletexture);
-	glEnable (GL_BLEND);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glDepthMask (GL_FALSE); //johnfitz -- fix for particle z-buffer bug
-
-	if (r_quadparticles.value) //johnitz -- quads save fillrate
+	for (p=active_particles ; p ; p=p->next)
 	{
-		glBegin (GL_QUADS);
-		for (p=active_particles ; p ; p=p->next)
+		// hack a scale up to keep particles from disapearing
+		scale = (p->org[0] - r_origin[0]) * vpn[0]
+				+ (p->org[1] - r_origin[1]) * vpn[1]
+				+ (p->org[2] - r_origin[2]) * vpn[2];
+		if (scale < 20)
+			scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
+		else
+			scale = 1 + scale * 0.004;
+
+		scale *= texturescalefactor; //johnfitz -- compensate for apparent size of different particle textures
+
+		if (!showtris)
 		{
-			// hack a scale up to keep particles from disapearing
-			scale = (p->org[0] - r_origin[0]) * vpn[0]
-				  + (p->org[1] - r_origin[1]) * vpn[1]
-				  + (p->org[2] - r_origin[2]) * vpn[2];
-			if (scale < 20)
-				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
-			else
-				scale = 1 + scale * 0.004;
-
-			scale /= 2.0; //quad is half the size of triangle
-
-			scale *= texturescalefactor; //johnfitz -- compensate for apparent size of different particle textures
-
 			//johnfitz -- particle transparency and fade out
 			c = (GLubyte *) &d_8to24table[(int)p->color];
 			color[0] = c[0];
@@ -873,77 +941,50 @@ void R_DrawParticles (void)
 			color[2] = c[2];
 			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
 			color[3] = 255; //(int)(alpha * 255);
-			glColor4ubv(color);
 			//johnfitz
-
-			glTexCoord2f (0,0);
-			glVertex3fv (p->org);
-
-			glTexCoord2f (0.5,0);
-			VectorMA (p->org, scale, up, p_up);
-			glVertex3fv (p_up);
-
-			glTexCoord2f (0.5,0.5);
-			VectorMA (p_up, scale, right, p_upright);
-			glVertex3fv (p_upright);
-
-			glTexCoord2f (0,0.5);
-			VectorMA (p->org, scale, right, p_right);
-			glVertex3fv (p_right);
-
-			rs_particles++; //johnfitz //FIXME: just use r_numparticles
 		}
-		glEnd ();
-	}
-	else //johnitz --  triangles save verts
-	{
-		glBegin (GL_TRIANGLES);
-		for (p=active_particles ; p ; p=p->next)
+
+		if (numverts == countof(verts))
 		{
-			// hack a scale up to keep particles from disapearing
-			scale = (p->org[0] - r_origin[0]) * vpn[0]
-				  + (p->org[1] - r_origin[1]) * vpn[1]
-				  + (p->org[2] - r_origin[2]) * vpn[2];
-			if (scale < 20)
-				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
-			else
-				scale = 1 + scale * 0.004;
-
-			scale *= texturescalefactor; //johnfitz -- compensate for apparent size of different particle textures
-
-			//johnfitz -- particle transparency and fade out
-			c = (GLubyte *) &d_8to24table[(int)p->color];
-			color[0] = c[0];
-			color[1] = c[1];
-			color[2] = c[2];
-			//alpha = CLAMP(0, p->die + 0.5 - cl.time, 1);
-			color[3] = 255; //(int)(alpha * 255);
-			glColor4ubv(color);
-			//johnfitz
-
-			glTexCoord2f (0,0);
-			glVertex3fv (p->org);
-
-			glTexCoord2f (1,0);
-			VectorMA (p->org, scale, up, p_up);
-			glVertex3fv (p_up);
-
-			glTexCoord2f (0,1);
-			VectorMA (p->org, scale, right, p_right);
-			glVertex3fv (p_right);
-
-			rs_particles++; //johnfitz //FIXME: just use r_numparticles
+			glDrawArrays(GL_TRIANGLES, 0, numverts);
+			numverts = 0;
 		}
-		glEnd ();
+
+		#define ADD_VERTEX(uvx, uvy, p)										\
+			VectorCopy(p, verts[numverts].pos);								\
+			verts[numverts].uv[0] = uvx;									\
+			verts[numverts].uv[1] = uvy;									\
+			memcpy(&verts[numverts].color, &color, 4 * sizeof(GLubyte));	\
+			++numverts
+
+		ADD_VERTEX(0, 0, p->org);
+
+		VectorMA (p->org, scale, up, p_up);
+		ADD_VERTEX(1, 0, p_up);
+
+		VectorMA (p->org, scale, right, p_right);
+		ADD_VERTEX(0, 1, p_right);
+
+		#undef ADD_VERTEX
+
+		rs_particles++; //johnfitz //FIXME: just use r_numparticles
 	}
 
-	glDepthMask (GL_TRUE); //johnfitz -- fix for particle z-buffer bug
-	glDisable (GL_BLEND);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	glColor3f(1,1,1);
+	if (numverts)
+		glDrawArrays(GL_TRIANGLES, 0, numverts);
+
+	GL_EndGroup ();
 }
 
-
+/*
+===============
+R_DrawParticles -- johnfitz -- moved all non-drawing code to CL_RunParticles
+===============
+*/
+void R_DrawParticles (void)
+{
+	R_DrawParticles_Real (false);
+}
 /*
 ===============
 R_DrawParticles_ShowTris -- johnfitz
@@ -951,75 +992,6 @@ R_DrawParticles_ShowTris -- johnfitz
 */
 void R_DrawParticles_ShowTris (void)
 {
-	particle_t		*p;
-	float			scale;
-	vec3_t			up, right, p_up, p_right, p_upright;
-	extern	cvar_t	r_particles;
-
-	if (!r_particles.value)
-		return;
-
-	VectorScale (vup, 1.5, up);
-	VectorScale (vright, 1.5, right);
-
-	if (r_quadparticles.value)
-	{
-		for (p=active_particles ; p ; p=p->next)
-		{
-			glBegin (GL_TRIANGLE_FAN);
-
-			// hack a scale up to keep particles from disapearing
-			scale = (p->org[0] - r_origin[0]) * vpn[0]
-				  + (p->org[1] - r_origin[1]) * vpn[1]
-				  + (p->org[2] - r_origin[2]) * vpn[2];
-			if (scale < 20)
-				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
-			else
-				scale = 1 + scale * 0.004;
-
-			scale /= 2.0; //quad is half the size of triangle
-
-			scale *= texturescalefactor; //compensate for apparent size of different particle textures
-
-			glVertex3fv (p->org);
-
-			VectorMA (p->org, scale, up, p_up);
-			glVertex3fv (p_up);
-
-			VectorMA (p_up, scale, right, p_upright);
-			glVertex3fv (p_upright);
-
-			VectorMA (p->org, scale, right, p_right);
-			glVertex3fv (p_right);
-
-			glEnd ();
-		}
-	}
-	else
-	{
-		glBegin (GL_TRIANGLES);
-		for (p=active_particles ; p ; p=p->next)
-		{
-			// hack a scale up to keep particles from disapearing
-			scale = (p->org[0] - r_origin[0]) * vpn[0]
-				  + (p->org[1] - r_origin[1]) * vpn[1]
-				  + (p->org[2] - r_origin[2]) * vpn[2];
-			if (scale < 20)
-				scale = 1 + 0.08; //johnfitz -- added .08 to be consistent
-			else
-				scale = 1 + scale * 0.004;
-
-			scale *= texturescalefactor; //compensate for apparent size of different particle textures
-
-			glVertex3fv (p->org);
-
-			VectorMA (p->org, scale, up, p_up);
-			glVertex3fv (p_up);
-
-			VectorMA (p->org, scale, right, p_right);
-			glVertex3fv (p_right);
-		}
-		glEnd ();
-	}
+	R_DrawParticles_Real (true);
 }
 

@@ -73,6 +73,40 @@ extern	int			in_forward, in_forward2, in_back;
 
 vec3_t	v_punchangles[2]; //johnfitz -- copied from cl.punchangle.  0 is current, 1 is previous value. never the same unless map just loaded
 
+static GLuint r_viewblend_program;
+
+/*
+=============
+GLView_CreateShaders
+=============
+*/
+void GLView_CreateShaders (void)
+{
+	const GLchar *vertSource = \
+		"#version 430\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
+		"	v.x ^= v.y; // fix winding order\n"
+		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
+		"}\n";
+
+	const GLchar *fragSource = \
+		"#version 430\n"
+		"\n"
+		"layout(location=0) uniform vec4 Color;\n"
+		"\n"
+		"layout(location=0) out vec4 out_fragcolor;\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	out_fragcolor = Color;\n"
+		"}\n";
+
+	r_viewblend_program = GL_CreateProgram (vertSource, fragSource, "viewblend");
+}
+
 /*
 ===============
 V_CalcRoll
@@ -526,7 +560,7 @@ void V_UpdateBlend (void)
 
 /*
 ============
-V_PolyBlend -- johnfitz -- moved here from gl_rmain.c, and rewritten to use glOrtho
+V_PolyBlend -- johnfitz -- moved here from gl_rmain.c
 ============
 */
 void V_PolyBlend (void)
@@ -534,32 +568,11 @@ void V_PolyBlend (void)
 	if (!gl_polyblend.value || !v_blend[3])
 		return;
 
-	GL_DisableMultitexture();
+	GL_UseProgram (r_viewblend_program);
+	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+	GL_Uniform4fvFunc (0, 1, v_blend);
 
-	glDisable (GL_ALPHA_TEST);
-	glDisable (GL_TEXTURE_2D);
-	glDisable (GL_DEPTH_TEST);
-	glEnable (GL_BLEND);
-
-	glMatrixMode(GL_PROJECTION);
-    glLoadIdentity ();
-	glOrtho (0, 1, 1, 0, -99999, 99999);
-	glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity ();
-
-	glColor4fv (v_blend);
-
-	glBegin (GL_QUADS);
-	glVertex2f (0,0);
-	glVertex2f (1, 0);
-	glVertex2f (1, 1);
-	glVertex2f (0, 1);
-	glEnd ();
-
-	glDisable (GL_BLEND);
-	glEnable (GL_DEPTH_TEST);
-	glEnable (GL_TEXTURE_2D);
-	glEnable (GL_ALPHA_TEST);
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
 /*

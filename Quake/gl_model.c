@@ -57,7 +57,6 @@ Mod_Init
 */
 void Mod_Init (void)
 {
-	Cvar_RegisterVariable (&gl_subdivide_size);
 	Cvar_RegisterVariable (&external_vis);
 	Cvar_RegisterVariable (&external_ents);
 
@@ -513,8 +512,6 @@ void Mod_LoadTextures (lump_t *l)
 			pixels = q_max(0, (mod_base + l->fileofs + l->filelen) - (byte*)(mt+1));
 		}
 
-		tx->update_warp = false; //johnfitz
-		tx->warpimage = NULL; //johnfitz
 		tx->fullbright = NULL; //johnfitz
 		tx->shift = 0;	// Q64 only
 
@@ -557,23 +554,15 @@ void Mod_LoadTextures (lump_t *l)
 				{
 					q_strlcpy (texturename, filename, sizeof(texturename));
 					tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, fwidth, fheight,
-						SRC_RGBA, data, filename, 0, TEXPREF_NONE);
+						SRC_RGBA, data, filename, 0, TEXPREF_MIPMAP);
 				}
 				else //use the texture from the bsp file
 				{
 					q_snprintf (texturename, sizeof(texturename), "%s:%s", loadmodel->name, tx->name);
 					offset = (src_offset_t)(mt+1) - (src_offset_t)mod_base;
 					tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
-						SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_NONE);
+						SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP);
 				}
-
-				//now create the warpimage, using dummy data from the hunk to create the initial image
-				Hunk_Alloc (gl_warpimagesize*gl_warpimagesize*4); //make sure hunk is big enough so we don't reach an illegal address
-				Hunk_FreeToLowMark (mark);
-				q_snprintf (texturename, sizeof(texturename), "%s_warp", texturename);
-				tx->warpimage = TexMgr_LoadImage (loadmodel, texturename, gl_warpimagesize,
-					gl_warpimagesize, SRC_RGBA, hunk_base, "", (src_offset_t)hunk_base, TEXPREF_NOPICMIP | TEXPREF_WARPIMAGE);
-				tx->update_warp = true;
 			}
 			else //regular texture
 			{
@@ -1275,7 +1264,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 			else out->flags |= SURF_DRAWWATER;
 
 			Mod_PolyForUnlitSurface (out);
-			GL_SubdivideSurface (out);
 		}
 		else if (out->texinfo->texture->name[0] == '{') // ericw -- fence textures
 		{

@@ -45,6 +45,8 @@ float old_blue;
 float fade_time; //duration of fade
 float fade_done; //time when fade will be done
 
+vec4_t fog_data;
+
 /*
 =============
 Fog_Update
@@ -287,8 +289,9 @@ called at the beginning of each frame
 */
 void Fog_SetupFrame (void)
 {
-	glFogfv(GL_FOG_COLOR, Fog_GetColor());
-	glFogf(GL_FOG_DENSITY, Fog_GetDensity() / 64.0);
+	const float ExpAdjustment = 1.20112241f; // sqrt(log2(e))
+	memcpy(fog_data, Fog_GetColor(), 3 * sizeof(float));
+	fog_data[3] = Fog_GetDensity() * (ExpAdjustment / 64.0f);
 }
 
 /*
@@ -300,8 +303,7 @@ called before drawing stuff that should be fogged
 */
 void Fog_EnableGFog (void)
 {
-	if (Fog_GetDensity() > 0)
-		glEnable(GL_FOG);
+	Fog_SetupFrame();
 }
 
 /*
@@ -313,36 +315,7 @@ called after drawing stuff that should be fogged
 */
 void Fog_DisableGFog (void)
 {
-	if (Fog_GetDensity() > 0)
-		glDisable(GL_FOG);
-}
-
-/*
-=============
-Fog_StartAdditive
-
-called before drawing stuff that is additive blended -- sets fog color to black
-=============
-*/
-void Fog_StartAdditive (void)
-{
-	vec3_t color = {0,0,0};
-
-	if (Fog_GetDensity() > 0)
-		glFogfv(GL_FOG_COLOR, color);
-}
-
-/*
-=============
-Fog_StopAdditive
-
-called after drawing stuff that is additive blended -- restores fog color
-=============
-*/
-void Fog_StopAdditive (void)
-{
-	if (Fog_GetDensity() > 0)
-		glFogfv(GL_FOG_COLOR, Fog_GetColor());
+	memset(fog_data, 0, sizeof(fog_data));
 }
 
 //==============================================================================
@@ -393,18 +366,4 @@ void Fog_Init (void)
 	fog_red = DEFAULT_GRAY;
 	fog_green = DEFAULT_GRAY;
 	fog_blue = DEFAULT_GRAY;
-
-	Fog_SetupState ();
-}
-
-/*
-=============
-Fog_SetupState
- 
-ericw -- moved from Fog_Init, state that needs to be setup when a new context is created
-=============
-*/
-void Fog_SetupState (void)
-{
-	glFogi(GL_FOG_MODE, GL_EXP2);
 }

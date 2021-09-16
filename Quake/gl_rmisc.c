@@ -25,17 +25,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 //johnfitz -- new cvars
-extern cvar_t r_stereo;
-extern cvar_t r_stereodepth;
 extern cvar_t r_clearcolor;
-extern cvar_t r_drawflat;
 extern cvar_t r_flatlightstyles;
 extern cvar_t gl_fullbrights;
 extern cvar_t gl_farclip;
 extern cvar_t gl_overbright;
 extern cvar_t gl_overbright_models;
-extern cvar_t r_waterquality;
-extern cvar_t r_oldwater;
 extern cvar_t r_waterwarp;
 extern cvar_t r_oldskyleaf;
 extern cvar_t r_drawworld;
@@ -183,23 +178,14 @@ void R_Init (void)
 
 	Cvar_RegisterVariable (&gl_finish);
 	Cvar_RegisterVariable (&gl_clear);
-	Cvar_RegisterVariable (&gl_cull);
-	Cvar_RegisterVariable (&gl_smoothmodels);
-	Cvar_RegisterVariable (&gl_affinemodels);
 	Cvar_RegisterVariable (&gl_polyblend);
-	Cvar_RegisterVariable (&gl_flashblend);
 	Cvar_RegisterVariable (&gl_playermip);
 	Cvar_RegisterVariable (&gl_nocolors);
 
 	//johnfitz -- new cvars
-	Cvar_RegisterVariable (&r_stereo);
-	Cvar_RegisterVariable (&r_stereodepth);
 	Cvar_RegisterVariable (&r_clearcolor);
 	Cvar_SetCallback (&r_clearcolor, R_SetClearColor_f);
-	Cvar_RegisterVariable (&r_waterquality);
-	Cvar_RegisterVariable (&r_oldwater);
 	Cvar_RegisterVariable (&r_waterwarp);
-	Cvar_RegisterVariable (&r_drawflat);
 	Cvar_RegisterVariable (&r_flatlightstyles);
 	Cvar_RegisterVariable (&r_oldskyleaf);
 	Cvar_RegisterVariable (&r_drawworld);
@@ -394,8 +380,6 @@ void R_NewMap (void)
 	Sky_NewMap (); //johnfitz -- skybox in worldspawn
 	Fog_NewMap (); //johnfitz -- global fog in worldspawn
 	R_ParseWorldspawn (); //ericw -- wateralpha, lavaalpha, telealpha, slimealpha in worldspawn
-
-	load_subdivide_size = gl_subdivide_size.value; //johnfitz -- is this the right place to set this?
 }
 
 /*
@@ -435,10 +419,11 @@ void D_FlushCaches (void)
 {
 }
 
-static GLuint gl_programs[16];
+static GLuint gl_programs[64];
+static GLuint gl_current_program = 0;
 static int gl_num_programs;
 
-static qboolean GL_CheckShader (GLuint shader)
+static void GL_CheckShader (GLuint shader, const char *name, const char *type)
 {
 	GLint status;
 	GL_GetShaderivFunc (shader, GL_COMPILE_STATUS, &status);
@@ -450,14 +435,11 @@ static qboolean GL_CheckShader (GLuint shader)
 		memset(infolog, 0, sizeof(infolog));
 		GL_GetShaderInfoLogFunc (shader, sizeof(infolog), NULL, infolog);
 		
-		Con_Warning ("GLSL program failed to compile: %s", infolog);
-
-		return false;
+		Sys_Error ("Error compiling %s %s shader :\n%s", name, type, infolog);
 	}
-	return true;
 }
 
-static qboolean GL_CheckProgram (GLuint program)
+static void GL_CheckProgram (GLuint program, const char *name)
 {
 	GLint status;
 	GL_GetProgramivFunc (program, GL_LINK_STATUS, &status);
@@ -469,11 +451,8 @@ static qboolean GL_CheckProgram (GLuint program)
 		memset(infolog, 0, sizeof(infolog));
 		GL_GetProgramInfoLogFunc (program, sizeof(infolog), NULL, infolog);
 
-		Con_Warning ("GLSL program failed to link: %s", infolog);
-
-		return false;
+		Sys_Error ("Error linking %s program: %s", name, infolog);
 	}
-	return true;
 }
 
 /*
@@ -504,61 +483,46 @@ GL_CreateProgram
 Compiles and returns GLSL program.
 ====================
 */
-GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, int numbindings, const glsl_attrib_binding_t *bindings)
+GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name)
 {
-	int i;
 	GLuint program, vertShader, fragShader;
 
-	if (!gl_glsl_able)
-		return 0;
-
 	vertShader = GL_CreateShaderFunc (GL_VERTEX_SHADER);
+	GL_ObjectLabelFunc (GL_SHADER, vertShader, -1, name);
 	GL_ShaderSourceFunc (vertShader, 1, &vertSource, NULL);
 	GL_CompileShaderFunc (vertShader);
-	if (!GL_CheckShader (vertShader))
-	{
-		GL_DeleteShaderFunc (vertShader);
-		return 0;
-	}
+	GL_CheckShader (vertShader, name, "vertex");
 
-	fragShader = GL_CreateShaderFunc (GL_FRAGMENT_SHADER);
-	GL_ShaderSourceFunc (fragShader, 1, &fragSource, NULL);
-	GL_CompileShaderFunc (fragShader);
-	if (!GL_CheckShader (fragShader))
+	if (fragSource)
 	{
-		GL_DeleteShaderFunc (vertShader);
-		GL_DeleteShaderFunc (fragShader);
-		return 0;
+		fragShader = GL_CreateShaderFunc (GL_FRAGMENT_SHADER);
+		GL_ObjectLabelFunc (GL_SHADER, fragShader, -1, name);
+		GL_ShaderSourceFunc (fragShader, 1, &fragSource, NULL);
+		GL_CompileShaderFunc (fragShader);
+		GL_CheckShader (fragShader, name, "fragment");
 	}
 
 	program = GL_CreateProgramFunc ();
+	GL_ObjectLabelFunc (GL_PROGRAM, program, -1, name);
 	GL_AttachShaderFunc (program, vertShader);
 	GL_DeleteShaderFunc (vertShader);
-	GL_AttachShaderFunc (program, fragShader);
-	GL_DeleteShaderFunc (fragShader);
-	
-	for (i = 0; i < numbindings; i++)
+
+	if (fragSource)
 	{
-		GL_BindAttribLocationFunc (program, bindings[i].attrib, bindings[i].name);
+		GL_AttachShaderFunc (program, fragShader);
+		GL_DeleteShaderFunc (fragShader);
 	}
 	
 	GL_LinkProgramFunc (program);
+	GL_CheckProgram (program, name);
 
-	if (!GL_CheckProgram (program))
-	{
-		GL_DeleteProgramFunc (program);
-		return 0;
-	}
-	else
-	{
-		if (gl_num_programs == (sizeof(gl_programs)/sizeof(GLuint)))
-			Host_Error ("gl_programs overflow");
+	if (gl_num_programs == countof(gl_programs))
+		Sys_Error ("gl_programs overflow");
 
-		gl_programs[gl_num_programs] = program;
-		gl_num_programs++;
+	gl_programs[gl_num_programs] = program;
+	gl_num_programs++;
 
-		return program;
-	}
+	return program;
 }
 
 /*
@@ -572,15 +536,42 @@ void R_DeleteShaders (void)
 {
 	int i;
 
-	if (!gl_glsl_able)
-		return;
-
 	for (i = 0; i < gl_num_programs; i++)
 	{
 		GL_DeleteProgramFunc (gl_programs[i]);
 		gl_programs[i] = 0;
 	}
 	gl_num_programs = 0;
+
+	GL_UseProgramFunc (0);
+	gl_current_program = 0;
+}
+
+/*
+====================
+GL_UseProgram
+====================
+*/
+void GL_UseProgram (GLuint program)
+{
+	if (program == gl_current_program)
+		return;
+	gl_current_program = program;
+	GL_UseProgramFunc (program);
+}
+
+/*
+====================
+GL_ClearCachedProgram
+
+This must be called if you do anything that could make the cached program
+invalid (e.g. manually binding, destroying the context).
+====================
+*/
+void GL_ClearCachedProgram (void)
+{
+	gl_current_program = 0;
+	GL_UseProgramFunc (0);
 }
 
 GLuint current_array_buffer, current_element_array_buffer;
@@ -595,9 +586,6 @@ glBindBuffer wrapper
 void GL_BindBuffer (GLenum target, GLuint buffer)
 {
 	GLuint *cache;
-
-	if (!gl_vbo_able)
-		return;
 
 	switch (target)
 	{
@@ -629,9 +617,6 @@ invalid (e.g. manually binding, destroying the context).
 */
 void GL_ClearBufferBindings ()
 {
-	if (!gl_vbo_able)
-		return;
-
 	current_array_buffer = 0;
 	current_element_array_buffer = 0;
 	GL_BindBufferFunc (GL_ARRAY_BUFFER, 0);

@@ -60,11 +60,14 @@ typedef struct {
 	int			bpp;
 } vmode_t;
 
+#define MAKE_GL_VERSION(major, minor)			(((major) << 16) | (minor))
+
 static const char *gl_vendor;
 static const char *gl_renderer;
 static const char *gl_version;
 static int gl_version_major;
 static int gl_version_minor;
+static int gl_version_number;
 static const char *gl_extensions;
 static char * gl_extensions_nice;
 
@@ -96,52 +99,28 @@ viddef_t	vid;				// global video state
 modestate_t	modestate = MS_UNINIT;
 qboolean	scr_skipupdate;
 
-qboolean gl_mtexable = false;
-qboolean gl_texture_env_combine = false; //johnfitz
-qboolean gl_texture_env_add = false; //johnfitz
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
 float gl_max_anisotropy; //johnfitz
-qboolean gl_texture_NPOT = false; //ericw
-qboolean gl_vbo_able = false; //ericw
-qboolean gl_glsl_able = false; //ericw
-GLint gl_max_texture_units = 0; //ericw
-qboolean gl_glsl_gamma_able = false; //ericw
-qboolean gl_glsl_alias_able = false; //ericw
 int gl_stencilbits;
 
-PFNGLMULTITEXCOORD2FARBPROC GL_MTexCoord2fFunc = NULL; //johnfitz
-PFNGLACTIVETEXTUREARBPROC GL_SelectTextureFunc = NULL; //johnfitz
-PFNGLCLIENTACTIVETEXTUREARBPROC GL_ClientActiveTextureFunc = NULL; //ericw
-PFNGLBINDBUFFERARBPROC GL_BindBufferFunc = NULL; //ericw
-PFNGLBUFFERDATAARBPROC GL_BufferDataFunc = NULL; //ericw
-PFNGLBUFFERSUBDATAARBPROC GL_BufferSubDataFunc = NULL; //ericw
-PFNGLDELETEBUFFERSARBPROC GL_DeleteBuffersFunc = NULL; //ericw
-PFNGLGENBUFFERSARBPROC GL_GenBuffersFunc = NULL; //ericw
+unsigned glstate;
 
-QS_PFNGLCREATESHADERPROC GL_CreateShaderFunc = NULL; //ericw
-QS_PFNGLDELETESHADERPROC GL_DeleteShaderFunc = NULL; //ericw
-QS_PFNGLDELETEPROGRAMPROC GL_DeleteProgramFunc = NULL; //ericw
-QS_PFNGLSHADERSOURCEPROC GL_ShaderSourceFunc = NULL; //ericw
-QS_PFNGLCOMPILESHADERPROC GL_CompileShaderFunc = NULL; //ericw
-QS_PFNGLGETSHADERIVPROC GL_GetShaderivFunc = NULL; //ericw
-QS_PFNGLGETSHADERINFOLOGPROC GL_GetShaderInfoLogFunc = NULL; //ericw
-QS_PFNGLGETPROGRAMIVPROC GL_GetProgramivFunc = NULL; //ericw
-QS_PFNGLGETPROGRAMINFOLOGPROC GL_GetProgramInfoLogFunc = NULL; //ericw
-QS_PFNGLCREATEPROGRAMPROC GL_CreateProgramFunc = NULL; //ericw
-QS_PFNGLATTACHSHADERPROC GL_AttachShaderFunc = NULL; //ericw
-QS_PFNGLLINKPROGRAMPROC GL_LinkProgramFunc = NULL; //ericw
-QS_PFNGLBINDATTRIBLOCATIONFUNC GL_BindAttribLocationFunc = NULL; //ericw
-QS_PFNGLUSEPROGRAMPROC GL_UseProgramFunc = NULL; //ericw
-QS_PFNGLGETATTRIBLOCATIONPROC GL_GetAttribLocationFunc = NULL; //ericw
-QS_PFNGLVERTEXATTRIBPOINTERPROC GL_VertexAttribPointerFunc = NULL; //ericw
-QS_PFNGLENABLEVERTEXATTRIBARRAYPROC GL_EnableVertexAttribArrayFunc = NULL; //ericw
-QS_PFNGLDISABLEVERTEXATTRIBARRAYPROC GL_DisableVertexAttribArrayFunc = NULL; //ericw
-QS_PFNGLGETUNIFORMLOCATIONPROC GL_GetUniformLocationFunc = NULL; //ericw
-QS_PFNGLUNIFORM1IPROC GL_Uniform1iFunc = NULL; //ericw
-QS_PFNGLUNIFORM1FPROC GL_Uniform1fFunc = NULL; //ericw
-QS_PFNGLUNIFORM3FPROC GL_Uniform3fFunc = NULL; //ericw
-QS_PFNGLUNIFORM4FPROC GL_Uniform4fFunc = NULL; //ericw
+#define QGL_DEFINE_FUNC(ret, name, args) ret (APIENTRYP GL_##name##Func) args = NULL;
+QGL_FUNCTIONS(QGL_DEFINE_FUNC)
+#undef QGL_DEFINE_FUNC
+
+typedef struct glfunc_t {
+	void**			ptr;
+	const char*		name;
+} glfunc_t;
+
+static const glfunc_t glfunctions[] =
+{
+	#define QGL_REGISTER_NAMED_FUNC(ret, name, args) { (void**)&GL_##name##Func, "gl" #name },
+	QGL_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	#undef QGL_REGISTER_NAMED_FUNC
+};
 
 //====================================
 
@@ -166,125 +145,7 @@ cvar_t		vid_contrast = {"contrast", "1", CVAR_ARCHIVE}; //QuakeSpasm, MarkV
 //
 //==========================================================================
 
-#define	USE_GAMMA_RAMPS			0
-
-#if USE_GAMMA_RAMPS
-static unsigned short vid_gamma_red[256];
-static unsigned short vid_gamma_green[256];
-static unsigned short vid_gamma_blue[256];
-
-static unsigned short vid_sysgamma_red[256];
-static unsigned short vid_sysgamma_green[256];
-static unsigned short vid_sysgamma_blue[256];
-#endif
-
-static qboolean	gammaworks = false;	// whether hw-gamma works
 static int fsaa;
-
-/*
-================
-VID_Gamma_SetGamma -- apply gamma correction
-================
-*/
-static void VID_Gamma_SetGamma (void)
-{
-	if (gl_glsl_gamma_able)
-		return;
-
-	if (draw_context && gammaworks)
-	{
-		float	value;
-
-		if (vid_gamma.value > (1.0f / GAMMA_MAX))
-			value = 1.0f / vid_gamma.value;
-		else
-			value = GAMMA_MAX;
-
-#if defined(USE_SDL2)
-# if USE_GAMMA_RAMPS
-		if (SDL_SetWindowGammaRamp(draw_context, vid_gamma_red, vid_gamma_green, vid_gamma_blue) != 0)
-			Con_Printf ("VID_Gamma_SetGamma: failed on SDL_SetWindowGammaRamp\n");
-# else
-		if (SDL_SetWindowBrightness(draw_context, value) != 0)
-			Con_Printf ("VID_Gamma_SetGamma: failed on SDL_SetWindowBrightness\n");
-# endif
-#else /* USE_SDL2 */
-# if USE_GAMMA_RAMPS
-		if (SDL_SetGammaRamp(vid_gamma_red, vid_gamma_green, vid_gamma_blue) == -1)
-			Con_Printf ("VID_Gamma_SetGamma: failed on SDL_SetGammaRamp\n");
-# else
-		if (SDL_SetGamma(value,value,value) == -1)
-			Con_Printf ("VID_Gamma_SetGamma: failed on SDL_SetGamma\n");
-# endif
-#endif /* USE_SDL2 */
-	}
-}
-
-/*
-================
-VID_Gamma_Restore -- restore system gamma
-================
-*/
-static void VID_Gamma_Restore (void)
-{
-	if (gl_glsl_gamma_able)
-		return;
-
-	if (draw_context && gammaworks)
-	{
-#if defined(USE_SDL2)
-# if USE_GAMMA_RAMPS
-		if (SDL_SetWindowGammaRamp(draw_context, vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) != 0)
-			Con_Printf ("VID_Gamma_Restore: failed on SDL_SetWindowGammaRamp\n");
-# else
-		if (SDL_SetWindowBrightness(draw_context, 1) != 0)
-			Con_Printf ("VID_Gamma_Restore: failed on SDL_SetWindowBrightness\n");
-# endif
-#else /* USE_SDL2 */
-# if USE_GAMMA_RAMPS
-		if (SDL_SetGammaRamp(vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) == -1)
-			Con_Printf ("VID_Gamma_Restore: failed on SDL_SetGammaRamp\n");
-# else
-		if (SDL_SetGamma(1, 1, 1) == -1)
-			Con_Printf ("VID_Gamma_Restore: failed on SDL_SetGamma\n");
-# endif
-#endif /* USE_SDL2 */
-	}
-}
-
-/*
-================
-VID_Gamma_Shutdown -- called on exit
-================
-*/
-static void VID_Gamma_Shutdown (void)
-{
-	VID_Gamma_Restore ();
-}
-
-/*
-================
-VID_Gamma_f -- callback when the cvar changes
-================
-*/
-static void VID_Gamma_f (cvar_t *var)
-{
-	if (gl_glsl_gamma_able)
-		return;
-
-#if USE_GAMMA_RAMPS
-	int i;
-
-	for (i = 0; i < 256; i++)
-	{
-		vid_gamma_red[i] =
-			CLAMP(0, (int) ((255 * pow((i + 0.5)/255.5, vid_gamma.value) + 0.5) * vid_contrast.value), 255) << 8;
-		vid_gamma_green[i] = vid_gamma_red[i];
-		vid_gamma_blue[i] = vid_gamma_red[i];
-	}
-#endif
-	VID_Gamma_SetGamma ();
-}
 
 /*
 ================
@@ -295,32 +156,6 @@ static void VID_Gamma_Init (void)
 {
 	Cvar_RegisterVariable (&vid_gamma);
 	Cvar_RegisterVariable (&vid_contrast);
-	Cvar_SetCallback (&vid_gamma, VID_Gamma_f);
-	Cvar_SetCallback (&vid_contrast, VID_Gamma_f);
-
-	if (gl_glsl_gamma_able)
-		return;
-
-#if defined(USE_SDL2)
-# if USE_GAMMA_RAMPS
-	gammaworks	= (SDL_GetWindowGammaRamp(draw_context, vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) == 0);
-	if (gammaworks)
-	    gammaworks	= (SDL_SetWindowGammaRamp(draw_context, vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) == 0);
-# else
-	gammaworks	= (SDL_SetWindowBrightness(draw_context, 1) == 0);
-# endif
-#else /* USE_SDL2 */
-# if USE_GAMMA_RAMPS
-	gammaworks	= (SDL_GetGammaRamp(vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) == 0);
-	if (gammaworks)
-	    gammaworks	= (SDL_SetGammaRamp(vid_sysgamma_red, vid_sysgamma_green, vid_sysgamma_blue) == 0);
-# else
-	gammaworks	= (SDL_SetGamma(1, 1, 1) == 0);
-# endif
-#endif /* USE_SDL2 */
-
-	if (!gammaworks)
-		Con_SafePrintf("gamma adjustment not available\n");
 }
 
 /*
@@ -591,15 +426,10 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 
 	/* z-buffer depth */
 	if (bpp == 16)
-	{
 		depthbits = 16;
-		stencilbits = 0;
-	}
 	else
-	{
 		depthbits = 24;
-		stencilbits = 8;
-	}
+	stencilbits = 8;
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, depthbits);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, stencilbits);
 
@@ -741,12 +571,13 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 // fix the leftover Alt from any Alt-Tab or the like that switched us away
 	ClearAllStates ();
 
-	Con_SafePrintf ("Video mode %dx%dx%d %dHz (%d-bit z-buffer, %dx FSAA) initialized\n",
+	Con_SafePrintf ("Video mode %dx%dx%d %dHz (Z%d S%d %dxAA) initialized\n",
 				VID_GetCurrentWidth(),
 				VID_GetCurrentHeight(),
 				VID_GetCurrentBPP(),
 				VID_GetCurrentRefreshRate(),
 				depthbits,
+				gl_stencilbits,
 				fsaa_obtained);
 
 	vid.recalc_refdef = 1;
@@ -820,10 +651,6 @@ static void VID_Restart (void)
 	GL_BuildBModelVertexBuffer ();
 	GLMesh_LoadVertexBuffers ();
 	GL_SetupState ();
-	Fog_SetupState ();
-
-	//warpimages needs to be recalculated
-	TexMgr_RecalcWarpImageSize ();
 
 	//conwidth and conheight need to be recalculated
 	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
@@ -962,7 +789,7 @@ static void GL_Info_f (void)
 
 /*
 ===============
-GL_CheckExtensions
+GL_ParseExtensionList
 ===============
 */
 static qboolean GL_ParseExtensionList (const char *list, const char *name)
@@ -989,97 +816,108 @@ static qboolean GL_ParseExtensionList (const char *list, const char *name)
 	return false;
 }
 
+/*
+=============
+GL_BeginGroup
+=============
+*/
+static qboolean gldebug = false;
+void GL_BeginGroup (const char *name)
+{
+	if (gldebug)
+		GL_PushDebugGroupFunc (GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);
+}
+
+/*
+=============
+GL_EndGroup
+=============
+*/
+void GL_EndGroup (void)
+{
+	if (gldebug)
+		GL_PopDebugGroupFunc ();
+}
+
+/*
+===============
+GL_DebugCallback
+===============
+*/
+static void APIENTRY GL_DebugCallback (GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar *message, const void *userParam)
+{
+	const char *str_source = "";
+	const char *str_type = "";
+	const char *str_severity = "";
+
+	switch (source)
+	{
+		case GL_DEBUG_SOURCE_API:				str_source = "api"; break;
+		case GL_DEBUG_SOURCE_WINDOW_SYSTEM:		str_source = "window system"; break;
+		case GL_DEBUG_SOURCE_SHADER_COMPILER:	str_source = "shader compiler"; break;
+		case GL_DEBUG_SOURCE_THIRD_PARTY:		str_source = "third party"; break;
+		case GL_DEBUG_SOURCE_APPLICATION:		str_source = "application"; break;
+		case GL_DEBUG_SOURCE_OTHER:				str_source = "other"; break;
+		default:
+			break;
+	}
+
+	switch (type)
+	{
+		case GL_DEBUG_TYPE_PUSH_GROUP:
+		case GL_DEBUG_TYPE_POP_GROUP:
+			return;
+		case GL_DEBUG_TYPE_ERROR:				str_type = "error "; break;
+		case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:	str_type = "deprecated "; break;
+		case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:	str_type = "undefined "; break;
+		case GL_DEBUG_TYPE_PORTABILITY:			str_type = "portability "; break;
+		case GL_DEBUG_TYPE_PERFORMANCE:			str_type = "performance "; break;
+		case GL_DEBUG_TYPE_MARKER:				str_type = "marker "; break;
+		case GL_DEBUG_TYPE_OTHER:				str_type = ""; break;
+		default:
+			break;
+	}
+
+	switch (severity)
+	{
+		case GL_DEBUG_SEVERITY_NOTIFICATION:	str_severity = "info"; break;
+		case GL_DEBUG_SEVERITY_LOW:				str_severity = "low"; break;
+		case GL_DEBUG_SEVERITY_MEDIUM:			str_severity = "med"; break;
+		case GL_DEBUG_SEVERITY_HIGH:			str_severity = "high"; break;
+		default:
+			break;
+	}
+
+	Con_SafePrintf ("\x02GL %s %s[#%u/%s]: ", str_source, str_type, id, str_severity);
+	Con_SafePrintf ("%s\n", message);
+}
+
+/*
+===============
+GL_CheckExtensions
+===============
+*/
 static void GL_CheckExtensions (void)
 {
 	int swap_control;
+	int i;
 
-	// ARB_vertex_buffer_object
-	//
-	if (COM_CheckParm("-novbo"))
-		Con_Warning ("Vertex buffer objects disabled at command line\n");
-	else if (gl_version_major < 1 || (gl_version_major == 1 && gl_version_minor < 5))
-		Con_Warning ("OpenGL version < 1.5, skipping ARB_vertex_buffer_object check\n");
-	else
+	for (i = 0; i < countof(glfunctions); i++)
 	{
-		GL_BindBufferFunc = (PFNGLBINDBUFFERARBPROC) SDL_GL_GetProcAddress("glBindBufferARB");
-		GL_BufferDataFunc = (PFNGLBUFFERDATAARBPROC) SDL_GL_GetProcAddress("glBufferDataARB");
-		GL_BufferSubDataFunc = (PFNGLBUFFERSUBDATAARBPROC) SDL_GL_GetProcAddress("glBufferSubDataARB");
-		GL_DeleteBuffersFunc = (PFNGLDELETEBUFFERSARBPROC) SDL_GL_GetProcAddress("glDeleteBuffersARB");
-		GL_GenBuffersFunc = (PFNGLGENBUFFERSARBPROC) SDL_GL_GetProcAddress("glGenBuffersARB");
-		if (GL_BindBufferFunc && GL_BufferDataFunc && GL_BufferSubDataFunc && GL_DeleteBuffersFunc && GL_GenBuffersFunc)
-		{
-			Con_Printf("FOUND: ARB_vertex_buffer_object\n");
-			gl_vbo_able = true;
-		}
-		else
-		{
-			Con_Warning ("ARB_vertex_buffer_object not available\n");
-		}
+		const glfunc_t *func = &glfunctions[i];
+		*func->ptr = SDL_GL_GetProcAddress (func->name);
+		if (!*func->ptr)
+			Sys_Error ("OpenGL function %s not found\n", func->name);
 	}
 
-	// multitexture
-	//
-	if (COM_CheckParm("-nomtex"))
-		Con_Warning ("Mutitexture disabled at command line\n");
-	else if (GL_ParseExtensionList(gl_extensions, "GL_ARB_multitexture"))
+#ifdef NDEBUG
+	if (COM_CheckParm("-gldebug"))
+#endif
 	{
-		GL_MTexCoord2fFunc = (PFNGLMULTITEXCOORD2FARBPROC) SDL_GL_GetProcAddress("glMultiTexCoord2fARB");
-		GL_SelectTextureFunc = (PFNGLACTIVETEXTUREARBPROC) SDL_GL_GetProcAddress("glActiveTextureARB");
-		GL_ClientActiveTextureFunc = (PFNGLCLIENTACTIVETEXTUREARBPROC) SDL_GL_GetProcAddress("glClientActiveTextureARB");
-		if (GL_MTexCoord2fFunc && GL_SelectTextureFunc && GL_ClientActiveTextureFunc)
-		{
-			Con_Printf("FOUND: ARB_multitexture\n");
-			gl_mtexable = true;
-			
-			glGetIntegerv(GL_MAX_TEXTURE_UNITS, &gl_max_texture_units);
-			Con_Printf("GL_MAX_TEXTURE_UNITS: %d\n", (int)gl_max_texture_units);
-		}
-		else
-		{
-			Con_Warning ("Couldn't link to multitexture functions\n");
-		}
-	}
-	else
-	{
-		Con_Warning ("multitexture not supported (extension not found)\n");
-	}
-
-	// texture_env_combine
-	//
-	if (COM_CheckParm("-nocombine"))
-		Con_Warning ("texture_env_combine disabled at command line\n");
-	else if (GL_ParseExtensionList(gl_extensions, "GL_ARB_texture_env_combine"))
-	{
-		Con_Printf("FOUND: ARB_texture_env_combine\n");
-		gl_texture_env_combine = true;
-	}
-	else if (GL_ParseExtensionList(gl_extensions, "GL_EXT_texture_env_combine"))
-	{
-		Con_Printf("FOUND: EXT_texture_env_combine\n");
-		gl_texture_env_combine = true;
-	}
-	else
-	{
-		Con_Warning ("texture_env_combine not supported\n");
-	}
-
-	// texture_env_add
-	//
-	if (COM_CheckParm("-noadd"))
-		Con_Warning ("texture_env_add disabled at command line\n");
-	else if (GL_ParseExtensionList(gl_extensions, "GL_ARB_texture_env_add"))
-	{
-		Con_Printf("FOUND: ARB_texture_env_add\n");
-		gl_texture_env_add = true;
-	}
-	else if (GL_ParseExtensionList(gl_extensions, "GL_EXT_texture_env_add"))
-	{
-		Con_Printf("FOUND: EXT_texture_env_add\n");
-		gl_texture_env_add = true;
-	}
-	else
-	{
-		Con_Warning ("texture_env_add not supported\n");
+		gldebug = true;
+		GL_DebugMessageCallbackFunc (&GL_DebugCallback, NULL);
+		glEnable (GL_DEBUG_OUTPUT);
+		glEnable (GL_DEBUG_OUTPUT_SYNCHRONOUS);
 	}
 
 	// swap control
@@ -1113,9 +951,9 @@ static void GL_CheckExtensions (void)
 	else
 	{
 #if defined(USE_SDL2)
-		Con_Printf("FOUND: SDL_GL_SetSwapInterval\n");
+		Con_SafePrintf("FOUND: SDL_GL_SetSwapInterval\n");
 #else
-		Con_Printf("FOUND: SDL_GL_SWAP_CONTROL\n");
+		Con_SafePrintf("FOUND: SDL_GL_SWAP_CONTROL\n");
 #endif
 	}
 
@@ -1138,7 +976,7 @@ static void GL_CheckExtensions (void)
 
 		if (test1 == 1 && test2 == 2)
 		{
-			Con_Printf("FOUND: EXT_texture_filter_anisotropic\n");
+			Con_SafePrintf("FOUND: EXT_texture_filter_anisotropic\n");
 			gl_anisotropy_able = true;
 		}
 		else
@@ -1160,113 +998,101 @@ static void GL_CheckExtensions (void)
 		gl_max_anisotropy = 1;
 		Con_Warning ("texture_filter_anisotropic not supported\n");
 	}
+}
 
-	// texture_non_power_of_two
-	//
-	if (COM_CheckParm("-notexturenpot"))
-		Con_Warning ("texture_non_power_of_two disabled at command line\n");
-	else if (GL_ParseExtensionList(gl_extensions, "GL_ARB_texture_non_power_of_two"))
-	{
-		Con_Printf("FOUND: ARB_texture_non_power_of_two\n");
-		gl_texture_NPOT = true;
-	}
-	else
-	{
-		Con_Warning ("texture_non_power_of_two not supported\n");
-	}
-	
-	// GLSL
-	//
-	if (COM_CheckParm("-noglsl"))
-		Con_Warning ("GLSL disabled at command line\n");
-	else if (gl_version_major >= 2)
-	{
-		GL_CreateShaderFunc = (QS_PFNGLCREATESHADERPROC) SDL_GL_GetProcAddress("glCreateShader");
-		GL_DeleteShaderFunc = (QS_PFNGLDELETESHADERPROC) SDL_GL_GetProcAddress("glDeleteShader");
-		GL_DeleteProgramFunc = (QS_PFNGLDELETEPROGRAMPROC) SDL_GL_GetProcAddress("glDeleteProgram");
-		GL_ShaderSourceFunc = (QS_PFNGLSHADERSOURCEPROC) SDL_GL_GetProcAddress("glShaderSource");
-		GL_CompileShaderFunc = (QS_PFNGLCOMPILESHADERPROC) SDL_GL_GetProcAddress("glCompileShader");
-		GL_GetShaderivFunc = (QS_PFNGLGETSHADERIVPROC) SDL_GL_GetProcAddress("glGetShaderiv");
-		GL_GetShaderInfoLogFunc = (QS_PFNGLGETSHADERINFOLOGPROC) SDL_GL_GetProcAddress("glGetShaderInfoLog");
-		GL_GetProgramivFunc = (QS_PFNGLGETPROGRAMIVPROC) SDL_GL_GetProcAddress("glGetProgramiv");
-		GL_GetProgramInfoLogFunc = (QS_PFNGLGETPROGRAMINFOLOGPROC) SDL_GL_GetProcAddress("glGetProgramInfoLog");
-		GL_CreateProgramFunc = (QS_PFNGLCREATEPROGRAMPROC) SDL_GL_GetProcAddress("glCreateProgram");
-		GL_AttachShaderFunc = (QS_PFNGLATTACHSHADERPROC) SDL_GL_GetProcAddress("glAttachShader");
-		GL_LinkProgramFunc = (QS_PFNGLLINKPROGRAMPROC) SDL_GL_GetProcAddress("glLinkProgram");
-		GL_BindAttribLocationFunc = (QS_PFNGLBINDATTRIBLOCATIONFUNC) SDL_GL_GetProcAddress("glBindAttribLocation");
-		GL_UseProgramFunc = (QS_PFNGLUSEPROGRAMPROC) SDL_GL_GetProcAddress("glUseProgram");
-		GL_GetAttribLocationFunc = (QS_PFNGLGETATTRIBLOCATIONPROC) SDL_GL_GetProcAddress("glGetAttribLocation");
-		GL_VertexAttribPointerFunc = (QS_PFNGLVERTEXATTRIBPOINTERPROC) SDL_GL_GetProcAddress("glVertexAttribPointer");
-		GL_EnableVertexAttribArrayFunc = (QS_PFNGLENABLEVERTEXATTRIBARRAYPROC) SDL_GL_GetProcAddress("glEnableVertexAttribArray");
-		GL_DisableVertexAttribArrayFunc = (QS_PFNGLDISABLEVERTEXATTRIBARRAYPROC) SDL_GL_GetProcAddress("glDisableVertexAttribArray");
-		GL_GetUniformLocationFunc = (QS_PFNGLGETUNIFORMLOCATIONPROC) SDL_GL_GetProcAddress("glGetUniformLocation");
-		GL_Uniform1iFunc = (QS_PFNGLUNIFORM1IPROC) SDL_GL_GetProcAddress("glUniform1i");
-		GL_Uniform1fFunc = (QS_PFNGLUNIFORM1FPROC) SDL_GL_GetProcAddress("glUniform1f");
-		GL_Uniform3fFunc = (QS_PFNGLUNIFORM3FPROC) SDL_GL_GetProcAddress("glUniform3f");
-		GL_Uniform4fFunc = (QS_PFNGLUNIFORM4FPROC) SDL_GL_GetProcAddress("glUniform4f");
+/*
+=============
+GL_SetStateEx
+=============
+*/
+static void GL_SetStateEx (unsigned mask, unsigned force)
+{
+	unsigned diff = (mask ^ glstate) | force;
 
-		if (GL_CreateShaderFunc &&
-			GL_DeleteShaderFunc &&
-			GL_DeleteProgramFunc &&
-			GL_ShaderSourceFunc &&
-			GL_CompileShaderFunc &&
-			GL_GetShaderivFunc &&
-			GL_GetShaderInfoLogFunc &&
-			GL_GetProgramivFunc &&
-			GL_GetProgramInfoLogFunc &&
-			GL_CreateProgramFunc &&
-			GL_AttachShaderFunc &&
-			GL_LinkProgramFunc &&
-			GL_BindAttribLocationFunc &&
-			GL_UseProgramFunc &&
-			GL_GetAttribLocationFunc &&
-			GL_VertexAttribPointerFunc &&
-			GL_EnableVertexAttribArrayFunc &&
-			GL_DisableVertexAttribArrayFunc &&
-			GL_GetUniformLocationFunc &&
-			GL_Uniform1iFunc &&
-			GL_Uniform1fFunc &&
-			GL_Uniform3fFunc &&
-			GL_Uniform4fFunc)
+	if (diff & GLS_MASK_BLEND)
+	{
+		switch (mask & GLS_MASK_BLEND)
 		{
-			Con_Printf("FOUND: GLSL\n");
-			gl_glsl_able = true;
+			default:
+			case GLS_BLEND_OPAQUE:
+				glBlendFunc(GL_ONE, GL_ZERO);
+				break;
+			case GLS_BLEND_ALPHA:
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				break;
+			case GLS_BLEND_ADD:
+				glBlendFunc(GL_ONE, GL_ONE);
+				break;
+		}
+	}
+
+	if (diff & GLS_MASK_CULL)
+	{
+		unsigned cull = mask & GLS_MASK_CULL;
+		qboolean force_cull = (force & GLS_MASK_CULL) != 0;
+		if (cull == GLS_CULL_NONE)
+		{
+			glDisable(GL_CULL_FACE);
 		}
 		else
 		{
-			Con_Warning ("GLSL not available\n");
+			if ((glstate & GLS_MASK_CULL) == GLS_CULL_NONE || (force & GLS_MASK_CULL) != 0)
+				glEnable(GL_CULL_FACE);
+			if (cull == GLS_CULL_FRONT)
+				glCullFace(GL_FRONT);
+			else
+				glCullFace(GL_BACK);
 		}
 	}
-	else
+
+	if (diff & GLS_NO_ZTEST)
 	{
-		Con_Warning ("OpenGL version < 2, GLSL not available\n");
+		if (mask & GLS_NO_ZTEST)
+			glDisable(GL_DEPTH_TEST);
+		else
+			glEnable(GL_DEPTH_TEST);
 	}
-	
-	// GLSL gamma
-	//
-	if (COM_CheckParm("-noglslgamma"))
-		Con_Warning ("GLSL gamma disabled at command line\n");
-	else if (gl_glsl_able)
+
+	if (diff & GLS_NO_ZWRITE)
+		glDepthMask((mask & GLS_NO_ZWRITE) == 0);
+
+	if (diff & GLS_MASK_ATTRIBS)
 	{
-		gl_glsl_gamma_able = true;
+		unsigned attribs = mask & GLS_MASK_ATTRIBS;
+		int i;
+		for (i = 0; i < GLS_MAX_ATTRIBS; i++)
+		{
+			int bit = GLS_ATTRIB0 << i;
+			if (!(diff & bit))
+				continue;
+			if (mask & bit)
+				GL_EnableVertexAttribArrayFunc(i);
+			else
+				GL_DisableVertexAttribArrayFunc(i);
+		}
 	}
-	else
-	{
-		Con_Warning ("GLSL gamma not available, using hardware gamma\n");
-	}
-    
-    // GLSL alias model rendering
-    //
-	if (COM_CheckParm("-noglslalias"))
-		Con_Warning ("GLSL alias model rendering disabled at command line\n");
-	else if (gl_glsl_able && gl_vbo_able && gl_max_texture_units >= 3)
-	{
-		gl_glsl_alias_able = true;
-	}
-	else
-	{
-		Con_Warning ("GLSL alias model rendering not available, using Fitz renderer\n");
-	}
+
+	glstate = mask;
+}
+
+/*
+=============
+GL_SetState
+=============
+*/
+void GL_SetState (unsigned mask)
+{
+	GL_SetStateEx (mask, 0);
+}
+
+/*
+=============
+GL_ResetState
+=============
+*/
+void GL_ResetState (void)
+{
+	GL_SetStateEx (GLS_DEFAULT_STATE, (unsigned)(-1));
 }
 
 /*
@@ -1278,23 +1104,19 @@ does all the stuff from GL_Init that needs to be done every time a new GL render
 */
 static void GL_SetupState (void)
 {
-	glClearColor (0.15,0.15,0.15,0); //johnfitz -- originally 1,0,0,0
-	glCullFace(GL_BACK); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
-	glFrontFace(GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_ALPHA_TEST);
-	glAlphaFunc(GL_GREATER, 0.666);
+	glClearColor (0.f, 0.f, 0.f, 0.f);
+	glFrontFace (GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	glShadeModel (GL_FLAT);
 	glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST); //johnfitz
-	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glDepthRange (0, 1); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glDepthFunc (GL_LEQUAL); //johnfitz -- moved here becuase gl_ztrick is gone.
+	glEnable (GL_BLEND);
+
+	GL_ResetState ();
 }
 
 /*
@@ -1318,6 +1140,9 @@ static void GL_Init (void)
 		gl_version_major = 0;
 		gl_version_minor = 0;
 	}
+	gl_version_number = MAKE_GL_VERSION(gl_version_major, gl_version_minor);
+	if (gl_version_number < MAKE_GL_VERSION(4, 3))
+		Sys_Error("OpenGL 4.3 required, found %d.%d\n", gl_version_major, gl_version_minor);
 
 	if (gl_extensions_nice != NULL)
 		Z_Free (gl_extensions_nice);
@@ -1343,9 +1168,15 @@ static void GL_Init (void)
 	}
 	//johnfitz
 
-	GLAlias_CreateShaders ();
+	GLDraw_CreateShaders ();
+	GLView_CreateShaders ();
 	GLWorld_CreateShaders ();
-	GL_ClearBufferBindings ();	
+	GLAlias_CreateShaders ();
+	GLSky_CreateShaders ();
+	GLParticle_CreateShaders ();
+	GLSprite_CreateShaders ();
+
+	GL_ClearBufferBindings ();
 }
 
 /*
@@ -1382,8 +1213,6 @@ void	VID_Shutdown (void)
 {
 	if (vid_initialized)
 	{
-		VID_Gamma_Shutdown (); //johnfitz
-
 		SDL_QuitSubSystem(SDL_INIT_VIDEO);
 		draw_context = NULL;
 #if defined(USE_SDL2)
@@ -1775,17 +1604,6 @@ void	VID_Toggle (void)
 
 	if (!vid_toggle_works)
 		goto vrestart;
-	else if (gl_vbo_able)
-	{
-		// disabling the fast path because with SDL 1.2 it invalidates VBOs (using them
-		// causes a crash, sugesting that the fullscreen toggle created a new GL context,
-		// although texture objects remain valid for some reason).
-		//
-		// SDL2 does promise window resizes / fullscreen changes preserve the GL context,
-		// so we could use the fast path with SDL2. --ericw
-		vid_toggle_works = false;
-		goto vrestart;
-	}
 
 #if defined(USE_SDL2)
 	if (!VID_GetFullscreen()) {

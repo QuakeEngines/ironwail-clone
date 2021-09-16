@@ -43,6 +43,7 @@ qpic_t *Draw_CachePic (const char *path);
 void Draw_NewGame (void);
 
 void GL_SetCanvas (canvastype newcanvas); //johnfitz
+void GL_SetCanvasColor (float r, float g, float b, float a);
 
 #endif	/* _QUAKE_DRAW_H */
 

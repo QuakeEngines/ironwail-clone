@@ -32,6 +32,9 @@ int			r_visframecount;	// bumped when going to a new PVS
 int			r_framecount;		// used for dlight push checking
 
 mplane_t	frustum[4];
+float		r_matview[16];
+float		r_matproj[16];
+float		r_matviewproj[16];
 
 //johnfitz -- rendering statistics
 int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;
@@ -72,19 +75,12 @@ cvar_t	r_novis = {"r_novis","0",CVAR_ARCHIVE};
 
 cvar_t	gl_finish = {"gl_finish","0",CVAR_NONE};
 cvar_t	gl_clear = {"gl_clear","1",CVAR_NONE};
-cvar_t	gl_cull = {"gl_cull","1",CVAR_NONE};
-cvar_t	gl_smoothmodels = {"gl_smoothmodels","1",CVAR_NONE};
-cvar_t	gl_affinemodels = {"gl_affinemodels","0",CVAR_NONE};
 cvar_t	gl_polyblend = {"gl_polyblend","1",CVAR_NONE};
-cvar_t	gl_flashblend = {"gl_flashblend","0",CVAR_ARCHIVE};
 cvar_t	gl_playermip = {"gl_playermip","0",CVAR_NONE};
 cvar_t	gl_nocolors = {"gl_nocolors","0",CVAR_NONE};
 
 //johnfitz -- new cvars
-cvar_t	r_stereo = {"r_stereo","0",CVAR_NONE};
-cvar_t	r_stereodepth = {"r_stereodepth","128",CVAR_NONE};
 cvar_t	r_clearcolor = {"r_clearcolor","2",CVAR_ARCHIVE};
-cvar_t	r_drawflat = {"r_drawflat","0",CVAR_NONE};
 cvar_t	r_flatlightstyles = {"r_flatlightstyles", "0", CVAR_NONE};
 cvar_t	gl_fullbrights = {"gl_fullbrights", "1", CVAR_ARCHIVE};
 cvar_t	gl_farclip = {"gl_farclip", "16384", CVAR_ARCHIVE};
@@ -110,7 +106,7 @@ cvar_t	r_slimealpha = {"r_slimealpha","0",CVAR_NONE};
 
 float	map_wateralpha, map_lavaalpha, map_telealpha, map_slimealpha;
 
-qboolean r_drawflat_cheatsafe, r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; //johnfitz
+qboolean r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; //johnfitz
 
 cvar_t	r_scale = {"r_scale", "1", CVAR_ARCHIVE};
 
@@ -123,11 +119,6 @@ cvar_t	r_scale = {"r_scale", "1", CVAR_ARCHIVE};
 static GLuint r_gamma_texture;
 static GLuint r_gamma_program;
 static int r_gamma_texture_width, r_gamma_texture_height;
-
-// uniforms used in gamma shader
-static GLuint gammaLoc;
-static GLuint contrastLoc;
-static GLuint textureLoc;
 
 /*
 =============
@@ -149,35 +140,30 @@ GLSLGamma_CreateShaders
 static void GLSLGamma_CreateShaders (void)
 {
 	const GLchar *vertSource = \
-		"#version 110\n"
+		"#version 430\n"
 		"\n"
 		"void main(void) {\n"
-		"	gl_Position = vec4(gl_Vertex.xy, 0.0, 1.0);\n"
-		"	gl_TexCoord[0] = gl_MultiTexCoord0;\n"
+		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
+		"	v.x ^= v.y; // fix winding order\n"
+		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
 		"}\n";
 
 	const GLchar *fragSource = \
-		"#version 110\n"
+		"#version 430\n"
 		"\n"
-		"uniform sampler2D GammaTexture;\n"
-		"uniform float GammaValue;\n"
-		"uniform float ContrastValue;\n"
+		"layout(binding=0) uniform sampler2D GammaTexture;\n"
+		"\n"
+		"layout(location=0) uniform vec2 GammaContrast;\n"
+		"\n"
+		"layout(location=0) out vec4 out_fragcolor;\n"
 		"\n"
 		"void main(void) {\n"
-		"	  vec4 frag = texture2D(GammaTexture, gl_TexCoord[0].xy);\n"
-		"	  frag.rgb = frag.rgb * ContrastValue;\n"
-		"	  gl_FragColor = vec4(pow(frag.rgb, vec3(GammaValue)), 1.0);\n"
+		"	  out_fragcolor = texelFetch(GammaTexture, ivec2(gl_FragCoord), 0);\n"
+		"	  out_fragcolor.rgb *= GammaContrast.y;\n"
+		"	  out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(GammaContrast.x)), 1.0);\n"
 		"}\n";
 
-	if (!gl_glsl_gamma_able)
-		return;
-
-	r_gamma_program = GL_CreateProgram (vertSource, fragSource, 0, NULL);
-
-// get uniform locations
-	gammaLoc = GL_GetUniformLocation (&r_gamma_program, "GammaValue");
-	contrastLoc = GL_GetUniformLocation (&r_gamma_program, "ContrastValue");
-	textureLoc = GL_GetUniformLocation (&r_gamma_program, "GammaTexture");
+	r_gamma_program = GL_CreateProgram (vertSource, fragSource, "postprocess");
 }
 
 /*
@@ -187,13 +173,10 @@ GLSLGamma_GammaCorrect
 */
 void GLSLGamma_GammaCorrect (void)
 {
-	float smax, tmax;
-
-	if (!gl_glsl_gamma_able)
-		return;
-
 	if (vid_gamma.value == 1 && vid_contrast.value == 1)
 		return;
+
+	GL_BeginGroup ("Postprocess");
 
 // create render-to-texture texture if needed
 	if (!r_gamma_texture)
@@ -204,12 +187,6 @@ void GLSLGamma_GammaCorrect (void)
 		r_gamma_texture_width = glwidth;
 		r_gamma_texture_height = glheight;
 
-		if (!gl_texture_NPOT)
-		{
-			r_gamma_texture_width = TexMgr_Pad(r_gamma_texture_width);
-			r_gamma_texture_height = TexMgr_Pad(r_gamma_texture_height);
-		}
-	
 		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_gamma_texture_width, r_gamma_texture_height, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -219,46 +196,26 @@ void GLSLGamma_GammaCorrect (void)
 	if (!r_gamma_program)
 	{
 		GLSLGamma_CreateShaders ();
-		if (!r_gamma_program)
-		{
-			Sys_Error("GLSLGamma_CreateShaders failed");
-		}
 	}
 	
 // copy the framebuffer to the texture
-	GL_DisableMultitexture();
+	GL_ActiveTextureFunc (GL_TEXTURE0);
 	glBindTexture (GL_TEXTURE_2D, r_gamma_texture);
 	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, glx, gly, glwidth, glheight);
 
 // draw the texture back to the framebuffer with a fragment shader
-	GL_UseProgramFunc (r_gamma_program);
-	GL_Uniform1fFunc (gammaLoc, vid_gamma.value);
-	GL_Uniform1fFunc (contrastLoc, q_min(2.0, q_max(1.0, vid_contrast.value)));
-	GL_Uniform1iFunc (textureLoc, 0); // use texture unit 0
-
-	glDisable (GL_ALPHA_TEST);
-	glDisable (GL_DEPTH_TEST);
+	GL_UseProgram (r_gamma_program);
+	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
 
 	glViewport (glx, gly, glwidth, glheight);
 
-	smax = glwidth/(float)r_gamma_texture_width;
-	tmax = glheight/(float)r_gamma_texture_height;
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-	glBegin (GL_QUADS);
-	glTexCoord2f (0, 0);
-	glVertex2f (-1, -1);
-	glTexCoord2f (smax, 0);
-	glVertex2f (1, -1);
-	glTexCoord2f (smax, tmax);
-	glVertex2f (1, 1);
-	glTexCoord2f (0, tmax);
-	glVertex2f (-1, 1);
-	glEnd ();
-	
-	GL_UseProgramFunc (0);
-	
 // clear cached binding
 	GL_ClearBindings ();
+
+	GL_EndGroup ();
 }
 
 /*
@@ -317,15 +274,75 @@ qboolean R_CullModelForEntity (entity_t *e)
 
 /*
 ===============
-R_RotateForEntity -- johnfitz -- modified to take origin and angles instead of pointer to entity
+R_EntityMatrix
 ===============
 */
-void R_RotateForEntity (vec3_t origin, vec3_t angles)
+#define DEG2RAD( a ) ( (a) * M_PI_DIV_180 )
+void R_EntityMatrix (float matrix[16], vec3_t origin, vec3_t angles)
 {
-	glTranslatef (origin[0],  origin[1],  origin[2]);
-	glRotatef (angles[1],  0, 0, 1);
-	glRotatef (-angles[0],  0, 1, 0);
-	glRotatef (angles[2],  1, 0, 0);
+	float yaw   = DEG2RAD(angles[YAW]);
+	float pitch = angles[PITCH];
+	float roll  = angles[ROLL];
+	if (pitch == 0.f && roll == 0.f)
+	{
+		float sy = sin(yaw);
+		float cy = cos(yaw);
+
+		// First column
+		matrix[ 0] = cy;
+		matrix[ 1] = sy;
+		matrix[ 2] = 0.f;
+		matrix[ 3] = 0.f;
+
+		// Second column
+		matrix[ 4] = -sy;
+		matrix[ 5] = cy;
+		matrix[ 6] = 0.f;
+		matrix[ 7] = 0.f;
+
+		// Third column
+		matrix[ 8] = 0.f;
+		matrix[ 9] = 0.f;
+		matrix[10] = 1.f;
+		matrix[11] = 0.f;
+	}
+	else
+	{
+		pitch = DEG2RAD(pitch);
+		roll = DEG2RAD(roll);
+		float sy = sin(yaw);
+		float sp = sin(pitch);
+		float sr = sin(roll);
+		float cy = cos(yaw);
+		float cp = cos(pitch);
+		float cr = cos(roll);
+
+		// https://www.symbolab.com/solver/matrix-multiply-calculator FTW!
+
+		// First column
+		matrix[ 0] = cy*cp;
+		matrix[ 1] = sy*cp;
+		matrix[ 2] = sp;
+		matrix[ 3] = 0.f;
+
+		// Second column
+		matrix[ 4] = -cy*sp*sr - cr*sy;
+		matrix[ 5] = cr*cy - sy*sp*sr;
+		matrix[ 6] = cp*sr;
+		matrix[ 7] = 0.f;
+
+		// Third column
+		matrix[ 8] = sy*sr - cr*cy*sp;
+		matrix[ 9] = -cy*sr - cr*sy*sp;
+		matrix[10] = cr*cp;
+		matrix[11] = 0.f;
+	}
+
+	// Fourth column
+	matrix[12] = origin[0];
+	matrix[13] = origin[1];
+	matrix[14] = origin[2];
+	matrix[15] = 1.f;
 }
 
 /*
@@ -409,9 +426,6 @@ void R_SetFrustum (float fovx, float fovy)
 {
 	int		i;
 
-	if (r_stereo.value)
-		fovx += 10; //silly hack so that polygons don't drop out becuase of stereo skew
-
 	TurnVector(frustum[0].normal, vpn, vright, fovx/2 - 90); //right plane
 	TurnVector(frustum[1].normal, vpn, vright, 90 - fovx/2); //left plane
 	TurnVector(frustum[2].normal, vpn, vup, 90 - fovy/2); //bottom plane
@@ -427,17 +441,38 @@ void R_SetFrustum (float fovx, float fovy)
 
 /*
 =============
-GL_SetFrustum -- johnfitz -- written to replace MYgluPerspective
+GL_FrustumMatrix
 =============
 */
 #define NEARCLIP 4
-float frustum_skew = 0.0; //used by r_stereo
+static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
+{
+	const float w = 1.0f / tanf(fovx * 0.5f);
+	const float h = 1.0f / tanf(fovy * 0.5f);
+
+	// reduce near clip distance at high FOV's to avoid seeing through walls
+	const float d = 12.f * q_min(w, h);
+	const float n = CLAMP(0.5f, d, NEARCLIP);
+	const float f = gl_farclip.value;
+
+	memset(matrix, 0, 16 * sizeof(float));
+
+	// projection matrix with the coordinate system conversion baked in
+	matrix[0*4 + 2] = (f + n) / (f - n);
+	matrix[0*4 + 3] = 1.f;
+	matrix[1*4 + 0] = -w;
+	matrix[2*4 + 1] = h;
+	matrix[3*4 + 2] = -2.f * f * n / (f - n);
+}
+
+/*
+=============
+GL_SetFrustum -- johnfitz -- written to replace MYgluPerspective
+=============
+*/
 void GL_SetFrustum(float fovx, float fovy)
 {
-	float xmax, ymax;
-	xmax = NEARCLIP * tan( fovx * M_PI / 360.0 );
-	ymax = NEARCLIP * tan( fovy * M_PI / 360.0 );
-	glFrustum(-xmax + frustum_skew, xmax + frustum_skew, -ymax, ymax, NEARCLIP, gl_farclip.value);
+	GL_FrustumMatrix(r_matproj, fovx * (M_PI / 180.0), fovy * (M_PI / 180.0));
 }
 
 /*
@@ -448,10 +483,10 @@ R_SetupGL
 void R_SetupGL (void)
 {
 	int scale;
+	float translation[16];
+	float rotation[16];
 
 	//johnfitz -- rewrote this section
-	glMatrixMode(GL_PROJECTION);
-    glLoadIdentity ();
 	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_ScaleView
 	glViewport (glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
@@ -459,31 +494,21 @@ void R_SetupGL (void)
 				r_refdef.vrect.height / scale);
 	//johnfitz
 
-    GL_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
+	GL_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
 
-//	glCullFace(GL_BACK); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
+	// View matrix
+	RotationMatrix(r_matview, DEG2RAD(-r_refdef.viewangles[ROLL]), 0);
+	RotationMatrix(rotation, DEG2RAD(-r_refdef.viewangles[PITCH]), 1);
+	MatrixMultiply(r_matview, rotation);
+	RotationMatrix(rotation, DEG2RAD(-r_refdef.viewangles[YAW]), 2);
+	MatrixMultiply(r_matview, rotation);
 
-	glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity ();
+	TranslationMatrix(translation, -r_refdef.vieworg[0], -r_refdef.vieworg[1], -r_refdef.vieworg[2]);
+	MatrixMultiply(r_matview, translation);
 
-    glRotatef (-90,  1, 0, 0);	    // put Z going up
-    glRotatef (90,  0, 0, 1);	    // put Z going up
-    glRotatef (-r_refdef.viewangles[2],  1, 0, 0);
-    glRotatef (-r_refdef.viewangles[0],  0, 1, 0);
-    glRotatef (-r_refdef.viewangles[1],  0, 0, 1);
-    glTranslatef (-r_refdef.vieworg[0],  -r_refdef.vieworg[1],  -r_refdef.vieworg[2]);
-
-	//
-	// set drawing parms
-	//
-	if (gl_cull.value)
-		glEnable(GL_CULL_FACE);
-	else
-		glDisable(GL_CULL_FACE);
-
-	glDisable(GL_BLEND);
-	glDisable(GL_ALPHA_TEST);
-	glEnable(GL_DEPTH_TEST);
+	// View projection matrix
+	memcpy(r_matviewproj, r_matproj, 16 * sizeof(float));
+	MatrixMultiply(r_matviewproj, r_matview);
 }
 
 /*
@@ -501,6 +526,8 @@ void R_Clear (void)
 		clearbits |= GL_STENCIL_BUFFER_BIT;
 	if (gl_clear.value)
 		clearbits |= GL_COLOR_BUFFER_BIT;
+
+	GL_SetState (glstate & ~GLS_NO_ZWRITE); // make sure depth writes are enabled
 	glClear (clearbits);
 }
 
@@ -560,19 +587,16 @@ void R_SetupView (void)
 
 	R_MarkSurfaces (); //johnfitz -- create texture chains from PVS
 
-	R_UpdateWarpTextures (); //johnfitz -- do this before R_Clear
-
 	R_Clear ();
 
 	//johnfitz -- cheat-protect some draw modes
-	r_drawflat_cheatsafe = r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;
+	r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;
 	r_drawworld_cheatsafe = true;
 	if (cl.maxclients == 1)
 	{
 		if (!r_drawworld.value) r_drawworld_cheatsafe = false;
 
-		if (r_drawflat.value) r_drawflat_cheatsafe = true;
-		else if (r_fullbright.value || !cl.worldmodel->lightdata) r_fullbright_cheatsafe = true;
+		if (r_fullbright.value || !cl.worldmodel->lightdata) r_fullbright_cheatsafe = true;
 		else if (r_lightmap.value) r_lightmap_cheatsafe = true;
 	}
 	//johnfitz
@@ -595,6 +619,8 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 
 	if (!r_drawentities.value)
 		return;
+
+	GL_BeginGroup (alphapass ? "Translucent entities" : "Opaque entities");
 
 	//johnfitz -- sprites are not a special case
 	for (i=0 ; i<cl_numvisedicts ; i++)
@@ -625,6 +651,8 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 				break;
 		}
 	}
+
+	GL_EndGroup ();
 }
 
 /*
@@ -649,107 +677,14 @@ void R_DrawViewModel (void)
 		return;
 	//johnfitz
 
+	GL_BeginGroup ("View model");
+
 	// hack the depth range to prevent view model from poking into walls
 	glDepthRange (0, 0.3);
 	R_DrawAliasModel (currententity);
 	glDepthRange (0, 1);
-}
 
-/*
-================
-R_EmitWirePoint -- johnfitz -- draws a wireframe cross shape for point entities
-================
-*/
-void R_EmitWirePoint (vec3_t origin)
-{
-	int size=8;
-
-	glBegin (GL_LINES);
-	glVertex3f (origin[0]-size, origin[1], origin[2]);
-	glVertex3f (origin[0]+size, origin[1], origin[2]);
-	glVertex3f (origin[0], origin[1]-size, origin[2]);
-	glVertex3f (origin[0], origin[1]+size, origin[2]);
-	glVertex3f (origin[0], origin[1], origin[2]-size);
-	glVertex3f (origin[0], origin[1], origin[2]+size);
-	glEnd ();
-}
-
-/*
-================
-R_EmitWireBox -- johnfitz -- draws one axis aligned bounding box
-================
-*/
-void R_EmitWireBox (vec3_t mins, vec3_t maxs)
-{
-	glBegin (GL_QUAD_STRIP);
-	glVertex3f (mins[0], mins[1], mins[2]);
-	glVertex3f (mins[0], mins[1], maxs[2]);
-	glVertex3f (maxs[0], mins[1], mins[2]);
-	glVertex3f (maxs[0], mins[1], maxs[2]);
-	glVertex3f (maxs[0], maxs[1], mins[2]);
-	glVertex3f (maxs[0], maxs[1], maxs[2]);
-	glVertex3f (mins[0], maxs[1], mins[2]);
-	glVertex3f (mins[0], maxs[1], maxs[2]);
-	glVertex3f (mins[0], mins[1], mins[2]);
-	glVertex3f (mins[0], mins[1], maxs[2]);
-	glEnd ();
-}
-
-/*
-================
-R_ShowBoundingBoxes -- johnfitz
-
-draw bounding boxes -- the server-side boxes, not the renderer cullboxes
-================
-*/
-void R_ShowBoundingBoxes (void)
-{
-	extern		edict_t *sv_player;
-	vec3_t		mins,maxs;
-	edict_t		*ed;
-	int			i;
-
-	if (!r_showbboxes.value || cl.maxclients > 1 || !r_drawentities.value || !sv.active)
-		return;
-
-	glDisable (GL_DEPTH_TEST);
-	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
-	GL_PolygonOffset (OFFSET_SHOWTRIS);
-	glDisable (GL_TEXTURE_2D);
-	glDisable (GL_CULL_FACE);
-	glColor3f (1,1,1);
-
-	for (i=0, ed=NEXT_EDICT(sv.edicts) ; i<sv.num_edicts ; i++, ed=NEXT_EDICT(ed))
-	{
-		if (ed == sv_player)
-			continue; //don't draw player's own bbox
-
-//		if (r_showbboxes.value != 2)
-//			if (!SV_VisibleToClient (sv_player, ed, sv.worldmodel))
-//				continue; //don't draw if not in pvs
-
-		if (ed->v.mins[0] == ed->v.maxs[0] && ed->v.mins[1] == ed->v.maxs[1] && ed->v.mins[2] == ed->v.maxs[2])
-		{
-			//point entity
-			R_EmitWirePoint (ed->v.origin);
-		}
-		else
-		{
-			//box entity
-			VectorAdd (ed->v.mins, ed->v.origin, mins);
-			VectorAdd (ed->v.maxs, ed->v.origin, maxs);
-			R_EmitWireBox (mins, maxs);
-		}
-	}
-
-	glColor3f (1,1,1);
-	glEnable (GL_TEXTURE_2D);
-	glEnable (GL_CULL_FACE);
-	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	GL_PolygonOffset (OFFSET_NONE);
-	glEnable (GL_DEPTH_TEST);
-
-	Sbar_Changed (); //so we don't get dots collecting on the statusbar
+	GL_EndGroup ();
 }
 
 /*
@@ -765,19 +700,14 @@ void R_ShowTris (void)
 	if (r_showtris.value < 1 || r_showtris.value > 2 || cl.maxclients > 1)
 		return;
 
+	GL_BeginGroup ("Show tris");
+
 	if (r_showtris.value == 1)
-		glDisable (GL_DEPTH_TEST);
+		glDepthRange(0.f, 0.f);
 	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
 	GL_PolygonOffset (OFFSET_SHOWTRIS);
-	glDisable (GL_TEXTURE_2D);
-	glColor3f (1,1,1);
-//	glEnable (GL_BLEND);
-//	glBlendFunc (GL_ONE, GL_ONE);
 
-	if (r_drawworld.value)
-	{
-		R_DrawWorld_ShowTris ();
-	}
+	R_DrawWorld_ShowTris ();
 
 	if (r_drawentities.value)
 	{
@@ -797,7 +727,7 @@ void R_ShowTris (void)
 				R_DrawAliasModel_ShowTris (currententity);
 				break;
 			case mod_sprite:
-				R_DrawSpriteModel (currententity);
+				R_DrawSpriteModel_ShowTris (currententity);
 				break;
 			default:
 				break;
@@ -813,67 +743,26 @@ void R_ShowTris (void)
 			&& currententity->model
 			&& currententity->model->type == mod_alias)
 		{
-			glDepthRange (0, 0.3);
+			if (r_showtris.value != 1.f)
+				glDepthRange (0, 0.3);
+
 			R_DrawAliasModel_ShowTris (currententity);
-			glDepthRange (0, 1);
+
+			if (r_showtris.value != 1.f)
+				glDepthRange (0.f, 1.f);
 		}
 	}
 
-	if (r_particles.value)
-	{
-		R_DrawParticles_ShowTris ();
-	}
+	R_DrawParticles_ShowTris ();
 
-//	glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-//	glDisable (GL_BLEND);
-	glColor3f (1,1,1);
-	glEnable (GL_TEXTURE_2D);
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
 	GL_PolygonOffset (OFFSET_NONE);
 	if (r_showtris.value == 1)
-		glEnable (GL_DEPTH_TEST);
+		glDepthRange (0.f, 1.f);
 
 	Sbar_Changed (); //so we don't get dots collecting on the statusbar
-}
 
-/*
-================
-R_DrawShadows
-================
-*/
-void R_DrawShadows (void)
-{
-	int i;
-
-	if (!r_shadows.value || !r_drawentities.value || r_drawflat_cheatsafe || r_lightmap_cheatsafe)
-		return;
-
-	// Use stencil buffer to prevent self-intersecting shadows, from Baker (MarkV)
-	if (gl_stencilbits)
-	{
-		glClear(GL_STENCIL_BUFFER_BIT);
-		glStencilFunc(GL_EQUAL, 0, ~0);
-		glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-		glEnable(GL_STENCIL_TEST);
-	}
-
-	for (i=0 ; i<cl_numvisedicts ; i++)
-	{
-		currententity = cl_visedicts[i];
-
-		if (currententity->model->type != mod_alias)
-			continue;
-
-		if (currententity == &cl.viewent)
-			return;
-
-		GL_DrawAliasShadow (currententity);
-	}
-
-	if (gl_stencilbits)
-	{
-		glDisable(GL_STENCIL_TEST);
-	}
+	GL_EndGroup ();
 }
 
 /*
@@ -887,33 +776,28 @@ void R_RenderScene (void)
 
 	Fog_EnableGFog (); //johnfitz
 
-	Sky_DrawSky (); //johnfitz
+	R_DrawViewModel (); //johnfitz -- moved here from R_RenderView
 
 	R_DrawWorld ();
 
 	S_ExtraUpdate (); // don't let sound get messed up if going slow
 
-	R_DrawShadows (); //johnfitz -- render entity shadows
-
 	R_DrawEntitiesOnList (false); //johnfitz -- false means this is the pass for nonalpha entities
+
+	Sky_DrawSky (); //johnfitz
 
 	R_DrawWorld_Water (); //johnfitz -- drawn here since they might have transparency
 
 	R_DrawEntitiesOnList (true); //johnfitz -- true means this is the pass for alpha entities
 
-	R_RenderDlights (); //triangle fan dlights -- johnfitz -- moved after water
-
 	R_DrawParticles ();
 
 	Fog_DisableGFog (); //johnfitz
 
-	R_DrawViewModel (); //johnfitz -- moved here from R_RenderView
-
 	R_ShowTris (); //johnfitz
-
-	R_ShowBoundingBoxes (); //johnfitz
 }
 
+static GLuint r_scaleview_program;
 static GLuint r_scaleview_texture;
 static int r_scaleview_texture_width, r_scaleview_texture_height;
 
@@ -926,6 +810,44 @@ void R_ScaleView_DeleteTexture (void)
 {
 	glDeleteTextures (1, &r_scaleview_texture);
 	r_scaleview_texture = 0;
+	r_scaleview_program = 0; // deleted in R_DeleteShaders
+}
+
+/*
+=============
+R_ScaleView_CreateShaders
+=============
+*/
+void R_ScaleView_CreateShaders (void)
+{
+	const GLchar *vertSource = \
+		"#version 430\n"
+		"\n"
+		"layout(location=0) uniform vec2 UVScale;\n"
+		"\n"
+		"layout(location=0) out vec2 out_uv;\n"
+		"\n"
+		"void main(void) {\n"
+		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
+		"	v.x ^= v.y; // fix winding order\n"
+		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
+		"	out_uv = vec2(v) * UVScale;\n"
+		"}\n";
+
+	const GLchar *fragSource = \
+		"#version 430\n"
+		"\n"
+		"layout(binding=0) uniform sampler2D Tex;\n"
+		"\n"
+		"layout(location=0) in vec2 in_uv;\n"
+		"\n"
+		"layout(location=0) out vec4 out_fragcolor;\n"
+		"\n"
+		"void main(void) {\n"
+		"	  out_fragcolor = texture2D(Tex, in_uv);\n"
+		"}\n";
+
+	r_scaleview_program = GL_CreateProgram (vertSource, fragSource, "viewscale");
 }
 
 /*
@@ -954,8 +876,12 @@ void R_ScaleView (void)
 	if (scale == 1)
 		return;
 
-	// make sure texture unit 0 is selected
-	GL_DisableMultitexture ();
+	GL_BeginGroup ("Rescale");
+
+	GL_SelectTexture (GL_TEXTURE0);
+
+	if (!r_scaleview_program)
+		R_ScaleView_CreateShaders ();
 
 	// create (if needed) and bind the render-to-texture texture
 	if (!r_scaleview_texture)
@@ -974,51 +900,31 @@ void R_ScaleView (void)
 		r_scaleview_texture_width = srcw;
 		r_scaleview_texture_height = srch;
 
-		if (!gl_texture_NPOT)
-		{
-			r_scaleview_texture_width = TexMgr_Pad(r_scaleview_texture_width);
-			r_scaleview_texture_height = TexMgr_Pad(r_scaleview_texture_height);
-		}
-
-		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA, r_scaleview_texture_width, r_scaleview_texture_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_scaleview_texture_width, r_scaleview_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	}
 
 	// copy the framebuffer to the texture
-	glBindTexture (GL_TEXTURE_2D, r_scaleview_texture);
 	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, srcx, srcy, srcw, srch);
 
-	// draw the texture back to the framebuffer
-	glDisable (GL_ALPHA_TEST);
-	glDisable (GL_DEPTH_TEST);
-	glDisable (GL_CULL_FACE);
-	glDisable (GL_BLEND);
-
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
-
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity ();
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity ();
 
 	// correction factor if we lack NPOT textures, normally these are 1.0f
 	smax = srcw/(float)r_scaleview_texture_width;
 	tmax = srch/(float)r_scaleview_texture_height;
 
-	glBegin (GL_QUADS);
-	glTexCoord2f (0, 0);
-	glVertex2f (-1, -1);
-	glTexCoord2f (smax, 0);
-	glVertex2f (1, -1);
-	glTexCoord2f (smax, tmax);
-	glVertex2f (1, 1);
-	glTexCoord2f (0, tmax);
-	glVertex2f (-1, 1);
-	glEnd ();
+	GL_UseProgram (r_scaleview_program);
+	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+
+	GL_Uniform2fFunc (0, smax, tmax);
+
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
 	// clear cached binding
 	GL_ClearBindings ();
+
+	GL_EndGroup ();
 }
 
 /*
@@ -1050,43 +956,7 @@ void R_RenderView (void)
 		glFinish ();
 
 	R_SetupView (); //johnfitz -- this does everything that should be done once per frame
-
-	//johnfitz -- stereo rendering -- full of hacky goodness
-	if (r_stereo.value)
-	{
-		float eyesep = CLAMP(-8.0f, r_stereo.value, 8.0f);
-		float fdepth = CLAMP(32.0f, r_stereodepth.value, 1024.0f);
-
-		AngleVectors (r_refdef.viewangles, vpn, vright, vup);
-
-		//render left eye (red)
-		glColorMask(1, 0, 0, 1);
-		VectorMA (r_refdef.vieworg, -0.5f * eyesep, vright, r_refdef.vieworg);
-		frustum_skew = 0.5 * eyesep * NEARCLIP / fdepth;
-		srand((int) (cl.time * 1000)); //sync random stuff between eyes
-
-		R_RenderScene ();
-
-		//render right eye (cyan)
-		glClear (GL_DEPTH_BUFFER_BIT);
-		glColorMask(0, 1, 1, 1);
-		VectorMA (r_refdef.vieworg, 1.0f * eyesep, vright, r_refdef.vieworg);
-		frustum_skew = -frustum_skew;
-		srand((int) (cl.time * 1000)); //sync random stuff between eyes
-
-		R_RenderScene ();
-
-		//restore
-		glColorMask(1, 1, 1, 1);
-		VectorMA (r_refdef.vieworg, -0.5f * eyesep, vright, r_refdef.vieworg);
-		frustum_skew = 0.0f;
-	}
-	else
-	{
-		R_RenderScene ();
-	}
-	//johnfitz
-
+	R_RenderScene ();
 	R_ScaleView ();
 
 	//johnfitz -- modified r_speeds output

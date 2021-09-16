@@ -1005,7 +1005,7 @@ johnfitz -- modified to use glwidth/glheight instead of vid.width/vid.height
 void SCR_TileClear (void)
 {
 	//ericw -- added check for glsl gamma. TODO: remove this ugly optimization?
-	if (scr_tileclear_updates >= vid.numpages && !gl_clear.value && !(gl_glsl_gamma_able && vid_gamma.value != 1))
+	if (scr_tileclear_updates >= vid.numpages && !gl_clear.value && vid_gamma.value == 1)
 		return;
 	scr_tileclear_updates++;
 
@@ -1083,6 +1083,8 @@ void SCR_UpdateScreen (void)
 
 	V_RenderView ();
 
+	GL_BeginGroup ("2D");
+
 	GL_Set2D ();
 
 	//FIXME: only call this when needed
@@ -1128,6 +1130,8 @@ void SCR_UpdateScreen (void)
 	}
 
 	V_UpdateBlend (); //johnfitz -- V_UpdatePalette cleaned up and renamed
+
+	GL_EndGroup ();
 
 	GLSLGamma_GammaCorrect ();
 

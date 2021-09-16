@@ -23,9 +23,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //gl_texmgr.c -- fitzquake's texture manager. manages opengl texture images
 
 #include "quakedef.h"
+#include "glquake.h"
 
-const int	gl_solid_format = 3;
-const int	gl_alpha_format = 4;
+const int	gl_solid_format = GL_RGB;
+const int	gl_alpha_format = GL_RGBA;
 
 static cvar_t	gl_texturemode = {"gl_texturemode", "", CVAR_ARCHIVE};
 static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "1", CVAR_ARCHIVE};
@@ -36,7 +37,7 @@ static GLint	gl_hardware_maxsize;
 #define	MAX_GLTEXTURES	4096
 static int numgltextures;
 static gltexture_t	*active_gltextures, *free_gltextures;
-gltexture_t		*notexture, *nulltexture;
+gltexture_t		*notexture, *nulltexture, *whitetexture, *greytexture, *blacktexture;
 
 unsigned int d_8to24table[256];
 unsigned int d_8to24table_fbright[256];
@@ -94,7 +95,7 @@ TexMgr_SetFilterModes
 */
 static void TexMgr_SetFilterModes (gltexture_t *glt)
 {
-	GL_Bind (glt);
+	GL_Bind (GL_TEXTURE0, glt);
 
 	if (glt->flags & TEXPREF_NEAREST)
 	{
@@ -187,7 +188,7 @@ static void TexMgr_Anisotropy_f (cvar_t *var)
 		{
 		/*  TexMgr_SetFilterModes (glt);*/
 		    if (glt->flags & TEXPREF_MIPMAP) {
-			GL_Bind (glt);
+			GL_Bind (GL_TEXTURE0, glt);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
@@ -245,7 +246,7 @@ static void TexMgr_Imagedump_f (void)
 		while ( (c = strchr(tempname, '*')) ) *c = '_';
 		q_snprintf(tganame, sizeof(tganame), "imagedump/%s.tga", tempname);
 
-		GL_Bind (glt);
+		GL_Bind (GL_TEXTURE0, glt);
 		glPixelStorei (GL_PACK_ALIGNMENT, 1);/* for widths that aren't a multiple of 4 */
 
 		if (glt->flags & TEXPREF_ALPHA)
@@ -545,53 +546,6 @@ void TexMgr_NewGame (void)
 	TexMgr_LoadPalette ();
 }
 
-/*
-=============
-TexMgr_RecalcWarpImageSize -- called during init, and after a vid_restart
-
-choose safe warpimage size and resize existing warpimage textures
-=============
-*/
-void TexMgr_RecalcWarpImageSize (void)
-{
-//	int	oldsize = gl_warpimagesize;
-	int	mark;
-	gltexture_t *glt;
-	byte *dummy;
-
-	//
-	// find the new correct size
-	//
-	gl_warpimagesize = TexMgr_SafeTextureSize (512);
-
-	while (gl_warpimagesize > vid.width)
-		gl_warpimagesize >>= 1;
-	while (gl_warpimagesize > vid.height)
-		gl_warpimagesize >>= 1;
-
-	// ericw -- removed early exit if (gl_warpimagesize == oldsize).
-	// after vid_restart TexMgr_ReloadImage reloads textures
-	// to tx->source_width/source_height, which might not match oldsize.
-	// fixes: https://sourceforge.net/p/quakespasm/bugs/13/
-	
-	//
-	// resize the textures in opengl
-	//
-	mark = Hunk_LowMark();
-	dummy = (byte *) Hunk_Alloc (gl_warpimagesize*gl_warpimagesize*4);
-
-	for (glt = active_gltextures; glt; glt = glt->next)
-	{
-		if (glt->flags & TEXPREF_WARPIMAGE)
-		{
-			GL_Bind (glt);
-			glTexImage2D (GL_TEXTURE_2D, 0, gl_solid_format, gl_warpimagesize, gl_warpimagesize, 0, GL_RGBA, GL_UNSIGNED_BYTE, dummy);
-			glt->width = glt->height = gl_warpimagesize;
-		}
-	}
-
-	Hunk_FreeToLowMark (mark);
-}
 
 /*
 ================
@@ -605,6 +559,9 @@ void TexMgr_Init (void)
 	int i;
 	static byte notexture_data[16] = {159,91,83,255,0,0,0,255,0,0,0,255,159,91,83,255}; //black and pink checker
 	static byte nulltexture_data[16] = {127,191,255,255,0,0,0,255,0,0,0,255,127,191,255,255}; //black and blue checker
+	static byte whitetexture_data[16] = {255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255}; //white
+	static byte greytexture_data[16] = {127,127,127,255,127,127,127,255,127,127,127,255,127,127,127,255}; //50% grey
+	static byte blacktexture_data[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //black
 	extern texture_t *r_notexture_mip, *r_notexture_mip2;
 
 	// init texture list
@@ -635,13 +592,12 @@ void TexMgr_Init (void)
 	// load notexture images
 	notexture = TexMgr_LoadImage (NULL, "notexture", 2, 2, SRC_RGBA, notexture_data, "", (src_offset_t)notexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 	nulltexture = TexMgr_LoadImage (NULL, "nulltexture", 2, 2, SRC_RGBA, nulltexture_data, "", (src_offset_t)nulltexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
+	whitetexture = TexMgr_LoadImage (NULL, "whitetexture", 2, 2, SRC_RGBA, whitetexture_data, "", (src_offset_t)whitetexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
+	greytexture = TexMgr_LoadImage (NULL, "greytexture", 2, 2, SRC_RGBA, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
+	blacktexture = TexMgr_LoadImage (NULL, "blacktexture", 2, 2, SRC_RGBA, blacktexture_data, "", (src_offset_t)blacktexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 
 	//have to assign these here becuase Mod_Init is called before TexMgr_Init
 	r_notexture_mip->gltexture = r_notexture_mip2->gltexture = notexture;
-
-	//set safe size for warpimages
-	gl_warpimagesize = 0;
-	TexMgr_RecalcWarpImageSize ();
 }
 
 /*
@@ -672,8 +628,6 @@ TexMgr_SafeTextureSize -- return a size with hardware and user prefs in mind
 */
 int TexMgr_SafeTextureSize (int s)
 {
-	if (!gl_texture_NPOT)
-		s = TexMgr_Pad(s);
 	if ((int)gl_max_size.value > 0)
 		s = q_min(TexMgr_Pad((int)gl_max_size.value), s);
 	s = q_min(gl_hardware_maxsize, s);
@@ -1015,14 +969,6 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 {
 	int	internalformat,	miplevel, mipwidth, mipheight, picmip;
 
-	if (!gl_texture_NPOT)
-	{
-		// resample up
-		data = TexMgr_ResampleTexture (data, glt->width, glt->height, glt->flags & TEXPREF_ALPHA);
-		glt->width = TexMgr_Pad(glt->width);
-		glt->height = TexMgr_Pad(glt->height);
-	}
-
 	// mipmap down
 	picmip = (glt->flags & TEXPREF_NOPICMIP) ? 0 : q_max((int)gl_picmip.value, 0);
 	mipwidth = TexMgr_SafeTextureSize (glt->width >> picmip);
@@ -1043,7 +989,7 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	}
 
 	// upload
-	GL_Bind (glt);
+	GL_Bind (GL_TEXTURE0, glt);
 	internalformat = (glt->flags & TEXPREF_ALPHA) ? gl_alpha_format : gl_solid_format;
 	glTexImage2D (GL_TEXTURE_2D, 0, internalformat, glt->width, glt->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
 
@@ -1178,8 +1124,8 @@ TexMgr_LoadLightmap -- handles lightmap data
 static void TexMgr_LoadLightmap (gltexture_t *glt, byte *data)
 {
 	// upload it
-	GL_Bind (glt);
-	glTexImage2D (GL_TEXTURE_2D, 0, lightmap_bytes, glt->width, glt->height, 0, gl_lightmap_format, GL_UNSIGNED_BYTE, data);
+	GL_Bind (GL_TEXTURE0, glt);
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, glt->width, glt->height, 0, gl_lightmap_format, GL_UNSIGNED_BYTE, data);
 
 	// set filter modes
 	TexMgr_SetFilterModes (glt);
@@ -1253,6 +1199,8 @@ gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int
 		TexMgr_LoadImage32 (glt, (unsigned *)data);
 		break;
 	}
+
+	GL_ObjectLabelFunc (GL_TEXTURE, glt->texnum, -1, glt->name);
 
 	Hunk_FreeToLowMark(mark);
 
@@ -1440,7 +1388,6 @@ void TexMgr_ReloadNobrightImages (void)
 
 static GLuint	currenttexture[3] = {GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE}; // to avoid unnecessary texture sets
 static GLenum	currenttarget = GL_TEXTURE0_ARB;
-qboolean	mtexenabled = false;
 
 /*
 ================
@@ -1451,39 +1398,9 @@ void GL_SelectTexture (GLenum target)
 {
 	if (target == currenttarget)
 		return;
-		
-	GL_SelectTextureFunc(target);
+
+	GL_ActiveTextureFunc(target);
 	currenttarget = target;
-}
-
-/*
-================
-GL_DisableMultitexture -- selects texture unit 0
-================
-*/
-void GL_DisableMultitexture(void)
-{
-	if (mtexenabled)
-	{
-		glDisable(GL_TEXTURE_2D);
-		GL_SelectTexture(GL_TEXTURE0_ARB);
-		mtexenabled = false;
-	}
-}
-
-/*
-================
-GL_EnableMultitexture -- selects texture unit 1
-================
-*/
-void GL_EnableMultitexture(void)
-{
-	if (gl_mtexable)
-	{
-		GL_SelectTexture(GL_TEXTURE1_ARB);
-		glEnable(GL_TEXTURE_2D);
-		mtexenabled = true;
-	}
 }
 
 /*
@@ -1491,17 +1408,21 @@ void GL_EnableMultitexture(void)
 GL_Bind -- johnfitz -- heavy revision
 ================
 */
-void GL_Bind (gltexture_t *texture)
+void GL_Bind (GLenum target, gltexture_t *texture)
 {
 	if (!texture)
 		texture = nulltexture;
 
-	if (texture->texnum != currenttexture[currenttarget - GL_TEXTURE0_ARB])
-	{
-		currenttexture[currenttarget - GL_TEXTURE0_ARB] = texture->texnum;
-		glBindTexture (GL_TEXTURE_2D, texture->texnum);
-		texture->visframe = r_framecount;
-	}
+	SDL_assert(target > 0);
+	SDL_assert(target < GL_TEXTURE0 + countof(currenttexture));
+
+	if (texture->texnum == currenttexture[target - GL_TEXTURE0])
+		return;
+
+	GL_SelectTexture (target);
+	currenttexture[target - GL_TEXTURE0] = texture->texnum;
+	glBindTexture (GL_TEXTURE_2D, texture->texnum);
+	texture->visframe = r_framecount;
 }
 
 /*
@@ -1514,11 +1435,13 @@ from our per-TMU cached texture binding table.
 */
 static void GL_DeleteTexture (gltexture_t *texture)
 {
+	int i;
+
 	glDeleteTextures (1, &texture->texnum);
 
-	if (texture->texnum == currenttexture[0]) currenttexture[0] = GL_UNUSED_TEXTURE;
-	if (texture->texnum == currenttexture[1]) currenttexture[1] = GL_UNUSED_TEXTURE;
-	if (texture->texnum == currenttexture[2]) currenttexture[2] = GL_UNUSED_TEXTURE;
+	for (i = 0; i < countof(currenttexture); i++)
+		if (texture->texnum == currenttexture[i])
+			currenttexture[i] = GL_UNUSED_TEXTURE;
 
 	texture->texnum = 0;
 }
@@ -1535,8 +1458,6 @@ Call this after changing the binding outside of GL_Bind.
 void GL_ClearBindings(void)
 {
 	int i;
-	for (i = 0; i < 3; i++)
-	{
+	for (i = 0; i < countof(currenttexture); i++)
 		currenttexture[i] = GL_UNUSED_TEXTURE;
-	}
 }

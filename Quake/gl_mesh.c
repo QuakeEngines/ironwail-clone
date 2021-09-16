@@ -374,9 +374,6 @@ void GL_MakeAliasModelDisplayLists_VBO (void)
 	unsigned short *indexes;
 	aliasmesh_t *desc;
 
-	if (!gl_glsl_alias_able)
-		return;
-
 	// first, copy the verts onto the hunk
 	verts = (trivertx_t *) Hunk_Alloc (paliashdr->numposes * paliashdr->numverts * sizeof(trivertx_t));
 	paliashdr->vertexes = (byte *)verts - (byte *)paliashdr;
@@ -462,10 +459,8 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	const trivertx_t *trivertexes;
 	byte *vbodata;
 	int f;
+	char name[256];
 
-	if (!gl_glsl_alias_able)
-		return;
-	
 // count the sizes we need
 	
 	// ericw -- RMQEngine stored these vbo*ofs values in aliashdr_t, but we must not
@@ -494,6 +489,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	GL_GenBuffersFunc (1, &m->meshindexesvbo);
 	GL_BindBufferFunc (GL_ELEMENT_ARRAY_BUFFER, m->meshindexesvbo);
 	GL_BufferDataFunc (GL_ELEMENT_ARRAY_BUFFER, hdr->numindexes * sizeof (unsigned short), indexes, GL_STATIC_DRAW);
+
+	q_snprintf (name, sizeof(name), "%s indices", m->name);
+	GL_ObjectLabelFunc (GL_BUFFER, m->meshindexesvbo, -1, name);
 
 // create the vertex buffer (empty)
 
@@ -550,6 +548,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	GL_BindBufferFunc (GL_ARRAY_BUFFER, m->meshvbo);
 	GL_BufferDataFunc (GL_ARRAY_BUFFER, totalvbosize, vbodata, GL_STATIC_DRAW);
 
+	q_snprintf (name, sizeof(name), "%s vertices", m->name);
+	GL_ObjectLabelFunc (GL_BUFFER, m->meshvbo, -1, name);
+
 	free (vbodata);
 
 // invalidate the cached bindings
@@ -569,9 +570,6 @@ void GLMesh_LoadVertexBuffers (void)
 	qmodel_t *m;
 	const aliashdr_t *hdr;
 
-	if (!gl_glsl_alias_able)
-		return;
-	
 	for (j = 1; j < MAX_MODELS; j++)
 	{
 		if (!(m = cl.model_precache[j])) break;
@@ -594,9 +592,6 @@ void GLMesh_DeleteVertexBuffers (void)
 {
 	int j;
 	qmodel_t *m;
-	
-	if (!gl_glsl_alias_able)
-		return;
 	
 	for (j = 1; j < MAX_MODELS; j++)
 	{
