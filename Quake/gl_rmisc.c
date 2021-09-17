@@ -609,6 +609,21 @@ void GL_BindBuffer (GLenum target, GLuint buffer)
 
 /*
 ====================
+GL_DeleteBuffer
+====================
+*/
+void GL_DeleteBuffer (GLuint buffer)
+{
+	if (buffer == current_array_buffer)
+		current_array_buffer = 0;
+	if (buffer == current_element_array_buffer)
+		current_element_array_buffer = 0;
+
+	GL_DeleteBuffersFunc (1, &buffer);
+}
+
+/*
+====================
 GL_ClearBufferBindings
 
 This must be called if you do anything that could make the cached bindings
@@ -621,4 +636,90 @@ void GL_ClearBufferBindings ()
 	current_element_array_buffer = 0;
 	GL_BindBufferFunc (GL_ARRAY_BUFFER, 0);
 	GL_BindBufferFunc (GL_ELEMENT_ARRAY_BUFFER, 0);
+}
+
+/*
+============================================================================
+							DYNAMIC BUFFERS
+============================================================================
+*/
+
+static GLuint dynabuf[2];
+static int dynabuf_idx = 0;
+static GLsizeiptr dynabuf_offset = 0;
+static GLsizeiptr dynabuf_size = 16 * 1024 * 1024;
+static GLuint *dynabuf_garbage[2];
+
+/*
+====================
+GL_AllocDynamicBuffers
+====================
+*/
+static void GL_AllocDynamicBuffers (void)
+{
+	int i;
+	for (i = 0; i < countof(dynabuf); i++)
+	{
+		if (dynabuf[i])
+			VEC_PUSH (dynabuf_garbage[dynabuf_idx], dynabuf[i]);
+
+		GL_GenBuffersFunc (1, &dynabuf[i]);
+		GL_BindBuffer (GL_ARRAY_BUFFER, dynabuf[i]);
+		GL_BufferDataFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, GL_STREAM_DRAW);
+	}
+
+	dynabuf_offset = 0;
+}
+
+/*
+====================
+GL_InitDynamicBuffers
+====================
+*/
+void GL_InitDynamicBuffers (void)
+{
+	GL_AllocDynamicBuffers ();
+}
+
+/*
+====================
+GL_SwapDynamicBuffers
+====================
+*/
+void GL_SwapDynamicBuffers (void)
+{
+	size_t i, count;
+
+	dynabuf_offset = 0;
+	if (++dynabuf_idx == countof(dynabuf))
+		dynabuf_idx = 0;
+
+	count = VEC_SIZE (dynabuf_garbage[dynabuf_idx]);
+	for (i = 0; i < count; i++)
+		GL_DeleteBuffer (dynabuf_garbage[dynabuf_idx][i]);
+
+	VEC_CLEAR (dynabuf_garbage[dynabuf_idx]);
+}
+
+/*
+====================
+GL_Upload
+====================
+*/
+void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *buf, GLbyte **ofs)
+{
+	if (dynabuf_offset + numbytes > dynabuf_size)
+	{
+		dynabuf_size = dynabuf_offset + numbytes;
+		dynabuf_size += dynabuf_size >> 1;
+		GL_AllocDynamicBuffers ();
+	}
+
+	GL_BindBuffer (target, dynabuf[dynabuf_idx]);
+	GL_BufferSubDataFunc (target, dynabuf_offset, numbytes, data);
+
+	*buf = dynabuf[dynabuf_idx];
+	*ofs = (GLbyte*) dynabuf_offset;
+
+	dynabuf_offset += (numbytes + 63) & ~63;
 }

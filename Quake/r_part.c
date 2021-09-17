@@ -49,6 +49,9 @@ typedef struct particlevert_t {
 	GLubyte		color[4];
 } particlevert_t;
 
+static particlevert_t partverts[3 * 1024];
+static int numpartverts = 0;
+
 static GLuint r_particle_program;
 
 /*
@@ -881,6 +884,30 @@ void CL_RunParticles (void)
 
 /*
 ===============
+R_FlushParticleBatch
+===============
+*/
+static void R_FlushParticleBatch (void)
+{
+	GLuint buf;
+	GLbyte *ofs;
+
+	if (!numpartverts)
+		return;
+
+	GL_Upload (GL_ARRAY_BUFFER, partverts, sizeof(partverts[0]) * numpartverts, &buf, &ofs);
+	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, pos));
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, uv));
+	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, color));
+
+	glDrawArrays (GL_TRIANGLES, 0, numpartverts);
+
+	numpartverts = 0;
+}
+
+/*
+===============
 R_DrawParticles_Real -- johnfitz -- moved all non-drawing code to CL_RunParticles
 ===============
 */
@@ -891,8 +918,6 @@ static void R_DrawParticles_Real (qboolean showtris)
 	vec3_t			up, right, p_up, p_right; //johnfitz -- p_ vectors
 	GLubyte			color[4] = {255, 255, 255, 255}, *c; //johnfitz -- particle transparency
 	extern	cvar_t	r_particles; //johnfitz
-	particlevert_t	verts[3 * 1024];
-	int				numverts = 0;
 	//float			alpha; //johnfitz -- particle transparency
 
 	if (!r_particles.value)
@@ -906,19 +931,14 @@ static void R_DrawParticles_Real (qboolean showtris)
 	GL_UseProgram (r_particle_program);
 	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
 	GL_Uniform4fvFunc (2, 1, fog_data);
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
-
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].uv);
-	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(verts[0]), &verts[0].color);
-
-	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	VectorScale (vup, 1.5, up);
 	VectorScale (vright, 1.5, right);
 
+	numpartverts = 0;
 	for (p=active_particles ; p ; p=p->next)
 	{
 		// hack a scale up to keep particles from disapearing
@@ -944,18 +964,15 @@ static void R_DrawParticles_Real (qboolean showtris)
 			//johnfitz
 		}
 
-		if (numverts == countof(verts))
-		{
-			glDrawArrays(GL_TRIANGLES, 0, numverts);
-			numverts = 0;
-		}
+		if (numpartverts == countof(partverts))
+			R_FlushParticleBatch ();
 
-		#define ADD_VERTEX(uvx, uvy, p)										\
-			VectorCopy(p, verts[numverts].pos);								\
-			verts[numverts].uv[0] = uvx;									\
-			verts[numverts].uv[1] = uvy;									\
-			memcpy(&verts[numverts].color, &color, 4 * sizeof(GLubyte));	\
-			++numverts
+		#define ADD_VERTEX(uvx, uvy, p)												\
+			VectorCopy(p, partverts[numpartverts].pos);								\
+			partverts[numpartverts].uv[0] = uvx;									\
+			partverts[numpartverts].uv[1] = uvy;									\
+			memcpy(&partverts[numpartverts].color, &color, 4 * sizeof(GLubyte));	\
+			++numpartverts
 
 		ADD_VERTEX(0, 0, p->org);
 
@@ -970,8 +987,7 @@ static void R_DrawParticles_Real (qboolean showtris)
 		rs_particles++; //johnfitz //FIXME: just use r_numparticles
 	}
 
-	if (numverts)
-		glDrawArrays(GL_TRIANGLES, 0, numverts);
+	R_FlushParticleBatch ();
 
 	GL_EndGroup ();
 }

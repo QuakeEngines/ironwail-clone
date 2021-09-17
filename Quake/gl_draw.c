@@ -504,6 +504,9 @@ Draw_Flush
 */
 void Draw_Flush (void)
 {
+	GLuint buf;
+	GLbyte *ofs;
+
 	if (!numbatchquads)
 		return;
 
@@ -511,13 +514,15 @@ void Draw_Flush (void)
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
 	GL_Bind (GL_TEXTURE0, canvastexture);
 
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), &batchverts[0].pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), &batchverts[0].uv);
-	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(batchverts[0]), &batchverts[0].color);
+	GL_Upload (GL_ARRAY_BUFFER, batchverts, sizeof(batchverts[0]) * 4 * numbatchquads, &buf, &ofs);
+	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+	GL_VertexAttribPointerFunc (0, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(guivertex_t, pos));
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(guivertex_t, uv));
+	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(batchverts[0]), ofs + offsetof(guivertex_t, color));
 
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, 0);
-	glDrawElements (GL_TRIANGLES, numbatchquads * 6, GL_UNSIGNED_SHORT, batchindices);
+	GL_Upload (GL_ELEMENT_ARRAY_BUFFER, batchindices, sizeof(batchindices[0]) * 6 * numbatchquads, &buf, &ofs);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, buf);
+	glDrawElements (GL_TRIANGLES, numbatchquads * 6, GL_UNSIGNED_SHORT, ofs);
 
 	numbatchquads = 0;
 }

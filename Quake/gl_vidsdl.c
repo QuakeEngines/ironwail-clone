@@ -1177,6 +1177,7 @@ static void GL_Init (void)
 	GLSprite_CreateShaders ();
 
 	GL_ClearBufferBindings ();
+	GL_InitDynamicBuffers ();
 }
 
 /*
@@ -1189,6 +1190,8 @@ void GL_BeginRendering (int *x, int *y, int *width, int *height)
 	*x = *y = 0;
 	*width = vid.width;
 	*height = vid.height;
+
+	GL_SwapDynamicBuffers ();
 }
 
 /*

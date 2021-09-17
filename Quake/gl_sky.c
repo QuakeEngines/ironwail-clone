@@ -626,8 +626,6 @@ Sky_DrawSkyBox
 void Sky_DrawSkyBox (void)
 {
 	int i, j;
-	vec3_t pos[4];
-	float uv[4][2];
 
 	vec4_t fog;
 	fog[0] = fog_data[0];
@@ -642,18 +640,27 @@ void Sky_DrawSkyBox (void)
 	GL_Uniform3fvFunc (1, 1, r_refdef.vieworg);
 	GL_Uniform4fvFunc (2, 1, fog);
 
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, 0, pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, 0, uv);
-
 	for (i = 0; i < 6; i++)
 	{
+		struct skyboxvert_s {
+			vec3_t pos;
+			float uv[2];
+		} verts[4];
+
+		GLuint buf;
+		GLbyte *ofs;
+
 		float st[2] = {1.f, 1.f};
 		for (j = 0; j < 4; j++)
 		{
-			Sky_EmitSkyBoxVertex(st[0], st[1], i, uv[j], pos[j]);
+			Sky_EmitSkyBoxVertex(st[0], st[1], i, verts[j].uv, verts[j].pos);
 			st[j & 1] *= -1.f;
 		}
+
+		GL_Upload (GL_ARRAY_BUFFER, verts, sizeof(verts), &buf, &ofs);
+		GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+		GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(struct skyboxvert_s, pos));
+		GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(struct skyboxvert_s, uv));
 
 		GL_Bind (GL_TEXTURE0, skybox_textures[skytexorder[i]]);
 		glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
@@ -675,7 +682,8 @@ draws the old-style scrolling cloud layers
 */
 void Sky_DrawSkyLayers (void)
 {
-	static const GLubyte quadidx[6] = {0,1,3,3,1,2};
+	GLuint buf;
+	GLbyte *ofs;
 	vec3_t dirs[4];
 	vec4_t fog;
 
@@ -692,16 +700,16 @@ void Sky_DrawSkyLayers (void)
 	GL_UseProgram (r_skylayers_program);
 
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(1));
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, 0, dirs);
+	GL_Upload (GL_ARRAY_BUFFER, dirs, sizeof(dirs), &buf, &ofs);
+	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, 0, ofs);
 
 	GL_Uniform1fFunc (2, cl.time);
 	GL_Uniform4fvFunc (3, 1, fog);
 	GL_Bind (GL_TEXTURE0, solidskytexture);
 	GL_Bind (GL_TEXTURE1, alphaskytexture);
 
-	glDrawElements (GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, quadidx);
+	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
 }
 
 /*
@@ -722,8 +730,6 @@ void Sky_DrawSky (void)
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_BACK | GLS_ATTRIBS(1));
 
 	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, 0); // indices come from client memory!
-
 	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
 
 	Sky_ProcessTextureChains ();

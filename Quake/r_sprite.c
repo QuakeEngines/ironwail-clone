@@ -146,6 +146,8 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 	float			angle, sr, cr;
 	spritevert_t	verts[4];
 	int				i = 0;
+	GLuint			buf;
+	GLbyte*			ofs;
 
 	//TODO: frustum cull it?
 
@@ -220,10 +222,6 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 	else
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
-	GL_BindBuffer (GL_ARRAY_BUFFER, 0);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].pos);
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), &verts[0].uv);
-
 	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : frame->gltexture);
 
 	#define ADD_VERTEX(uvx, uvy, p)		\
@@ -250,6 +248,10 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 
 	#undef ADD_VERTEX
 
+	GL_Upload (GL_ARRAY_BUFFER, verts, sizeof(verts), &buf, &ofs);
+	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(spritevert_t, pos));
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(spritevert_t, uv));
 	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
 
 	//johnfitz: offset decals

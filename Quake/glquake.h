@@ -406,7 +406,12 @@ void R_FlushBatch (void);
 void R_BatchSurface (msurface_t *s);
 
 void GL_BindBuffer (GLenum target, GLuint buffer);
-void GL_ClearBufferBindings ();
+void GL_DeleteBuffer (GLuint buffer);
+void GL_ClearBufferBindings (void);
+
+void GL_InitDynamicBuffers (void);
+void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *buf, GLbyte **ofs);
+void GL_SwapDynamicBuffers (void);
 
 void GLSLGamma_DeleteTexture (void);
 void GLSLGamma_GammaCorrect (void);
