@@ -204,7 +204,7 @@ typedef struct mleaf_s
 	byte		*compressed_vis;
 	efrag_t		*efrags;
 
-	msurface_t	**firstmarksurface;
+	int			*firstmarksurface;
 	int			nummarksurfaces;
 	int			key;			// BSP sequence number for leaf's contents
 	byte		ambient_sound_level[NUM_AMBIENTS];
@@ -464,7 +464,7 @@ typedef struct qmodel_s
 	mclipnode_t	*clipnodes; //johnfitz -- was dclipnode_t
 
 	int			nummarksurfaces;
-	msurface_t	**marksurfaces;
+	int			*marksurfaces;
 
 	hull_t		hulls[MAX_MAP_HULLS];
 

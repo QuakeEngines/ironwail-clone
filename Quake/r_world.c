@@ -96,7 +96,7 @@ void R_MarkSurfaces (void)
 {
 	byte		*vis;
 	mleaf_t		*leaf;
-	msurface_t	*surf, **mark;
+	msurface_t	*surf;
 	int			i, j;
 	qboolean	nearwaterportal;
 
@@ -107,8 +107,8 @@ void R_MarkSurfaces (void)
 	// check this leaf for water portals
 	// TODO: loop through all water surfs and use distance to leaf cullbox
 	nearwaterportal = false;
-	for (i=0, mark = r_viewleaf->firstmarksurface; i < r_viewleaf->nummarksurfaces; i++, mark++)
-		if ((*mark)->flags & SURF_DRAWTURB)
+	for (i=0; i < r_viewleaf->nummarksurfaces; i++)
+		if (cl.worldmodel->surfaces[r_viewleaf->firstmarksurface[i]].flags & SURF_DRAWTURB)
 			nearwaterportal = true;
 
 	// choose vis data
@@ -136,9 +136,9 @@ void R_MarkSurfaces (void)
 				continue;
 
 			if (r_oldskyleaf.value || leaf->contents != CONTENTS_SKY)
-				for (j=0, mark = leaf->firstmarksurface; j<leaf->nummarksurfaces; j++, mark++)
+				for (j=0; j<leaf->nummarksurfaces; j++)
 				{
-					surf = *mark;
+					surf = &cl.worldmodel->surfaces[leaf->firstmarksurface[j]];
 					if (surf->visframe != r_visframecount)
 					{
 						surf->visframe = r_visframecount;
