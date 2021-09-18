@@ -470,9 +470,11 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	
 	m->vboxyzofs = 0;
 	totalvbosize += (hdr->numposes * hdr->numverts_vbo * sizeof (meshxyz_t)); // ericw -- what RMQEngine called nummeshframes is called numposes in QuakeSpasm
+	totalvbosize = (totalvbosize + ssbo_align) & ~ssbo_align;
 	
 	m->vbostofs = totalvbosize;
 	totalvbosize += (hdr->numverts_vbo * sizeof (meshst_t));
+	totalvbosize = (totalvbosize + ssbo_align) & ~ssbo_align;
 	
 	if (!hdr->numindexes) return;
 	if (!totalvbosize) return;

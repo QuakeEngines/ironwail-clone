@@ -105,6 +105,7 @@ float gl_max_anisotropy; //johnfitz
 int gl_stencilbits;
 
 unsigned glstate;
+GLint ssbo_align;
 static GLuint globalvao;
 
 #define QGL_DEFINE_FUNC(ret, name, args) ret (APIENTRYP GL_##name##Func) args = NULL;
@@ -1153,6 +1154,9 @@ static void GL_Init (void)
 
 	GL_GenVertexArraysFunc (1, &globalvao);
 	GL_BindVertexArrayFunc (globalvao);
+
+	glGetIntegerv (GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &ssbo_align);
+	--ssbo_align;
 
 #ifdef __APPLE__
 	// ericw -- enable multi-threaded OpenGL, gives a decent FPS boost.

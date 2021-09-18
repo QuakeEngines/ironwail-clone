@@ -156,6 +156,7 @@ extern int		gl_stencilbits;
 	x(void,			GenBuffers, (GLsizei n, GLuint *buffers))\
 	x(void,			DeleteBuffers, (GLsizei n, const GLuint *buffers))\
 	x(void,			BindBuffer, (GLenum target, GLuint buffer))\
+	x(void,			BindBufferRange, (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size))\
 	x(void,			BufferData, (GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage))\
 	x(void,			BufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data))\
 	x(GLvoid*,		MapBuffer, (GLenum target, GLenum access))\
@@ -247,6 +248,8 @@ typedef enum {
 extern unsigned glstate;
 void GL_SetState (unsigned mask);
 void GL_ResetState (void);
+
+extern GLint ssbo_align; // SSBO alignment - 1
 
 //johnfitz -- anisotropic filtering
 #define	GL_TEXTURE_MAX_ANISOTROPY_EXT		0x84FE

@@ -767,5 +767,5 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf
 	*outbuf = dynabufs[dynabuf_idx].handle;
 	*outofs = (GLbyte*) dynabuf_offset;
 
-	dynabuf_offset += (numbytes + 63) & ~63;
+	dynabuf_offset += (numbytes + ssbo_align) & ~ssbo_align;
 }

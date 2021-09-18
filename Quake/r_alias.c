@@ -67,23 +67,18 @@ typedef struct {
 } lerpdata_t;
 //johnfitz
 
+typedef struct {
+	float		mvp[16];
+	vec4_t		blend;
+	vec4_t		light;
+	vec4_t		fog;
+	int32_t		pose1;
+	int32_t		pose2;
+	int32_t		use_alpha_test;
+	int32_t		padding;
+} aliasinstance_t;
+
 static GLuint r_alias_program;
-
-// uniforms used in vert shader
-static GLuint blendLoc;
-static GLuint lightColorLoc;
-
-// uniforms used in frag shader
-static GLuint texLoc;
-static GLuint fullbrightTexLoc;
-static GLuint useAlphaTestLoc;
-static GLuint fogLoc;
-
-#define pose1VertexAttrIndex 0
-#define pose1NormalAttrIndex 1
-#define pose2VertexAttrIndex 2
-#define pose2NormalAttrIndex 3
-#define texCoordsAttrIndex 4
 
 /*
 =============
@@ -123,19 +118,39 @@ void GLAlias_CreateShaders (void)
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
-		"layout(location=1) uniform vec4 Blend; // xyz is shadevector\n"
-		"layout(location=2) uniform vec4 LightColor;\n"
+		"layout(std430, binding=0) buffer InstanceBuffer\n"
+		"{\n"
+		"	mat4	MVP;\n"
+		"	vec4	Blend;\n"
+		"	vec4	LightColor;\n"
+		"	vec4	Fog;\n"
+		"	int		Pose1;\n"
+		"	int		Pose2;\n"
+		"	int		UseAlphaTest;\n"
+		"	int		padding;\n"
+		"};\n"
 		"\n"
-		"layout(location=0) in vec4 Pose1Vert;\n"
-		"layout(location=1) in vec3 Pose1Normal;\n"
-		"layout(location=2) in vec4 Pose2Vert;\n"
-		"layout(location=3) in vec3 Pose2Normal;\n"
-		"layout(location=4) in vec2 TexCoords;\n"
+		"layout(std430, binding=1) buffer PoseBuffer\n"
+		"{\n"
+		"	uvec2 PackedPosNor[];\n"
+		"};\n"
 		"\n"
-		"layout(location=0) out vec2 out_texcoord;\n"
-		"layout(location=1) out vec4 out_color;\n"
-		"layout(location=2) out float out_fogdist;\n"
+		"layout(std430, binding=2) buffer UVBuffer\n"
+		"{\n"
+		"	vec2 TexCoords[];\n"
+		"};\n"
+		"\n"
+		"struct Pose\n"
+		"{\n"
+		"	vec3 pos;\n"
+		"	vec3 nor;\n"
+		"};\n"
+		"\n"
+		"Pose GetPose(uint index)\n"
+		"{\n"
+		"	uvec2 data = PackedPosNor[index + gl_VertexID];\n"
+		"	return Pose(vec3((data.xxx >> uvec3(0, 8, 16)) & 255), unpackSnorm4x8(data.y).xyz);\n"
+		"}\n"
 		"\n"
 		"float r_avertexnormal_dot(vec3 vertexnormal) // from MH \n"
 		"{\n"
@@ -146,14 +161,21 @@ void GLAlias_CreateShaders (void)
 		"	else\n"
 		"		return 1.0 + dot;\n"
 		"}\n"
+		"\n"
+		"layout(location=0) out vec2 out_texcoord;\n"
+		"layout(location=1) out vec4 out_color;\n"
+		"layout(location=2) out float out_fogdist;\n"
+		"\n"
 		"void main()\n"
 		"{\n"
-		"	out_texcoord = TexCoords;\n"
-		"	vec4 lerpedVert = mix(vec4(Pose1Vert.xyz, 1.0), vec4(Pose2Vert.xyz, 1.0), Blend.w);\n"
-		"	gl_Position = MVP * lerpedVert;\n"
+		"	out_texcoord = TexCoords[gl_VertexID];\n"
+		"	Pose pose1 = GetPose(Pose1);\n"
+		"	Pose pose2 = GetPose(Pose2);\n"
+		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, Blend.w);\n"
+		"	gl_Position = MVP * vec4(lerpedVert, 1.0);\n"
 		"	out_fogdist = gl_Position.w;\n"
-		"	float dot1 = r_avertexnormal_dot(Pose1Normal);\n"
-		"	float dot2 = r_avertexnormal_dot(Pose2Normal);\n"
+		"	float dot1 = r_avertexnormal_dot(pose1.nor);\n"
+		"	float dot2 = r_avertexnormal_dot(pose2.nor);\n"
 		"	out_color = LightColor * vec4(vec3(mix(dot1, dot2, Blend.w)), 1.0);\n"
 		"}\n";
 
@@ -163,8 +185,17 @@ void GLAlias_CreateShaders (void)
 		"layout(binding=0) uniform sampler2D Tex;\n"
 		"layout(binding=1) uniform sampler2D FullbrightTex;\n"
 		"\n"
-		"layout(location=3) uniform bool UseAlphaTest;\n"
-		"layout(location=4) uniform vec4 Fog;\n"
+		"layout(std430, binding=0) buffer InstanceBuffer\n"
+		"{\n"
+		"	mat4	MVP;\n"
+		"	vec4	Blend;\n"
+		"	vec4	LightColor;\n"
+		"	vec4	Fog;\n"
+		"	int		Pose1;\n"
+		"	int		Pose2;\n"
+		"	int		UseAlphaTest;\n"
+		"	int		padding;\n"
+		"};\n"
 		"\n"
 		"layout(location=0) in vec2 in_texcoord;\n"
 		"layout(location=1) in vec4 in_color;\n"
@@ -175,7 +206,7 @@ void GLAlias_CreateShaders (void)
 		"void main()\n"
 		"{\n"
 		"	vec4 result = texture2D(Tex, in_texcoord);\n"
-		"	if (UseAlphaTest && (result.a < 0.666))\n"
+		"	if (UseAlphaTest != 0 && result.a < 0.666)\n"
 		"		discard;\n"
 		"	result *= in_color * 2.0;\n"
 		"	result += texture2D(FullbrightTex, in_texcoord);\n"
@@ -188,17 +219,6 @@ void GLAlias_CreateShaders (void)
 		"}\n";
 
 	r_alias_program = GL_CreateProgram (vertSource, fragSource, "alias");
-
-	if (r_alias_program != 0)
-	{
-	// get uniform locations
-		blendLoc = GL_GetUniformLocation (&r_alias_program, "Blend");
-		lightColorLoc = GL_GetUniformLocation (&r_alias_program, "LightColor");
-		texLoc = GL_GetUniformLocation (&r_alias_program, "Tex");
-		fullbrightTexLoc = GL_GetUniformLocation (&r_alias_program, "FullbrightTex");
-		useAlphaTestLoc = GL_GetUniformLocation (&r_alias_program, "UseAlphaTest");
-		fogLoc = GL_GetUniformLocation (&r_alias_program, "Fog");
-	}
 }
 
 /*
@@ -215,57 +235,52 @@ Supports optional overbright, optional fullbright pixels.
 Based on code by MH from RMQEngine
 =============
 */
-static int lastfogframe = 0;
 void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t lerpdata, gltexture_t *tx, gltexture_t *fb, const float *mvp)
 {
 	float		blend;
 	unsigned	state;
+	qmodel_t	*model = currententity->model;
+	GLuint		buf;
+	GLbyte		*ofs;
+	aliasinstance_t instance;
 
 	if (lerpdata.pose1 != lerpdata.pose2)
-	{
 		blend = lerpdata.blend;
-	}
 	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
-	{
-		blend = 0;
-	}
+		blend = 0.f;
 
 	GL_UseProgram (r_alias_program);
 
-	state = GLS_CULL_BACK | GLS_ATTRIBS(5);
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
 	if (entalpha < 1.f)
 		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 	else
 		state |= GLS_BLEND_OPAQUE;
 	GL_SetState (state);
 
-	GL_BindBuffer (GL_ARRAY_BUFFER, currententity->model->meshvbo);
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, currententity->model->meshindexesvbo);
+	memcpy(instance.mvp, mvp, 16 * sizeof(float));
+	instance.blend[0] = shadevector[0];
+	instance.blend[1] = shadevector[1];
+	instance.blend[2] = shadevector[2];
+	instance.blend[3] = blend;
+	instance.light[0] = lightcolor[0];
+	instance.light[1] = lightcolor[1];
+	instance.light[2] = lightcolor[2];
+	instance.light[3] = entalpha;
+	memcpy(instance.fog, fog_data, 4 * sizeof(float));
+	instance.pose1 = lerpdata.pose1 * paliashdr->numverts_vbo;
+	instance.pose2 = lerpdata.pose2 * paliashdr->numverts_vbo;
+	instance.use_alpha_test = (currententity->model->flags & MF_HOLEY) ? 1 : 0;
 
-	GL_VertexAttribPointerFunc (texCoordsAttrIndex, 2, GL_FLOAT, GL_FALSE, 0, (void *)(intptr_t)currententity->model->vbostofs);
-	GL_VertexAttribPointerFunc (pose1VertexAttrIndex, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof (meshxyz_t), GLARB_GetXYZOffset (paliashdr, lerpdata.pose1));
-	GL_VertexAttribPointerFunc (pose2VertexAttrIndex, 4, GL_UNSIGNED_BYTE, GL_FALSE, sizeof (meshxyz_t), GLARB_GetXYZOffset (paliashdr, lerpdata.pose2));
-// GL_TRUE to normalize the signed bytes to [-1 .. 1]
-	GL_VertexAttribPointerFunc (pose1NormalAttrIndex, 4, GL_BYTE, GL_TRUE, sizeof (meshxyz_t), GLARB_GetNormalOffset (paliashdr, lerpdata.pose1));
-	GL_VertexAttribPointerFunc (pose2NormalAttrIndex, 4, GL_BYTE, GL_TRUE, sizeof (meshxyz_t), GLARB_GetNormalOffset (paliashdr, lerpdata.pose2));
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &instance, sizeof(instance), &buf, &ofs);
+	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(instance));
+	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
+	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
-// set uniforms
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
-	GL_Uniform4fFunc (blendLoc, shadevector[0], shadevector[1], shadevector[2], blend);
-	GL_Uniform4fFunc (lightColorLoc, lightcolor[0], lightcolor[1], lightcolor[2], entalpha);
-	GL_Uniform1iFunc (useAlphaTestLoc, (currententity->model->flags & MF_HOLEY) ? 1 : 0);
-
-	if (lastfogframe != r_framecount) // only set fog once per frame
-	{
-		lastfogframe = r_framecount;
-		GL_Uniform4fvFunc (fogLoc, 1, fog_data);
-	}
-
-// set textures
 	GL_Bind (GL_TEXTURE0, tx);
 	GL_Bind (GL_TEXTURE1, fb);
 
-// draw
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, currententity->model->meshindexesvbo);
 	glDrawElements (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)currententity->model->vboindexofs);
 
 	rs_aliaspasses += paliashdr->numtris;
