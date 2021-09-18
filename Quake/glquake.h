@@ -244,7 +244,7 @@ typedef enum {
 
 #define GLS_ATTRIBS(n)	(((1 << (n)) - 1) * GLS_ATTRIB0)
 
-unsigned glstate;
+extern unsigned glstate;
 void GL_SetState (unsigned mask);
 void GL_ResetState (void);
 
