@@ -542,9 +542,7 @@ void Sky_ProcessEntities (void)
 
 	for (i=0 ; i<cl_numvisedicts ; i++)
 	{
-		float mvp[16], model_matrix[16];
-		vec3_t angles;
-
+		qboolean setup = false;
 		e = cl_visedicts[i];
 
 		if (e->model->type != mod_brush)
@@ -554,19 +552,31 @@ void Sky_ProcessEntities (void)
 		if (R_CullModelForEntity(e))
 			continue;
 
-		angles[0] = -e->angles[0];
-		angles[1] =  e->angles[1];
-		angles[2] =  e->angles[2];
-
-		memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
-		R_EntityMatrix (model_matrix, e->origin, angles);
-		MatrixMultiply (mvp, model_matrix);
-		GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
-
 		s = &e->model->surfaces[e->model->firstmodelsurface];
 		for (j=0 ; j<e->model->nummodelsurfaces ; j++, s++)
-			if (s->flags & SURF_DRAWSKY)
-				R_BatchSurface (s);
+		{
+			if (!(s->flags & SURF_DRAWSKY))
+				continue;
+
+			if (!setup)
+			{
+				float mvp[16], model_matrix[16];
+				vec3_t angles;
+
+				setup = true;
+
+				angles[0] = -e->angles[0];
+				angles[1] =  e->angles[1];
+				angles[2] =  e->angles[2];
+
+				memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
+				R_EntityMatrix (model_matrix, e->origin, angles);
+				MatrixMultiply (mvp, model_matrix);
+				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
+			}
+
+			R_BatchSurface (s);
+		}
 
 		R_FlushBatch ();
 	}
