@@ -158,6 +158,15 @@ extern int		gl_stencilbits;
 	x(void,			BindBuffer, (GLenum target, GLuint buffer))\
 	x(void,			BufferData, (GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage))\
 	x(void,			BufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data))\
+	x(GLvoid*,		MapBuffer, (GLenum target, GLenum access))\
+	x(GLboolean,	UnmapBuffer, (GLenum target))\
+	x(void*,		MapBufferRange, (GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access))\
+	x(void,			FlushMappedBufferRange, (GLenum target, GLintptr offset, GLsizeiptr length))\
+	x(void,			BufferStorage, (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags))\
+	x(GLsync,		FenceSync, (GLenum condition, GLbitfield flags))\
+	x(void,			DeleteSync, (GLsync sync))\
+	x(GLenum,		ClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))\
+	x(void,			WaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))\
 	x(GLuint,		CreateProgram, (void))\
 	x(void,			DeleteProgram, (GLuint program))\
 	x(void,			GetProgramiv, (GLuint program, GLenum pname, GLint *params))\
@@ -410,8 +419,9 @@ void GL_DeleteBuffer (GLuint buffer);
 void GL_ClearBufferBindings (void);
 
 void GL_InitDynamicBuffers (void);
-void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *buf, GLbyte **ofs);
-void GL_SwapDynamicBuffers (void);
+void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs);
+void GL_DynamicBuffersBeginFrame (void);
+void GL_DynamicBuffersEndFrame (void);
 
 void GLSLGamma_DeleteTexture (void);
 void GLSLGamma_GammaCorrect (void);

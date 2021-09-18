@@ -644,11 +644,19 @@ void GL_ClearBufferBindings ()
 ============================================================================
 */
 
-static GLuint dynabuf[2];
-static int dynabuf_idx = 0;
-static GLsizeiptr dynabuf_offset = 0;
-static GLsizeiptr dynabuf_size = 16 * 1024 * 1024;
-static GLuint *dynabuf_garbage[2];
+#define DYNABUF_FRAMES 3
+
+typedef struct dynabuf_t {
+	GLsync			fence;
+	GLuint			handle;
+	GLubyte			*ptr;
+	GLuint			*garbage;
+} dynabuf_t;
+
+static dynabuf_t	dynabufs[DYNABUF_FRAMES];
+static int			dynabuf_idx = 0;
+static size_t		dynabuf_offset = 0;
+static size_t		dynabuf_size = 8 * 1024 * 1024;
 
 /*
 ====================
@@ -658,14 +666,27 @@ GL_AllocDynamicBuffers
 static void GL_AllocDynamicBuffers (void)
 {
 	int i;
-	for (i = 0; i < countof(dynabuf); i++)
+	for (i = 0; i < countof(dynabufs); i++)
 	{
-		if (dynabuf[i])
-			VEC_PUSH (dynabuf_garbage[dynabuf_idx], dynabuf[i]);
+		GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
+		dynabuf_t *buf = &dynabufs[i];
 
-		GL_GenBuffersFunc (1, &dynabuf[i]);
-		GL_BindBuffer (GL_ARRAY_BUFFER, dynabuf[i]);
-		GL_BufferDataFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, GL_STREAM_DRAW);
+		if (buf->handle)
+		{
+			if (buf->ptr)
+			{
+				GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
+				GL_UnmapBufferFunc (GL_ARRAY_BUFFER);
+			}
+			VEC_PUSH (dynabufs[dynabuf_idx].garbage, buf->handle);
+		}
+
+		GL_GenBuffersFunc (1, &buf->handle);
+		GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
+		GL_BufferStorageFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, flags);
+		buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
+		if (!buf->ptr)
+			Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %z bytes", dynabuf_size);
 	}
 
 	dynabuf_offset = 0;
@@ -683,22 +704,44 @@ void GL_InitDynamicBuffers (void)
 
 /*
 ====================
-GL_SwapDynamicBuffers
+GL_DynamicBuffersBeginFrame
 ====================
 */
-void GL_SwapDynamicBuffers (void)
+void GL_DynamicBuffersBeginFrame (void)
 {
-	size_t i, count;
+	dynabuf_t *buf = &dynabufs[dynabuf_idx];
+	size_t i, num_garbage_bufs;
 
-	dynabuf_offset = 0;
-	if (++dynabuf_idx == countof(dynabuf))
+	if (buf->fence)
+	{
+		GLuint64 timeout = 4ull * 1000 * 1000 * 1000; // 4 seconds
+		GLenum result = GL_ClientWaitSyncFunc (buf->fence, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
+		if (result != GL_CONDITION_SATISFIED && result != GL_ALREADY_SIGNALED)
+			Sys_Error ("GL_DynamicBuffersBeginFrame: sync failed (0x%04x)", result);
+		GL_DeleteSyncFunc (buf->fence);
+		buf->fence = NULL;
+	}
+
+	num_garbage_bufs = VEC_SIZE (buf->garbage);
+	for (i = 0; i < num_garbage_bufs; i++)
+		GL_DeleteBuffer (buf->garbage[i]);
+	VEC_CLEAR (buf->garbage);
+}
+
+/*
+====================
+GL_DynamicBuffersEndFrame
+====================
+*/
+void GL_DynamicBuffersEndFrame (void)
+{
+	dynabuf_t *buf = &dynabufs[dynabuf_idx];
+	SDL_assert (!buf->fence);
+	buf->fence = GL_FenceSyncFunc (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+	if (++dynabuf_idx == countof(dynabufs))
 		dynabuf_idx = 0;
-
-	count = VEC_SIZE (dynabuf_garbage[dynabuf_idx]);
-	for (i = 0; i < count; i++)
-		GL_DeleteBuffer (dynabuf_garbage[dynabuf_idx][i]);
-
-	VEC_CLEAR (dynabuf_garbage[dynabuf_idx]);
+	dynabuf_offset = 0;
 }
 
 /*
@@ -706,7 +749,7 @@ void GL_SwapDynamicBuffers (void)
 GL_Upload
 ====================
 */
-void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *buf, GLbyte **ofs)
+void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs)
 {
 	if (dynabuf_offset + numbytes > dynabuf_size)
 	{
@@ -715,11 +758,10 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *buf, G
 		GL_AllocDynamicBuffers ();
 	}
 
-	GL_BindBuffer (target, dynabuf[dynabuf_idx]);
-	GL_BufferSubDataFunc (target, dynabuf_offset, numbytes, data);
+	memcpy (dynabufs[dynabuf_idx].ptr + dynabuf_offset, data, numbytes);
 
-	*buf = dynabuf[dynabuf_idx];
-	*ofs = (GLbyte*) dynabuf_offset;
+	*outbuf = dynabufs[dynabuf_idx].handle;
+	*outofs = (GLbyte*) dynabuf_offset;
 
 	dynabuf_offset += (numbytes + 63) & ~63;
 }

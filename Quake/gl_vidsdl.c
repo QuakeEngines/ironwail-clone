@@ -1141,8 +1141,8 @@ static void GL_Init (void)
 		gl_version_minor = 0;
 	}
 	gl_version_number = MAKE_GL_VERSION(gl_version_major, gl_version_minor);
-	if (gl_version_number < MAKE_GL_VERSION(4, 3))
-		Sys_Error("OpenGL 4.3 required, found %d.%d\n", gl_version_major, gl_version_minor);
+	if (gl_version_number < MAKE_GL_VERSION(4, 4))
+		Sys_Error("OpenGL 4.4 required, found %d.%d\n", gl_version_major, gl_version_minor);
 
 	if (gl_extensions_nice != NULL)
 		Z_Free (gl_extensions_nice);
@@ -1191,7 +1191,7 @@ void GL_BeginRendering (int *x, int *y, int *width, int *height)
 	*width = vid.width;
 	*height = vid.height;
 
-	GL_SwapDynamicBuffers ();
+	GL_DynamicBuffersBeginFrame ();
 }
 
 /*
@@ -1201,6 +1201,7 @@ GL_EndRendering
 */
 void GL_EndRendering (void)
 {
+	GL_DynamicBuffersEndFrame ();
 	if (!scr_skipupdate)
 	{
 #if defined(USE_SDL2)
