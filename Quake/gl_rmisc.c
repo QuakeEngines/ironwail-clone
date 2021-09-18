@@ -668,6 +668,7 @@ static void GL_AllocDynamicBuffers (void)
 	int i;
 	for (i = 0; i < countof(dynabufs); i++)
 	{
+		char name[64];
 		GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 		dynabuf_t *buf = &dynabufs[i];
 
@@ -687,6 +688,9 @@ static void GL_AllocDynamicBuffers (void)
 		buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
 		if (!buf->ptr)
 			Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %z bytes", dynabuf_size);
+
+		q_snprintf (name, sizeof(name), "dynamic buffer %d", i);
+		GL_ObjectLabelFunc (GL_BUFFER, buf->handle, -1, name);
 	}
 
 	dynabuf_offset = 0;
