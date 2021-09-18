@@ -235,7 +235,7 @@ Supports optional overbright, optional fullbright pixels.
 Based on code by MH from RMQEngine
 =============
 */
-void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t lerpdata, gltexture_t *tx, gltexture_t *fb, const float *mvp)
+void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t *lerpdata, gltexture_t *tx, gltexture_t *fb, const float *mvp)
 {
 	float		blend;
 	unsigned	state;
@@ -244,8 +244,8 @@ void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t lerpdata, gltextu
 	GLbyte		*ofs;
 	aliasinstance_t instance;
 
-	if (lerpdata.pose1 != lerpdata.pose2)
-		blend = lerpdata.blend;
+	if (lerpdata->pose1 != lerpdata->pose2)
+		blend = lerpdata->blend;
 	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
 		blend = 0.f;
 
@@ -268,8 +268,8 @@ void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t lerpdata, gltextu
 	instance.light[2] = lightcolor[2];
 	instance.light[3] = entalpha;
 	memcpy(instance.fog, fog_data, 4 * sizeof(float));
-	instance.pose1 = lerpdata.pose1 * paliashdr->numverts_vbo;
-	instance.pose2 = lerpdata.pose2 * paliashdr->numverts_vbo;
+	instance.pose1 = lerpdata->pose1 * paliashdr->numverts_vbo;
+	instance.pose2 = lerpdata->pose2 * paliashdr->numverts_vbo;
 	instance.use_alpha_test = (currententity->model->flags & MF_HOLEY) ? 1 : 0;
 
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &instance, sizeof(instance), &buf, &ofs);
@@ -617,7 +617,7 @@ void R_DrawAliasModel (entity_t *e)
 
 	GL_BeginGroup (e->model->name);
 
-	GL_DrawAliasFrame_GLSL (paliashdr, lerpdata, tx, fb, mvp);
+	GL_DrawAliasFrame_GLSL (paliashdr, &lerpdata, tx, fb, mvp);
 
 	GL_EndGroup();
 }
@@ -688,5 +688,5 @@ void R_DrawAliasModel_ShowTris (entity_t *e)
 	memcpy(mvp, r_matviewproj, 16 * sizeof(float));
 	MatrixMultiply (mvp, model_matrix);
 
-	GL_DrawAliasFrame_GLSL (paliashdr, lerpdata, whitetexture, whitetexture, mvp);
+	GL_DrawAliasFrame_GLSL (paliashdr, &lerpdata, whitetexture, whitetexture, mvp);
 }
