@@ -390,6 +390,8 @@ void R_DeleteShaders (void);
 
 void GLDraw_CreateShaders (void);
 void GLView_CreateShaders (void);
+void R_WarpScaleView_CreateResources (void);
+void GLSLGamma_CreateResources (void);
 void GLWorld_CreateShaders (void);
 void GLAlias_CreateShaders (void);
 void GLSky_CreateShaders (void);

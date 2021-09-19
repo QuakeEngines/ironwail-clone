@@ -1178,6 +1178,8 @@ static void GL_Init (void)
 
 	GLDraw_CreateShaders ();
 	GLView_CreateShaders ();
+	R_WarpScaleView_CreateResources ();
+	GLSLGamma_CreateResources ();
 	GLWorld_CreateShaders ();
 	GLAlias_CreateShaders ();
 	GLSky_CreateShaders ();

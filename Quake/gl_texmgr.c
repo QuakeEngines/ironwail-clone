@@ -1387,42 +1387,55 @@ void TexMgr_ReloadNobrightImages (void)
 */
 
 static GLuint	currenttexture[3] = {GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE}; // to avoid unnecessary texture sets
-static GLenum	currenttarget = GL_TEXTURE0_ARB;
+static GLenum	currenttexunit = GL_TEXTURE0_ARB;
 
 /*
 ================
-GL_SelectTexture -- johnfitz -- rewritten
+GL_SelectTexture
 ================
 */
-void GL_SelectTexture (GLenum target)
+void GL_SelectTexture (GLenum texunit)
 {
-	if (target == currenttarget)
+	if (texunit == currenttexunit)
 		return;
 
-	GL_ActiveTextureFunc(target);
-	currenttarget = target;
+	GL_ActiveTextureFunc(texunit);
+	currenttexunit = texunit;
 }
 
 /*
 ================
-GL_Bind -- johnfitz -- heavy revision
+GL_Bind
 ================
 */
-void GL_Bind (GLenum target, gltexture_t *texture)
+qboolean GL_Bind (GLenum texunit, gltexture_t *texture)
 {
 	if (!texture)
 		texture = nulltexture;
-
-	SDL_assert(target > 0);
-	SDL_assert(target < GL_TEXTURE0 + countof(currenttexture));
-
-	if (texture->texnum == currenttexture[target - GL_TEXTURE0])
-		return;
-
-	GL_SelectTexture (target);
-	currenttexture[target - GL_TEXTURE0] = texture->texnum;
-	glBindTexture (GL_TEXTURE_2D, texture->texnum);
+	if (!GL_BindNative (texunit, GL_TEXTURE_2D, texture->texnum))
+		return false;
 	texture->visframe = r_framecount;
+	return true;
+}
+
+/*
+================
+GL_BindNative
+================
+*/
+qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle)
+{
+	SDL_assert(texunit > 0);
+	SDL_assert(texunit < GL_TEXTURE0 + countof(currenttexture));
+
+	if (handle == currenttexture[texunit - GL_TEXTURE0])
+		return false;
+
+	GL_SelectTexture (texunit);
+	currenttexture[texunit - GL_TEXTURE0] = handle;
+	glBindTexture (type, handle);
+
+	return true;
 }
 
 /*

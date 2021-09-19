@@ -135,10 +135,10 @@ void GLSLGamma_DeleteTexture (void)
 
 /*
 =============
-GLSLGamma_CreateShaders
+GLSLGamma_CreateResources
 =============
 */
-static void GLSLGamma_CreateShaders (void)
+void GLSLGamma_CreateResources (void)
 {
 	const GLchar *vertSource = \
 		"#version 430\n"
@@ -165,6 +165,17 @@ static void GLSLGamma_CreateShaders (void)
 		"}\n";
 
 	r_gamma_program = GL_CreateProgram (vertSource, fragSource, "postprocess");
+
+	glGenTextures (1, &r_gamma_texture);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_gamma_texture);
+
+	r_gamma_texture_width = vid.width;
+	r_gamma_texture_height = vid.height;
+
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_gamma_texture_width, r_gamma_texture_height, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	GL_ObjectLabelFunc (GL_TEXTURE, r_gamma_texture, -1, "postprocess");
 }
 
 /*
@@ -179,29 +190,8 @@ void GLSLGamma_GammaCorrect (void)
 
 	GL_BeginGroup ("Postprocess");
 
-// create render-to-texture texture if needed
-	if (!r_gamma_texture)
-	{
-		glGenTextures (1, &r_gamma_texture);
-		glBindTexture (GL_TEXTURE_2D, r_gamma_texture);
-
-		r_gamma_texture_width = glwidth;
-		r_gamma_texture_height = glheight;
-
-		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_gamma_texture_width, r_gamma_texture_height, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	}
-
-// create shader if needed
-	if (!r_gamma_program)
-	{
-		GLSLGamma_CreateShaders ();
-	}
-	
 // copy the framebuffer to the texture
-	GL_ActiveTextureFunc (GL_TEXTURE0);
-	glBindTexture (GL_TEXTURE_2D, r_gamma_texture);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_gamma_texture);
 	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, glx, gly, glwidth, glheight);
 
 // draw the texture back to the framebuffer with a fragment shader
@@ -212,9 +202,6 @@ void GLSLGamma_GammaCorrect (void)
 	glViewport (glx, gly, glwidth, glheight);
 
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-// clear cached binding
-	GL_ClearBindings ();
 
 	GL_EndGroup ();
 }
@@ -824,10 +811,10 @@ void R_WarpScaleView_DeleteTexture (void)
 
 /*
 =============
-R_WarpScaleView_CreateShaders
+R_WarpScaleView_CreateResources
 =============
 */
-void R_WarpScaleView_CreateShaders (void)
+void R_WarpScaleView_CreateResources (void)
 {
 	const GLchar *vertSource = \
 		"#version 430\n"
@@ -868,6 +855,19 @@ void R_WarpScaleView_CreateShaders (void)
 		"}\n";
 
 	r_warpscale_program = GL_CreateProgram (vertSource, fragSource, "view warp/scale");
+
+	glGenTextures (1, &r_warpscale_texture);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_warpscale_texture);
+
+	r_warpscale_texture_width = vid.width;
+	r_warpscale_texture_height = vid.height;
+
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_warpscale_texture_width, r_warpscale_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	GL_ObjectLabelFunc (GL_TEXTURE, r_warpscale_texture, -1, "warp/scale");
 }
 
 /*
@@ -898,36 +898,8 @@ void R_WarpScaleView (void)
 
 	GL_BeginGroup ("Warp/scale view");
 
-	GL_SelectTexture (GL_TEXTURE0);
-
-	if (!r_warpscale_program)
-		R_WarpScaleView_CreateShaders ();
-
-	// create (if needed) and bind the render-to-texture texture
-	if (!r_warpscale_texture)
-	{
-		glGenTextures (1, &r_warpscale_texture);
-
-		r_warpscale_texture_width = 0;
-		r_warpscale_texture_height = 0;
-	}
-	glBindTexture (GL_TEXTURE_2D, r_warpscale_texture);
-
-	// resize render-to-texture texture if needed
-	if (r_warpscale_texture_width < glwidth
-		|| r_warpscale_texture_height < glheight)
-	{
-		r_warpscale_texture_width = glwidth;
-		r_warpscale_texture_height = glheight;
-
-		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_warpscale_texture_width, r_warpscale_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	}
-
 	// copy the framebuffer to the texture
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_warpscale_texture);
 	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, srcx, srcy, srcw, srch);
 
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
@@ -939,8 +911,6 @@ void R_WarpScaleView (void)
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 	GL_Uniform4fFunc(0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-
-	GL_ClearBindings ();
 
 	GL_EndGroup ();
 }
