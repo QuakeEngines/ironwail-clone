@@ -50,6 +50,7 @@ vec3_t	vright;
 vec3_t	r_origin;
 
 float r_fovx, r_fovy; //johnfitz -- rendering fov may be different becuase of r_waterwarp and r_stereo
+qboolean water_warp;
 
 //
 // screen size info
@@ -487,7 +488,7 @@ void R_SetupGL (void)
 	float rotation[16];
 
 	//johnfitz -- rewrote this section
-	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_ScaleView
+	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
 	glViewport (glx + r_refdef.vrect.x,
 				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
 				r_refdef.vrect.width / scale,
@@ -571,14 +572,22 @@ void R_SetupView (void)
 	//johnfitz -- calculate r_fovx and r_fovy here
 	r_fovx = r_refdef.fov_x;
 	r_fovy = r_refdef.fov_y;
+	water_warp = false;
 	if (r_waterwarp.value)
 	{
 		int contents = Mod_PointInLeaf (r_origin, cl.worldmodel)->contents;
 		if (contents == CONTENTS_WATER || contents == CONTENTS_SLIME || contents == CONTENTS_LAVA)
 		{
-			//variance is a percentage of width, where width = 2 * tan(fov / 2) otherwise the effect is too dramatic at high FOV and too subtle at low FOV.  what a mess!
-			r_fovx = atan(tan(DEG2RAD(r_refdef.fov_x) / 2) * (0.97 + sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
-			r_fovy = atan(tan(DEG2RAD(r_refdef.fov_y) / 2) * (1.03 - sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
+			if (r_waterwarp.value > 1.f)
+			{
+				//variance is a percentage of width, where width = 2 * tan(fov / 2) otherwise the effect is too dramatic at high FOV and too subtle at low FOV.  what a mess!
+				r_fovx = atan(tan(DEG2RAD(r_refdef.fov_x) / 2) * (0.97 + sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
+				r_fovy = atan(tan(DEG2RAD(r_refdef.fov_y) / 2) * (1.03 - sin(cl.time * 1.5) * 0.03)) * 2 / M_PI_DIV_180;
+			}
+			else
+			{
+				water_warp = true;
+			}
 		}
 	}
 	//johnfitz
@@ -797,41 +806,39 @@ void R_RenderScene (void)
 	R_ShowTris (); //johnfitz
 }
 
-static GLuint r_scaleview_program;
-static GLuint r_scaleview_texture;
-static int r_scaleview_texture_width, r_scaleview_texture_height;
+static GLuint r_warpscale_program;
+static GLuint r_warpscale_texture;
+static int r_warpscale_texture_width, r_warpscale_texture_height;
 
 /*
 =============
-R_ScaleView_DeleteTexture
+R_WarpScaleView_DeleteTexture
 =============
 */
-void R_ScaleView_DeleteTexture (void)
+void R_WarpScaleView_DeleteTexture (void)
 {
-	glDeleteTextures (1, &r_scaleview_texture);
-	r_scaleview_texture = 0;
-	r_scaleview_program = 0; // deleted in R_DeleteShaders
+	glDeleteTextures (1, &r_warpscale_texture);
+	r_warpscale_texture = 0;
+	r_warpscale_program = 0; // deleted in R_DeleteShaders
 }
 
 /*
 =============
-R_ScaleView_CreateShaders
+R_WarpScaleView_CreateShaders
 =============
 */
-void R_ScaleView_CreateShaders (void)
+void R_WarpScaleView_CreateShaders (void)
 {
 	const GLchar *vertSource = \
 		"#version 430\n"
-		"\n"
-		"layout(location=0) uniform vec2 UVScale;\n"
 		"\n"
 		"layout(location=0) out vec2 out_uv;\n"
 		"\n"
 		"void main(void) {\n"
 		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
 		"	v.x ^= v.y; // fix winding order\n"
-		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
-		"	out_uv = vec2(v) * UVScale;\n"
+		"	out_uv = vec2(v);\n"
+		"	gl_Position = vec4(out_uv * 2.0 - 1.0, 0.0, 1.0);\n"
 		"}\n";
 
 	const GLchar *fragSource = \
@@ -839,20 +846,33 @@ void R_ScaleView_CreateShaders (void)
 		"\n"
 		"layout(binding=0) uniform sampler2D Tex;\n"
 		"\n"
+		"layout(location=0) uniform vec4 UVScaleWarpTime; // xy=Scale z=Warp w=Time\n"
+		"\n"
 		"layout(location=0) in vec2 in_uv;\n"
 		"\n"
 		"layout(location=0) out vec4 out_fragcolor;\n"
 		"\n"
 		"void main(void) {\n"
-		"	  out_fragcolor = texture2D(Tex, in_uv);\n"
+		"	vec2 uv = in_uv;\n"
+		"	vec2 uv_scale = UVScaleWarpTime.xy;\n"
+		"	if (UVScaleWarpTime.z > 0.0)\n"
+		"	{\n"
+		"		float time = UVScaleWarpTime.w;\n"
+		"		float aspect = dFdy(uv.y) / dFdx(uv.x);\n"
+		"		vec2 warp_amp = UVScaleWarpTime.zz;\n"
+		"		warp_amp.y *= aspect;\n"
+		"		uv = warp_amp + uv * (1.0 - 2.0 * warp_amp); // remap to safe area\n"
+		"		uv += warp_amp * sin(vec2(uv.y / aspect, uv.x) * (3.14159265 * 8.0) + time);\n"
+		"	}\n"
+		"	out_fragcolor = texture2D(Tex, uv * uv_scale);\n"
 		"}\n";
 
-	r_scaleview_program = GL_CreateProgram (vertSource, fragSource, "viewscale");
+	r_warpscale_program = GL_CreateProgram (vertSource, fragSource, "view warp/scale");
 }
 
 /*
 ================
-R_ScaleView
+R_WarpScaleView
 
 The r_scale cvar allows rendering the 3D view at 1/2, 1/3, or 1/4 resolution.
 This function scales the reduced resolution 3D view back up to fill 
@@ -860,7 +880,7 @@ r_refdef.vrect. This is for emulating a low-resolution pixellated look,
 or possibly as a perforance boost on slow graphics cards.
 ================
 */
-void R_ScaleView (void)
+void R_WarpScaleView (void)
 {
 	float smax, tmax;
 	int scale;
@@ -873,36 +893,38 @@ void R_ScaleView (void)
 	srcw = r_refdef.vrect.width / scale;
 	srch = r_refdef.vrect.height / scale;
 
-	if (scale == 1)
+	if (scale == 1 && !water_warp)
 		return;
 
-	GL_BeginGroup ("Rescale");
+	GL_BeginGroup ("Warp/scale view");
 
 	GL_SelectTexture (GL_TEXTURE0);
 
-	if (!r_scaleview_program)
-		R_ScaleView_CreateShaders ();
+	if (!r_warpscale_program)
+		R_WarpScaleView_CreateShaders ();
 
 	// create (if needed) and bind the render-to-texture texture
-	if (!r_scaleview_texture)
+	if (!r_warpscale_texture)
 	{
-		glGenTextures (1, &r_scaleview_texture);
+		glGenTextures (1, &r_warpscale_texture);
 
-		r_scaleview_texture_width = 0;
-		r_scaleview_texture_height = 0;
+		r_warpscale_texture_width = 0;
+		r_warpscale_texture_height = 0;
 	}
-	glBindTexture (GL_TEXTURE_2D, r_scaleview_texture);
+	glBindTexture (GL_TEXTURE_2D, r_warpscale_texture);
 
 	// resize render-to-texture texture if needed
-	if (r_scaleview_texture_width < srcw
-		|| r_scaleview_texture_height < srch)
+	if (r_warpscale_texture_width < glwidth
+		|| r_warpscale_texture_height < glheight)
 	{
-		r_scaleview_texture_width = srcw;
-		r_scaleview_texture_height = srch;
+		r_warpscale_texture_width = glwidth;
+		r_warpscale_texture_height = glheight;
 
-		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_scaleview_texture_width, r_scaleview_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
+		glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_warpscale_texture_width, r_warpscale_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	}
 
 	// copy the framebuffer to the texture
@@ -910,18 +932,14 @@ void R_ScaleView (void)
 
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
 
-	// correction factor if we lack NPOT textures, normally these are 1.0f
-	smax = srcw/(float)r_scaleview_texture_width;
-	tmax = srch/(float)r_scaleview_texture_height;
+	smax = srcw/(float)r_warpscale_texture_width;
+	tmax = srch/(float)r_warpscale_texture_height;
 
-	GL_UseProgram (r_scaleview_program);
+	GL_UseProgram (r_warpscale_program);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
-
-	GL_Uniform2fFunc (0, smax, tmax);
-
+	GL_Uniform4fFunc(0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 
-	// clear cached binding
 	GL_ClearBindings ();
 
 	GL_EndGroup ();
@@ -957,7 +975,7 @@ void R_RenderView (void)
 
 	R_SetupView (); //johnfitz -- this does everything that should be done once per frame
 	R_RenderScene ();
-	R_ScaleView ();
+	R_WarpScaleView ();
 
 	//johnfitz -- modified r_speeds output
 	time2 = Sys_DoubleTime ();

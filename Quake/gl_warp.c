@@ -22,4 +22,4 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-cvar_t r_waterwarp = {"r_waterwarp", "1", CVAR_NONE};
+cvar_t r_waterwarp = {"r_waterwarp", "1", CVAR_ARCHIVE};
