@@ -422,6 +422,7 @@ void R_FlushBatch (void);
 void R_BatchSurface (msurface_t *s);
 
 void GL_BindBuffer (GLenum target, GLuint buffer);
+void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);
 void GL_DeleteBuffer (GLuint buffer);
 void GL_ClearBufferBindings (void);
 

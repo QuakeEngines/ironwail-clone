@@ -633,6 +633,38 @@ void GL_BindBuffer (GLenum target, GLuint buffer)
 	}
 }
 
+typedef struct {
+	GLuint		buffer;
+	GLintptr	offset;
+	GLsizeiptr	size;
+} bufferrange_t;
+
+#define CACHED_BUFFER_RANGES 8
+
+static bufferrange_t ssbo_ranges[CACHED_BUFFER_RANGES];
+
+/*
+====================
+GL_BindBufferRange
+
+glBindBufferRange wrapper
+====================
+*/
+void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)
+{
+	if (target == GL_SHADER_STORAGE_BUFFER && index < CACHED_BUFFER_RANGES)
+	{
+		bufferrange_t *range = &ssbo_ranges[index];
+		if (range->buffer == buffer && range->offset == offset && range->size == size)
+			return;
+		range->buffer = buffer;
+		range->offset = offset;
+		range->size   = size;
+	}
+
+	GL_BindBufferRangeFunc (target, index, buffer, offset, size);
+}
+
 /*
 ====================
 GL_DeleteBuffer
@@ -640,10 +672,16 @@ GL_DeleteBuffer
 */
 void GL_DeleteBuffer (GLuint buffer)
 {
+	int i;
+
 	if (buffer == current_array_buffer)
 		current_array_buffer = 0;
 	if (buffer == current_element_array_buffer)
 		current_element_array_buffer = 0;
+
+	for (i = 0; i < countof(ssbo_ranges); i++)
+		if (ssbo_ranges[i].buffer == buffer)
+			ssbo_ranges[i].buffer = 0;
 
 	GL_DeleteBuffersFunc (1, &buffer);
 }
@@ -658,10 +696,17 @@ invalid (e.g. manually binding, destroying the context).
 */
 void GL_ClearBufferBindings ()
 {
+	int i;
+
 	current_array_buffer = 0;
 	current_element_array_buffer = 0;
+
+	for (i = 0; i < countof(ssbo_ranges); i++)
+		ssbo_ranges[i].buffer = 0;
+
 	GL_BindBufferFunc (GL_ARRAY_BUFFER, 0);
 	GL_BindBufferFunc (GL_ELEMENT_ARRAY_BUFFER, 0);
+	GL_BindBufferFunc (GL_SHADER_STORAGE_BUFFER, 0);
 }
 
 /*

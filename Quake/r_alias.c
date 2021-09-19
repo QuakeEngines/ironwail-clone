@@ -273,9 +273,9 @@ void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t *lerpdata, gltext
 	instance.use_alpha_test = (currententity->model->flags & MF_HOLEY) ? 1 : 0;
 
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &instance, sizeof(instance), &buf, &ofs);
-	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(instance));
-	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
-	GL_BindBufferRangeFunc (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(instance));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
 	GL_Bind (GL_TEXTURE0, tx);
 	GL_Bind (GL_TEXTURE1, fb);
