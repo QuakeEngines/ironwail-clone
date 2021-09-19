@@ -109,6 +109,8 @@ extern	int		r_visframecount;	// ??? what difs?
 extern	int		r_framecount;
 extern	mplane_t	frustum[4];
 
+extern	qboolean use_simd;
+
 //
 // view origin
 //

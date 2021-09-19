@@ -505,7 +505,7 @@ void GL_BuildLightmaps (void)
 	last_lightmap_allocated = 0;
 	lightmap_count = 0;
 
-	gl_lightmap_format = GL_BGRA;//FIXME: hardcoded for now!
+	gl_lightmap_format = GL_RGBA;//FIXME: hardcoded for now!
 
 	switch (gl_lightmap_format)
 	{
@@ -733,6 +733,104 @@ void R_AddDynamicLights (msurface_t *surf)
 	}
 }
 
+/*
+===============
+R_AccumulateLightmap
+
+Scales 'lightmap' contents (RGB8) by 'scale' and accumulates
+the result in the 'blocklights' array (RGB32)
+===============
+*/
+void R_AccumulateLightmap(byte* lightmap, unsigned scale, int texels)
+{
+	unsigned *bl = blocklights;
+	int size = texels * 3;
+
+#ifdef USE_SSE2
+	if (use_simd && size >= 8)
+	{
+		__m128i vscale = _mm_set1_epi16(scale);
+		__m128i vlo, vhi, vdst, vsrc, v;
+
+		while (size >= 8)
+		{
+			vsrc = _mm_loadl_epi64((const __m128i*)lightmap);
+
+			v = _mm_unpacklo_epi8(vsrc, _mm_setzero_si128());
+			vlo = _mm_mullo_epi16(v, vscale);
+			vhi = _mm_mulhi_epu16(v, vscale);
+
+			vdst = _mm_loadu_si128((const __m128i*)bl);
+			vdst = _mm_add_epi32(vdst, _mm_unpacklo_epi16(vlo, vhi));
+			_mm_storeu_si128((__m128i*)bl, vdst);
+			bl += 4;
+
+			vdst = _mm_loadu_si128((const __m128i*)bl);
+			vdst = _mm_add_epi32(vdst, _mm_unpackhi_epi16(vlo, vhi));
+			_mm_storeu_si128((__m128i*)bl, vdst);
+			bl += 4;
+
+			lightmap += 8;
+			size -= 8;
+		}
+	}
+#endif // def USE_SSE2
+
+	while (size-- > 0)
+		*bl++ += *lightmap++ * scale;
+}
+
+/*
+===============
+R_StoreLightmap
+
+Converts contiguous lightmap info accumulated in 'blocklights'
+from RGB32 (with 8 fractional bits) to RGBA8, saturates and
+stores the result in 'dest'
+===============
+*/
+void R_StoreLightmap(byte* dest, int width, int height, int stride)
+{
+	unsigned *src = blocklights;
+
+#ifdef USE_SSE2
+	if (use_simd)
+	{
+		__m128i vzero = _mm_setzero_si128();
+
+		while (height-- > 0)
+		{
+			int i;
+			for (i = 0; i < width; i++)
+			{
+				__m128i v = _mm_srli_epi32(_mm_loadu_si128((const __m128i*)src), 8);
+				v = _mm_packs_epi32(v, vzero);
+				v = _mm_packus_epi16(v, vzero);
+				((uint32_t*)dest)[i] = _mm_cvtsi128_si32(v) | 0xff000000;
+				src += 3;
+			}
+			dest += stride;
+		}
+	}
+	else
+#endif // def USE_SSE2
+	{
+		stride -= width * 4;
+		while (height-- > 0)
+		{
+			int i;
+			for (i = 0; i < width; i++)
+			{
+				unsigned c;
+				c = *src++ >> 8; *dest++ = q_min(c, 255);
+				c = *src++ >> 8; *dest++ = q_min(c, 255);
+				c = *src++ >> 8; *dest++ = q_min(c, 255);
+				*dest++ = 255;
+			}
+			dest += stride;
+		}
+	}
+}
 
 /*
 ===============
@@ -744,12 +842,10 @@ Combine and scale multiple lightmaps into the 8.8 format in blocklights
 void R_BuildLightMap (msurface_t *surf, byte *dest, int stride)
 {
 	int			smax, tmax;
-	int			r,g,b;
-	int			i, j, size;
+	int			size;
 	byte		*lightmap;
 	unsigned	scale;
 	int			maps;
-	unsigned	*bl;
 
 	surf->cached_dlight = (surf->dlightframe == r_framecount);
 
@@ -760,10 +856,10 @@ void R_BuildLightMap (msurface_t *surf, byte *dest, int stride)
 
 	if (cl.worldmodel->lightdata)
 	{
-	// clear to no light
+		// clear to no light
 		memset (&blocklights[0], 0, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
 
-	// add all the lightmaps
+		// add all the lightmaps
 		if (lightmap)
 		{
 			for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
@@ -772,86 +868,23 @@ void R_BuildLightMap (msurface_t *surf, byte *dest, int stride)
 				scale = d_lightstylevalue[surf->styles[maps]];
 				surf->cached_light[maps] = scale;	// 8.8 fraction
 				//johnfitz -- lit support via lordhavoc
-				bl = blocklights;
-				for (i=0 ; i<size ; i++)
-				{
-					*bl++ += *lightmap++ * scale;
-					*bl++ += *lightmap++ * scale;
-					*bl++ += *lightmap++ * scale;
-				}
+				R_AccumulateLightmap(lightmap, scale, size);
+				lightmap += size * 3;
 				//johnfitz
 			}
 		}
 
-	// add all the dynamic lights
+		// add all the dynamic lights
 		if (surf->dlightframe == r_framecount)
 			R_AddDynamicLights (surf);
 	}
 	else
 	{
-	// set to full bright if no light data
+		// set to full bright if no light data
 		memset (&blocklights[0], 255, size * 3 * sizeof (unsigned int)); //johnfitz -- lit support via lordhavoc
 	}
 
-// bound, invert, and shift
-// store:
-	switch (gl_lightmap_format)
-	{
-	case GL_RGBA:
-		stride -= smax * 4;
-		bl = blocklights;
-		for (i=0 ; i<tmax ; i++, dest += stride)
-		{
-			for (j=0 ; j<smax ; j++)
-			{
-				if (gl_overbright.value)
-				{
-					r = *bl++ >> 8;
-					g = *bl++ >> 8;
-					b = *bl++ >> 8;
-				}
-				else
-				{
-					r = *bl++ >> 7;
-					g = *bl++ >> 7;
-					b = *bl++ >> 7;
-				}
-				*dest++ = (r > 255)? 255 : r;
-				*dest++ = (g > 255)? 255 : g;
-				*dest++ = (b > 255)? 255 : b;
-				*dest++ = 255;
-			}
-		}
-		break;
-	case GL_BGRA:
-		stride -= smax * 4;
-		bl = blocklights;
-		for (i=0 ; i<tmax ; i++, dest += stride)
-		{
-			for (j=0 ; j<smax ; j++)
-			{
-				if (gl_overbright.value)
-				{
-					r = *bl++ >> 8;
-					g = *bl++ >> 8;
-					b = *bl++ >> 8;
-				}
-				else
-				{
-					r = *bl++ >> 7;
-					g = *bl++ >> 7;
-					b = *bl++ >> 7;
-				}
-				*dest++ = (b > 255)? 255 : b;
-				*dest++ = (g > 255)? 255 : g;
-				*dest++ = (r > 255)? 255 : r;
-				*dest++ = 255;
-			}
-		}
-		break;
-	default:
-		Sys_Error ("R_BuildLightMap: bad lightmap format");
-	}
+	R_StoreLightmap(dest, smax, tmax, stride);
 }
 
 /*

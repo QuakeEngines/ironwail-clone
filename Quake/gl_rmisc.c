@@ -43,6 +43,11 @@ extern cvar_t r_noshadow_list;
 //johnfitz
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
 
+#if defined(USE_SIMD)
+extern cvar_t r_simd;
+#endif
+qboolean use_simd;
+
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
 
@@ -92,6 +97,22 @@ static void R_Model_ExtraFlags_List_f (cvar_t *var)
 	for (i=0; i < MAX_MODELS; i++)
 		Mod_SetExtraFlags (cl.model_precache[i]);
 }
+
+#if defined(USE_SIMD)
+/*
+====================
+R_SIMD_f
+====================
+*/
+static void R_SIMD_f (cvar_t *var)
+{
+#if defined(USE_SSE2)
+	use_simd = SDL_HasSSE() && SDL_HasSSE2() && (var->value != 0.0f);
+#else
+	#error not implemented
+#endif
+}
+#endif
 
 /*
 ====================
@@ -173,6 +194,11 @@ void R_Init (void)
 	Cvar_SetCallback (&r_wateralpha, R_SetWateralpha_f);
 	Cvar_RegisterVariable (&r_dynamic);
 	Cvar_RegisterVariable (&r_novis);
+#if defined(USE_SIMD)
+	Cvar_RegisterVariable (&r_simd);
+	Cvar_SetCallback (&r_simd, R_SIMD_f);
+	R_SIMD_f(&r_simd);
+#endif
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 
