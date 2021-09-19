@@ -2309,6 +2309,8 @@ visdone:
 			mod = loadmodel;
 		}
 	}
+
+	mod->sortkey = atoi (mod->name + 1);
 }
 
 /*
@@ -2878,6 +2880,8 @@ void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 		return;
 	memcpy (mod->cache.data, pheader, total);
 
+	mod->sortkey = (CRC_Block (mod->name, strlen(mod->name)) >> 2) | 0x4000;
+
 	Hunk_FreeToLowMark (start);
 }
 
@@ -3056,6 +3060,7 @@ void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer)
 	}
 
 	mod->type = mod_sprite;
+	mod->sortkey = (CRC_Block (mod->name, strlen(mod->name)) >> 2) | 0x8000;
 }
 
 //=============================================================================

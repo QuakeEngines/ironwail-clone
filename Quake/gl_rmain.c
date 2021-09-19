@@ -76,6 +76,7 @@ cvar_t	r_novis = {"r_novis","0",CVAR_ARCHIVE};
 #if defined(USE_SIMD)
 cvar_t	r_simd = {"r_simd","1",CVAR_ARCHIVE};
 #endif
+cvar_t	r_sort_entities = {"r_sort_entities","1",CVAR_NONE};
 
 cvar_t	gl_finish = {"gl_finish","0",CVAR_NONE};
 cvar_t	gl_clear = {"gl_clear","1",CVAR_NONE};
@@ -370,6 +371,63 @@ void GL_PolygonOffset (int offset)
 //
 //==============================================================================
 
+static unsigned short visedict_keys[MAX_VISEDICTS];
+static unsigned short visedict_order[2][MAX_VISEDICTS];
+static entity_t *cl_sorted_visedicts[MAX_VISEDICTS];
+
+/*
+=============
+R_SortEntities
+=============
+*/
+static void R_SortEntities (void)
+{
+	int i, pass;
+	int bins[256];
+
+	if (!r_sort_entities.value)
+		return;
+
+	// fill entity sort key array and initial order
+	for (i = 0; i < cl_numvisedicts; i++)
+	{
+		entity_t *ent = cl_visedicts[i];
+		visedict_keys[i] = ent->model ? ent->model->sortkey : ~0u;
+		visedict_order[0][i] = i;
+	}
+
+	// LSD-first radix sort: 2 passes x 8 bits
+	for (pass = 0; pass < 2; pass++)
+	{
+		unsigned short *src = visedict_order[pass];
+		unsigned short *dst = visedict_order[pass ^ 1];
+		int shift = pass * 8;
+		int sum;
+
+		// count number of entries in each bin
+		memset (bins, 0, sizeof(bins));
+		for (i = 0; i < cl_numvisedicts; i++)
+			bins[(visedict_keys[i] >> shift) & 255]++;
+
+		// exclusive scan: turn counts into offsets, starting at 0
+		sum = 0;
+		for (i = 0; i < 256; i++)
+		{
+			int tmp = bins[i];
+			bins[i] = sum;
+			sum += tmp;
+		}
+
+		// reorder
+		for (i = 0; i < cl_numvisedicts; i++)
+			dst[bins[(visedict_keys[src[i]] >> shift) & 255]++] = src[i];
+	}
+
+	// write sorted list
+	for (i = 0; i < cl_numvisedicts; i++)
+		cl_sorted_visedicts[i] = cl_visedicts[visedict_order[0][i]];
+}
+
 int SignbitsForPlane (mplane_t *out)
 {
 	int	bits, j;
@@ -586,6 +644,8 @@ void R_SetupView (void)
 
 	R_MarkSurfaces (); //johnfitz -- create texture chains from PVS
 
+	R_SortEntities ();
+
 	R_Clear ();
 
 	//johnfitz -- cheat-protect some draw modes
@@ -615,6 +675,7 @@ R_DrawEntitiesOnList
 void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 {
 	int		i;
+	entity_t **entlist = r_sort_entities.value ? cl_sorted_visedicts : cl_visedicts;
 
 	if (!r_drawentities.value)
 		return;
@@ -624,7 +685,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 	//johnfitz -- sprites are not a special case
 	for (i=0 ; i<cl_numvisedicts ; i++)
 	{
-		currententity = cl_visedicts[i];
+		currententity = entlist[i];
 
 		//johnfitz -- if alphapass is true, draw only alpha entites this time
 		//if alphapass is false, draw only nonalpha entities this time

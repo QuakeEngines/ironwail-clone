@@ -416,6 +416,7 @@ typedef struct qmodel_s
 	synctype_t	synctype;
 
 	int			flags;
+	unsigned short	sortkey;
 
 //
 // volume occupied by the model graphics

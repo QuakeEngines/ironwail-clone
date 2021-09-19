@@ -48,6 +48,8 @@ extern cvar_t r_simd;
 #endif
 qboolean use_simd;
 
+extern cvar_t r_sort_entities;
+
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
 
@@ -199,6 +201,7 @@ void R_Init (void)
 	Cvar_SetCallback (&r_simd, R_SIMD_f);
 	R_SIMD_f(&r_simd);
 #endif
+	Cvar_RegisterVariable (&r_sort_entities);
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 
