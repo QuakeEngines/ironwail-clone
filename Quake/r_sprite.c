@@ -68,7 +68,7 @@ void GLSprite_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	vec4 result = texture2D(Tex, in_uv);\n"
+		"	vec4 result = texture(Tex, in_uv);\n"
 		"	if (result.a < 0.666)\n"
 		"		discard;\n"
 		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"

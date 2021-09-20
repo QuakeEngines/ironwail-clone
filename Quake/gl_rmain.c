@@ -915,7 +915,7 @@ void R_WarpScaleView_CreateResources (void)
 		"		uv = warp_amp + uv * (1.0 - 2.0 * warp_amp); // remap to safe area\n"
 		"		uv += warp_amp * sin(vec2(uv.y / aspect, uv.x) * (3.14159265 * 8.0) + time);\n"
 		"	}\n"
-		"	out_fragcolor = texture2D(Tex, uv * uv_scale);\n"
+		"	out_fragcolor = texture(Tex, uv * uv_scale);\n"
 		"}\n";
 
 	r_warpscale_program = GL_CreateProgram (vertSource, fragSource, "view warp/scale");

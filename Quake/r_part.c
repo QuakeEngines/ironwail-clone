@@ -96,7 +96,7 @@ void GLParticle_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	vec4 result = texture2D(Tex, in_uv);\n"
+		"	vec4 result = texture(Tex, in_uv);\n"
 		"	result *= in_color;\n"
 		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
 		"	fog = clamp(fog, 0.0, 1.0);\n"

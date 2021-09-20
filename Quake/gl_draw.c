@@ -138,7 +138,7 @@ void GLDraw_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	out_fragcolor = texture2D(Tex, in_uv) * in_color;\n"
+		"	out_fragcolor = texture(Tex, in_uv) * in_color;\n"
 		"}\n";
 
 	r_gui_program = GL_CreateProgram (vertSource, fragSource, "gui");
