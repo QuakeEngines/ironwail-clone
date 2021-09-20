@@ -45,7 +45,6 @@ cvar_t	r_particles = {"r_particles","1", CVAR_ARCHIVE}; //johnfitz
 
 typedef struct particlevert_t {
 	vec3_t		pos;
-	float		uv[2];
 	GLubyte		color[4];
 } particlevert_t;
 
@@ -67,8 +66,7 @@ void GLParticle_CreateShaders (void)
 		"layout(location=0) uniform mat4 MVP;\n"
 		"\n"
 		"layout(location=0) in vec4 in_pos;\n"
-		"layout(location=1) in vec2 in_uv;\n"
-		"layout(location=2) in vec4 in_color;\n"
+		"layout(location=1) in vec4 in_color;\n"
 		"\n"
 		"layout(location=0) out vec2 out_uv;\n"
 		"layout(location=1) out vec4 out_color;\n"
@@ -78,7 +76,8 @@ void GLParticle_CreateShaders (void)
 		"{\n"
 		"	gl_Position = MVP * in_pos;\n"
 		"	out_fogdist = gl_Position.w;\n"
-		"	out_uv = in_uv;\n"
+		"	int vtx = gl_VertexID % 3;\n"
+		"	out_uv = vec2(vtx == 1, vtx == 2);\n"
 		"	out_color = in_color;\n"
 		"}\n";
 
@@ -898,8 +897,7 @@ static void R_FlushParticleBatch (void)
 	GL_Upload (GL_ARRAY_BUFFER, partverts, sizeof(partverts[0]) * numpartverts, &buf, &ofs);
 	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
 	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, pos));
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, uv));
-	GL_VertexAttribPointerFunc (2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, color));
+	GL_VertexAttribPointerFunc (1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(partverts[0]), ofs + offsetof(particlevert_t, color));
 
 	glDrawArrays (GL_TRIANGLES, 0, numpartverts);
 
@@ -967,20 +965,18 @@ static void R_DrawParticles_Real (qboolean showtris)
 		if (numpartverts == countof(partverts))
 			R_FlushParticleBatch ();
 
-		#define ADD_VERTEX(uvx, uvy, p)												\
+		#define ADD_VERTEX(p)														\
 			VectorCopy(p, partverts[numpartverts].pos);								\
-			partverts[numpartverts].uv[0] = uvx;									\
-			partverts[numpartverts].uv[1] = uvy;									\
 			memcpy(&partverts[numpartverts].color, &color, 4 * sizeof(GLubyte));	\
 			++numpartverts
 
-		ADD_VERTEX(0, 0, p->org);
+		ADD_VERTEX(p->org);
 
 		VectorMA (p->org, scale, up, p_up);
-		ADD_VERTEX(1, 0, p_up);
+		ADD_VERTEX(p_up);
 
 		VectorMA (p->org, scale, right, p_right);
-		ADD_VERTEX(0, 1, p_right);
+		ADD_VERTEX(p_right);
 
 		#undef ADD_VERTEX
 
