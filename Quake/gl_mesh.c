@@ -487,9 +487,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 
 // upload indices buffer
 
-	GL_DeleteBuffersFunc (1, &m->meshindexesvbo);
+	GL_DeleteBuffer (m->meshindexesvbo);
 	GL_GenBuffersFunc (1, &m->meshindexesvbo);
-	GL_BindBufferFunc (GL_ELEMENT_ARRAY_BUFFER, m->meshindexesvbo);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, m->meshindexesvbo);
 	GL_BufferDataFunc (GL_ELEMENT_ARRAY_BUFFER, hdr->numindexes * sizeof (unsigned short), indexes, GL_STATIC_DRAW);
 
 	q_snprintf (name, sizeof(name), "%s indices", m->name);
@@ -545,18 +545,15 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	}
 
 // upload vertexes buffer
-	GL_DeleteBuffersFunc (1, &m->meshvbo);
+	GL_DeleteBuffer (m->meshvbo);
 	GL_GenBuffersFunc (1, &m->meshvbo);
-	GL_BindBufferFunc (GL_ARRAY_BUFFER, m->meshvbo);
+	GL_BindBuffer (GL_ARRAY_BUFFER, m->meshvbo);
 	GL_BufferDataFunc (GL_ARRAY_BUFFER, totalvbosize, vbodata, GL_STATIC_DRAW);
 
 	q_snprintf (name, sizeof(name), "%s vertices", m->name);
 	GL_ObjectLabelFunc (GL_BUFFER, m->meshvbo, -1, name);
 
 	free (vbodata);
-
-// invalidate the cached bindings
-	GL_ClearBufferBindings ();
 }
 
 /*
