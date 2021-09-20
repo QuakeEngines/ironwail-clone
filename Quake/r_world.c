@@ -589,40 +589,13 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 	int			i;
 	msurface_t	*s;
 	texture_t	*t;
-	qboolean	bound;
+	qboolean	bound, setup = false;
 	int		lastlightmap;
 	gltexture_t	*fullbright = NULL;
 	float		entalpha;
 	unsigned	state = GLS_CULL_BACK | GLS_ATTRIBS(3);
 
 	entalpha = (ent != NULL) ? ENTALPHA_DECODE(ent->alpha) : 1.0f;
-
-// enable blending / disable depth writes
-	if (entalpha < 1)
-		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-	else
-		state |= GLS_BLEND_OPAQUE;
-
-	GL_UseProgram (r_world_program);
-	GL_SetState (state);
-
-// Bind the buffers
-	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-
-	GL_VertexAttribPointerFunc (vertAttrIndex,      3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-	GL_VertexAttribPointerFunc (texCoordsAttrIndex, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
-	GL_VertexAttribPointerFunc (LMCoordsAttrIndex,  2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 5);
-
-// set uniforms
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-
-	GL_Uniform1iFunc (useAlphaTestLoc, 0);
-	GL_Uniform1fFunc (alphaLoc, entalpha);
-	if (lastfogframe != r_framecount) // only set fog once per frame
-	{
-		lastfogframe = r_framecount;
-		GL_Uniform4fvFunc (fogLoc, 1, fog_data);
-	}
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
@@ -639,6 +612,38 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 		lastlightmap = 0; // avoid compiler warning
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
+			if (!setup) // only perform setup once we are sure we need to
+			{
+				setup = true;
+
+				// enable blending / disable depth writes
+				if (entalpha < 1)
+					state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+				else
+					state |= GLS_BLEND_OPAQUE;
+
+				GL_UseProgram (r_world_program);
+				GL_SetState (state);
+
+				// Bind the buffers
+				GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
+
+				GL_VertexAttribPointerFunc (vertAttrIndex,      3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
+				GL_VertexAttribPointerFunc (texCoordsAttrIndex, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
+				GL_VertexAttribPointerFunc (LMCoordsAttrIndex,  2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 5);
+
+				// set uniforms
+				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
+
+				GL_Uniform1iFunc (useAlphaTestLoc, 0);
+				GL_Uniform1fFunc (alphaLoc, entalpha);
+				if (lastfogframe != r_framecount) // only set fog once per frame
+				{
+					lastfogframe = r_framecount;
+					GL_Uniform4fvFunc (fogLoc, 1, fog_data);
+				}
+			}
+
 			if (!bound) //only bind once we are sure we need this texture
 			{
 				gltexture_t *tx = (R_TextureAnimation(t, ent != NULL ? ent->frame : 0))->gltexture;
@@ -685,24 +690,8 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	int			i;
 	msurface_t	*s;
 	texture_t	*t;
-	qboolean	bound;
+	qboolean	bound, setup = false;
 	float		entalpha;
-
-	GL_UseProgram (r_water_program);
-
-// Bind the buffers
-	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
-
-// set uniforms
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-	if (lastfogframe_water != r_framecount) // only set fog once per frame
-	{
-		lastfogframe_water = r_framecount;
-		GL_Uniform4fvFunc (3, 1, fog_data);
-	}
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
@@ -715,6 +704,27 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
+			if (!setup) // only perform setup once we are sure we need to
+			{
+				setup = true;
+
+				GL_UseProgram (r_water_program);
+
+				// Bind the buffers
+				GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
+
+				GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
+				GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
+
+				// set uniforms
+				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
+				if (lastfogframe_water != r_framecount) // only set fog once per frame
+				{
+					lastfogframe_water = r_framecount;
+					GL_Uniform4fvFunc (3, 1, fog_data);
+				}
+			}
+
 			if (!bound) //only bind once we are sure we need this texture
 			{
 				unsigned state = GLS_CULL_BACK | GLS_ATTRIBS(2);
