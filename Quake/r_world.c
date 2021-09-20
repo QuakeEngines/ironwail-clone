@@ -600,7 +600,6 @@ extern size_t gl_bmodel_vbo_size;
 R_DrawTextureChains_GLSL -- ericw
 ================
 */
-static int lastfogframe = 0;
 void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 {
 	int			i;
@@ -702,7 +701,6 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 R_DrawTextureChains_Water -- johnfitz
 ================
 */
-static int lastfogframe_water = 0;
 void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain)
 {
 	int			i;
