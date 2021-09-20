@@ -442,19 +442,21 @@ float GL_WaterAlphaForEntitySurface (entity_t *ent, msurface_t *s)
 static GLuint r_world_program;
 static GLuint r_water_program;
 
+typedef struct {
+	float	mvp[16];
+	vec4_t	fog;
+	int		use_alpha_test;
+	float	alpha;
+	float	time;
+	int		padding;
+} worlduniforms_t;
+
 // uniforms used in vert shader
 
 // uniforms used in frag shader
 static GLuint texLoc;
 static GLuint LMTexLoc;
 static GLuint fullbrightTexLoc;
-static GLuint useAlphaTestLoc;
-static GLuint alphaLoc;
-static GLuint fogLoc;
-
-#define vertAttrIndex 0
-#define texCoordsAttrIndex 1
-#define LMCoordsAttrIndex 2
 
 /*
 =============
@@ -463,27 +465,44 @@ GLWorld_CreateShaders
 */
 void GLWorld_CreateShaders (void)
 {
-	// Driver bug workarounds:
-	// - "Intel(R) UHD Graphics 600" version "4.6.0 - Build 26.20.100.7263"
-	//    crashing on glUseProgram with `vec3 Vert` and
-	//    `gl_ModelViewProjectionMatrix * vec4(Vert, 1.0);`. Work around with
-	//    making Vert a vec4. (https://sourceforge.net/p/quakespasm/bugs/39/)
+	#define WORLD_PARAM_BUFFER\
+		"layout(std430, binding=0) restrict readonly buffer ParamBuffer\n"\
+		"{\n"\
+		"	mat4	MVP;\n"\
+		"	vec4	Fog;\n"\
+		"	bool	UseAlphaTest;\n"\
+		"	float	Alpha;\n"\
+		"	float	Time;\n"\
+		"	int		padding;\n"\
+		"};\n"\
+
+	#define WORLD_VERTEX_BUFFER\
+		"struct PackedVertex\n"\
+		"{\n"\
+		"	float data[7];\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=1) restrict readonly buffer VertexBuffer\n"\
+		"{\n"\
+		"	PackedVertex vertices[];\n"\
+		"};\n"\
+		"\n"\
+
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
+		WORLD_PARAM_BUFFER
 		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
-		"layout(location=1) in vec2 TexCoords;\n"
-		"layout(location=2) in vec2 LMCoords;\n"
+		WORLD_VERTEX_BUFFER
 		"\n"
 		"layout(location=0) out vec4 out_uv;\n"
 		"layout(location=1) out float out_fogdist;\n"
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
-		"	out_uv = vec4(TexCoords, LMCoords);\n"
+		"	PackedVertex vert = vertices[gl_VertexID];\n"
+		"	gl_Position = MVP * vec4(vert.data[0], vert.data[1], vert.data[2], 1.0);\n"
+		"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
 		"	out_fogdist = gl_Position.w;\n"
 		"}\n";
 	
@@ -494,9 +513,7 @@ void GLWorld_CreateShaders (void)
 		"layout(binding=1) uniform sampler2D FullbrightTex;\n"
 		"layout(binding=2) uniform sampler2D LMTex;\n"
 		"\n"
-		"layout(location=4) uniform bool UseAlphaTest;\n"
-		"layout(location=5) uniform float Alpha;\n"
-		"layout(location=6) uniform vec4 Fog;\n"
+		WORLD_PARAM_BUFFER
 		"\n"
 		"layout(location=0) in vec4 in_uv;\n"
 		"layout(location=1) in float in_fogdist;\n"
@@ -526,26 +543,23 @@ void GLWorld_CreateShaders (void)
 		texLoc = GL_GetUniformLocation (&r_world_program, "Tex");
 		LMTexLoc = GL_GetUniformLocation (&r_world_program, "LMTex");
 		fullbrightTexLoc = GL_GetUniformLocation (&r_world_program, "FullbrightTex");
-		useAlphaTestLoc = GL_GetUniformLocation (&r_world_program, "UseAlphaTest");
-		alphaLoc = GL_GetUniformLocation (&r_world_program, "Alpha");
-		fogLoc = GL_GetUniformLocation (&r_world_program, "Fog");
 	}
 
 	vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
+		WORLD_PARAM_BUFFER
 		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
-		"layout(location=1) in vec2 in_uv;\n"
+		WORLD_VERTEX_BUFFER
 		"\n"
 		"layout(location=0) out vec2 out_uv;\n"
 		"layout(location=1) out float out_fogdist;\n"
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
-		"	out_uv = in_uv;\n"
+		"	PackedVertex vert = vertices[gl_VertexID];\n"
+		"	gl_Position = MVP * vec4(vert.data[0], vert.data[1], vert.data[2], 1.0);\n"
+		"	out_uv = vec2(vert.data[3], vert.data[4]);\n"
 		"	out_fogdist = gl_Position.w;\n"
 		"}\n";
 	
@@ -554,8 +568,7 @@ void GLWorld_CreateShaders (void)
 		"\n"
 		"layout(binding=0) uniform sampler2D Tex;\n"
 		"\n"
-		"layout(location=2) uniform vec2 AlphaTime; // x = Alpha, y = Time\n"
-		"layout(location=3) uniform vec4 Fog;\n"
+		WORLD_PARAM_BUFFER
 		"\n"
 		"layout(location=0) in vec2 in_uv;\n"
 		"layout(location=1) in float in_fogdist;\n"
@@ -564,19 +577,23 @@ void GLWorld_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + AlphaTime.y);\n"
+		"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"
 		"	vec4 result = texture(Tex, uv);\n"
 		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
 		"	fog = clamp(fog, 0.0, 1.0);\n"
 		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
-		"	result.a *= AlphaTime.x;\n"
+		"	result.a *= Alpha;\n"
 		"	out_fragcolor = result;\n"
 		"}\n";
 
 	r_water_program = GL_CreateProgram (vertSource, fragSource, "water");
+
+	#undef WORLD_PARAM_BUFFER
+	#undef WORLD_VERTEX_BUFFER
 }
 
 extern GLuint gl_bmodel_vbo;
+extern size_t gl_bmodel_vbo_size;
 
 /*
 ================
@@ -593,9 +610,18 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 	int		lastlightmap;
 	gltexture_t	*fullbright = NULL;
 	float		entalpha;
-	unsigned	state = GLS_CULL_BACK | GLS_ATTRIBS(3);
+	unsigned	state;
+	GLuint		buf;
+	GLbyte		*ofs;
+	worlduniforms_t uniforms;
 
 	entalpha = (ent != NULL) ? ENTALPHA_DECODE(ent->alpha) : 1.0f;
+
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	if (entalpha < 1)
+		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+	else
+		state |= GLS_BLEND_OPAQUE;
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
@@ -612,36 +638,33 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 		lastlightmap = 0; // avoid compiler warning
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
-			if (!setup) // only perform setup once we are sure we need to
+			int use_alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) ? 1 : 0;
+
+			if (!setup || uniforms.use_alpha_test != use_alpha_test) // only perform setup when needed
 			{
-				setup = true;
-
-				// enable blending / disable depth writes
-				if (entalpha < 1)
-					state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-				else
-					state |= GLS_BLEND_OPAQUE;
-
-				GL_UseProgram (r_world_program);
-				GL_SetState (state);
-
-				// Bind the buffers
-				GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-
-				GL_VertexAttribPointerFunc (vertAttrIndex,      3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-				GL_VertexAttribPointerFunc (texCoordsAttrIndex, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
-				GL_VertexAttribPointerFunc (LMCoordsAttrIndex,  2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 5);
-
-				// set uniforms
-				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-
-				GL_Uniform1iFunc (useAlphaTestLoc, 0);
-				GL_Uniform1fFunc (alphaLoc, entalpha);
-				if (lastfogframe != r_framecount) // only set fog once per frame
+				if (!setup)
 				{
-					lastfogframe = r_framecount;
-					GL_Uniform4fvFunc (fogLoc, 1, fog_data);
+					GL_UseProgram (r_world_program);
+					GL_SetState (state);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+					uniforms.alpha = entalpha;
+					uniforms.time = cl.time;
+					uniforms.padding = 0;
 				}
+				else
+				{
+					R_FlushBatch ();
+				}
+
+				uniforms.use_alpha_test = use_alpha_test;
+
+				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+
+				setup = true;
 			}
 
 			if (!bound) //only bind once we are sure we need this texture
@@ -655,8 +678,6 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 
 				GL_Bind (GL_TEXTURE0, tx);
 				GL_Bind (GL_TEXTURE1, fullbright);
-				if (t->texturechains[chain]->flags & SURF_DRAWFENCE)
-					GL_Uniform1iFunc (useAlphaTestLoc, 1); // Flip alpha test back on
 
 				bound = true;
 				lastlightmap = s->lightmaptexturenum;
@@ -673,9 +694,6 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 		}
 
 		R_FlushBatch ();
-
-		if (bound && t->texturechains[chain]->flags & SURF_DRAWFENCE)
-			GL_Uniform1iFunc (useAlphaTestLoc, 0); // Flip alpha test back off
 	}
 }
 
@@ -691,7 +709,6 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	msurface_t	*s;
 	texture_t	*t;
 	qboolean	bound, setup = false;
-	float		entalpha;
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
@@ -700,45 +717,43 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 			continue;
 
 		bound = false;
-		entalpha = 1.0f;
 
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
 			if (!setup) // only perform setup once we are sure we need to
 			{
-				setup = true;
+				worlduniforms_t uniforms;
+				GLuint		buf;
+				GLbyte		*ofs;
+				unsigned	state;
+				float		entalpha = GL_WaterAlphaForEntitySurface (ent, s);
 
-				GL_UseProgram (r_water_program);
-
-				// Bind the buffers
-				GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-
-				GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-				GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
-
-				// set uniforms
-				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-				if (lastfogframe_water != r_framecount) // only set fog once per frame
-				{
-					lastfogframe_water = r_framecount;
-					GL_Uniform4fvFunc (3, 1, fog_data);
-				}
-			}
-
-			if (!bound) //only bind once we are sure we need this texture
-			{
-				unsigned state = GLS_CULL_BACK | GLS_ATTRIBS(2);
-				entalpha = GL_WaterAlphaForEntitySurface (ent, s);
-
-				if (entalpha < 1)
+				state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+				if (entalpha < 1.f)
 					state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 				else
 					state |= GLS_BLEND_OPAQUE;
 
+				GL_UseProgram (r_water_program);
 				GL_SetState (state);
-				GL_Uniform2fFunc (2, entalpha, cl.time);
-				GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
 
+				memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+				memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+				uniforms.use_alpha_test = 0;
+				uniforms.alpha = entalpha;
+				uniforms.time = cl.time;
+				uniforms.padding = 0;
+
+				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+				setup = true;
+			}
+
+			if (!bound) //only bind once we are sure we need this texture
+			{
+				GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
 				bound = true;
 			}
 
@@ -760,34 +775,41 @@ void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain)
 	int			i;
 	msurface_t	*s;
 	texture_t	*t;
-	unsigned	state = GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_BACK | GLS_ATTRIBS(3);
-
-	GL_UseProgram (r_world_program);
-	GL_SetState (state);
-
-// Bind the buffers
-	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-
-	GL_VertexAttribPointerFunc (vertAttrIndex,      3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-	GL_VertexAttribPointerFunc (texCoordsAttrIndex, 2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 3);
-	GL_VertexAttribPointerFunc (LMCoordsAttrIndex,  2, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0) + 5);
-
-// set uniforms
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-
-	GL_Uniform1iFunc (useAlphaTestLoc, 0);
-	GL_Uniform1fFunc (alphaLoc, 1.f);
-	GL_Uniform4fvFunc (fogLoc, 1, fog_data);
-
-	GL_Bind (GL_TEXTURE0, whitetexture);
-	GL_Bind (GL_TEXTURE1, whitetexture);
-	GL_Bind (GL_TEXTURE2, whitetexture);
+	qboolean	setup = false;
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
 		t = model->textures[i];
 		if (!t || !t->texturechains[chain])
 			continue;
+
+		if (!setup)
+		{
+			worlduniforms_t uniforms;
+			GLuint		buf;
+			GLbyte		*ofs;
+			unsigned	state = GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_BACK | GLS_ATTRIBS(0);
+
+			GL_UseProgram (r_world_program);
+			GL_SetState (state);
+
+			memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+			memset(uniforms.fog, 0, 4 * sizeof(float));
+			uniforms.use_alpha_test = 0;
+			uniforms.alpha = 1.f;
+			uniforms.time = cl.time;
+			uniforms.padding = 0;
+
+			GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+			GL_Bind (GL_TEXTURE0, whitetexture);
+			GL_Bind (GL_TEXTURE1, whitetexture);
+			GL_Bind (GL_TEXTURE2, whitetexture);
+
+			setup = true;
+		}
 
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 			R_BatchSurface (s);

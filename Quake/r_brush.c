@@ -576,11 +576,13 @@ void GL_BuildLightmaps (void)
 */
 
 GLuint gl_bmodel_vbo = 0;
+size_t gl_bmodel_vbo_size = 0;
 
 void GL_DeleteBModelVertexBuffer (void)
 {
 	GL_DeleteBuffersFunc (1, &gl_bmodel_vbo);
 	gl_bmodel_vbo = 0;
+	gl_bmodel_vbo_size = 0;
 
 	GL_ClearBufferBindings ();
 }
@@ -639,6 +641,7 @@ void GL_BuildBModelVertexBuffer (void)
 	}
 
 // upload to GPU
+	gl_bmodel_vbo_size = varray_bytes;
 	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
 	GL_BufferDataFunc (GL_ARRAY_BUFFER, varray_bytes, varray, GL_STATIC_DRAW);
 	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_vbo, -1, "brushverts");
