@@ -155,6 +155,7 @@ extern int		gl_stencilbits;
 //==============================================================================
 
 #define QGL_FUNCTIONS(x)\
+	x(void,			DrawElementsInstanced, (GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount))\
 	x(void,			GenBuffers, (GLsizei n, GLuint *buffers))\
 	x(void,			DeleteBuffers, (GLsizei n, const GLuint *buffers))\
 	x(void,			BindBuffer, (GLenum target, GLuint buffer))\
@@ -210,7 +211,6 @@ extern int		gl_stencilbits;
 	x(void,			PushDebugGroup, (GLenum source, GLuint id, GLsizei length, const char * message))\
 	x(void,			PopDebugGroup, (void))\
 	x(const GLubyte*,GetStringi, (GLenum name, GLuint index))\
-/*	x(void,			DrawBuffers, (GLsizei n, const GLenum *bufs))*/\
 
 #define QGL_DECLARE_FUNC(ret, name, args) extern ret (APIENTRYP GL_##name##Func) args;
 QGL_FUNCTIONS(QGL_DECLARE_FUNC)
@@ -365,6 +365,37 @@ void R_DrawWorld (void);
 void R_DrawAliasModel (entity_t *e);
 void R_DrawBrushModel (entity_t *e);
 void R_DrawSpriteModel (entity_t *e);
+
+typedef struct {
+	entity_t 				*ent;
+	union {
+		struct aliasinstance_s {
+			gltexture_t		*texture;
+			gltexture_t		*fullbright;
+			vec3_t			origin;
+			vec3_t			angles;
+			vec3_t			lightcolor;
+			float			alpha;
+			float			blend;
+			short			pose1;
+			short			pose2;
+		} alias;
+
+		struct spriteinstance_s {
+			mspriteframe_t	*frame;
+			qboolean		showtris;
+		} sprite;
+	} data;
+} instance_t;
+
+#define MAX_INSTANCES		256
+extern instance_t model_instances[MAX_INSTANCES];
+extern int num_model_instances;
+
+void R_ClearModelInstances (void);
+void R_FlushModelInstances (void);
+void R_DrawAliasInstances (instance_t *inst, int count);
+void R_DrawSpriteInstances (instance_t *inst, int count);
 
 void GL_BuildLightmaps (void);
 void GL_DeleteBModelVertexBuffer (void);

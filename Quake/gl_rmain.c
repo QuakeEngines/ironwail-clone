@@ -392,7 +392,12 @@ static void R_SortEntities (void)
 	for (i = 0; i < cl_numvisedicts; i++)
 	{
 		entity_t *ent = cl_visedicts[i];
-		visedict_keys[i] = ent->model ? ent->model->sortkey : ~0u;
+		if (!ent->model)
+			visedict_keys[i] = ~0u; // unknown type, render at the end
+		else if (ent->model->type == mod_alias)
+			visedict_keys[i] = ent->model->sortkey | (ent->skinnum & 15);
+		else
+			visedict_keys[i] = ent->model->sortkey | (ent->frame & 15);
 		visedict_order[0][i] = i;
 	}
 
@@ -588,6 +593,7 @@ R_SetupScene -- johnfitz -- this is the stuff that needs to be done once per eye
 void R_SetupScene (void)
 {
 	R_SetupGL ();
+	R_ClearModelInstances ();
 }
 
 /*
@@ -667,6 +673,44 @@ void R_SetupView (void)
 //
 //==============================================================================
 
+instance_t model_instances[MAX_INSTANCES];
+int num_model_instances;
+
+/*
+=============
+R_ClearModelInstances
+=============
+*/
+void R_ClearModelInstances (void)
+{
+	num_model_instances = 0;
+}
+
+/*
+=============
+R_FlushModelInstances
+=============
+*/
+void R_FlushModelInstances (void)
+{
+	if (!num_model_instances)
+		return;
+
+	switch (model_instances[0].ent->model->type)
+	{
+		case mod_alias:
+			R_DrawAliasInstances (model_instances, num_model_instances);
+			break;
+		case mod_sprite:
+			R_DrawSpriteInstances (model_instances, num_model_instances);
+			break;
+		default:
+			break;
+	}
+
+	num_model_instances = 0;
+}
+
 /*
 =============
 R_DrawEntitiesOnList
@@ -704,6 +748,7 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 				R_DrawAliasModel (currententity);
 				break;
 			case mod_brush:
+				R_FlushModelInstances ();
 				R_DrawBrushModel (currententity);
 				break;
 			case mod_sprite:
@@ -711,6 +756,8 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 				break;
 		}
 	}
+
+	R_FlushModelInstances ();
 
 	GL_EndGroup ();
 }
@@ -742,6 +789,7 @@ void R_DrawViewModel (void)
 	// hack the depth range to prevent view model from poking into walls
 	glDepthRange (0, 0.3);
 	R_DrawAliasModel (currententity);
+	R_FlushModelInstances ();
 	glDepthRange (0, 1);
 
 	GL_EndGroup ();
@@ -781,6 +829,7 @@ void R_ShowTris (void)
 			switch (currententity->model->type)
 			{
 			case mod_brush:
+				R_FlushModelInstances ();
 				R_DrawBrushModel_ShowTris (currententity);
 				break;
 			case mod_alias:
@@ -803,10 +852,13 @@ void R_ShowTris (void)
 			&& currententity->model
 			&& currententity->model->type == mod_alias)
 		{
+			R_FlushModelInstances ();
+
 			if (r_showtris.value != 1.f)
 				glDepthRange (0, 0.3);
 
 			R_DrawAliasModel_ShowTris (currententity);
+			R_FlushModelInstances ();
 
 			if (r_showtris.value != 1.f)
 				glDepthRange (0.f, 1.f);

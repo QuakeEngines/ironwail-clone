@@ -404,6 +404,18 @@ typedef enum {mod_brush, mod_sprite, mod_alias} modtype_t;
 #define	MOD_FBRIGHTHACK	1024	//when fullbrights are disabled, use a hack to render this model brighter
 //johnfitz
 
+//
+// Entity sort keys (16 bits)
+// 15..14 | 13.....4 | 3....0
+// type:2 | model:10 | anim:4
+//
+enum
+{
+	MOD_SORT_BRUSH		= 0 << 14,
+	MOD_SORT_ALIAS		= 1 << 14,
+	MOD_SORT_SPRITE		= 2 << 14,
+};
+
 typedef struct qmodel_s
 {
 	char		name[MAX_QPATH];

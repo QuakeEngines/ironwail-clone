@@ -46,16 +46,7 @@ float	r_avertexnormal_dots[SHADEDOT_QUANT][256] =
 #include "anorm_dots.h"
 };
 
-extern	vec3_t			lightspot;
-
-float	*shadedots = r_avertexnormal_dots[0];
-vec3_t	shadevector;
-
 float	entalpha; //johnfitz
-
-qboolean	overbright; //johnfitz
-
-qboolean shading = true; //johnfitz -- if false, disable vertex shading for various reasons (fullbright, r_lightmap, showtris, etc)
 
 //johnfitz -- struct for passing lerp information to drawing functions
 typedef struct {
@@ -67,16 +58,25 @@ typedef struct {
 } lerpdata_t;
 //johnfitz
 
-typedef struct {
+typedef struct aliasgpuinstance_s {
 	float		mvp[16];
-	vec4_t		blend;
-	vec4_t		light;
-	vec4_t		fog;
+	vec3_t		shadevector;
+	float		blend;
+	vec3_t		light;
+	float		alpha;
 	int32_t		pose1;
 	int32_t		pose2;
-	int32_t		use_alpha_test;
-	int32_t		padding;
-} aliasinstance_t;
+	int32_t		padding[2];
+} aliasgpuinstance_t;
+
+typedef struct aliasinstancebuffer_s {
+	struct {
+		vec4_t	fog;
+		int		use_alpha_test;
+		int		padding[3];
+	} global;
+	aliasgpuinstance_t inst[MAX_INSTANCES];
+} aliasinstancebuffer_t;
 
 static GLuint r_alias_program;
 
@@ -115,27 +115,36 @@ GLAlias_CreateShaders
 */
 void GLAlias_CreateShaders (void)
 {
+	#define ALIAS_INSTANCE_BUFFER\
+		"struct InstanceData\n"\
+		"{\n"\
+		"	mat4	MVP;\n"\
+		"	vec4	ShadeBlend; // xyz=ShadeVector w=Blend\n"\
+		"	vec4	LightColor; // xyz=LightColor w=Alpha\n"\
+		"	int		Pose1;\n"\
+		"	int		Pose2;\n"\
+		"	int		padding[2];\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=0) restrict readonly buffer InstanceBuffer\n"\
+		"{\n"\
+		"	vec4	Fog;\n"\
+		"	int		UseAlphaTest;\n"\
+		"	int		padding[3];\n"\
+		"	InstanceData instances[];\n"\
+		"};\n"\
+
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(std430, binding=0) readonly buffer InstanceBuffer\n"
-		"{\n"
-		"	mat4	MVP;\n"
-		"	vec4	Blend;\n"
-		"	vec4	LightColor;\n"
-		"	vec4	Fog;\n"
-		"	int		Pose1;\n"
-		"	int		Pose2;\n"
-		"	int		UseAlphaTest;\n"
-		"	int		padding;\n"
-		"};\n"
+		ALIAS_INSTANCE_BUFFER
 		"\n"
-		"layout(std430, binding=1) readonly buffer PoseBuffer\n"
+		"layout(std430, binding=1) restrict readonly buffer PoseBuffer\n"
 		"{\n"
 		"	uvec2 PackedPosNor[];\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=2) readonly buffer UVBuffer\n"
+		"layout(std430, binding=2) restrict readonly buffer UVBuffer\n"
 		"{\n"
 		"	vec2 TexCoords[];\n"
 		"};\n"
@@ -152,9 +161,9 @@ void GLAlias_CreateShaders (void)
 		"	return Pose(vec3((data.xxx >> uvec3(0, 8, 16)) & 255), unpackSnorm4x8(data.y).xyz);\n"
 		"}\n"
 		"\n"
-		"float r_avertexnormal_dot(vec3 vertexnormal) // from MH \n"
+		"float r_avertexnormal_dot(vec3 vertexnormal, vec3 dir) // from MH \n"
 		"{\n"
-		"	float dot = dot(vertexnormal, Blend.xyz);\n"
+		"	float dot = dot(vertexnormal, dir);\n"
 		"	// wtf - this reproduces anorm_dots within as reasonable a degree of tolerance as the >= 0 case\n"
 		"	if (dot < 0.0)\n"
 		"		return 1.0 + dot * (13.0 / 44.0);\n"
@@ -168,34 +177,25 @@ void GLAlias_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
+		"	InstanceData inst = instances[gl_InstanceID];\n"
 		"	out_texcoord = TexCoords[gl_VertexID];\n"
-		"	Pose pose1 = GetPose(Pose1);\n"
-		"	Pose pose2 = GetPose(Pose2);\n"
-		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, Blend.w);\n"
-		"	gl_Position = MVP * vec4(lerpedVert, 1.0);\n"
+		"	Pose pose1 = GetPose(inst.Pose1);\n"
+		"	Pose pose2 = GetPose(inst.Pose2);\n"
+		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, inst.ShadeBlend.w);\n"
+		"	gl_Position = inst.MVP * vec4(lerpedVert, 1.0);\n"
 		"	out_fogdist = gl_Position.w;\n"
-		"	float dot1 = r_avertexnormal_dot(pose1.nor);\n"
-		"	float dot2 = r_avertexnormal_dot(pose2.nor);\n"
-		"	out_color = LightColor * vec4(vec3(mix(dot1, dot2, Blend.w)), 1.0);\n"
+		"	float dot1 = r_avertexnormal_dot(pose1.nor, inst.ShadeBlend.xyz);\n"
+		"	float dot2 = r_avertexnormal_dot(pose2.nor, inst.ShadeBlend.xyz);\n"
+		"	out_color = inst.LightColor * vec4(vec3(mix(dot1, dot2, inst.ShadeBlend.w)), 1.0);\n"
 		"}\n";
 
 	const GLchar *fragSource = \
 		"#version 430\n"
 		"\n"
+		ALIAS_INSTANCE_BUFFER
+		"\n"
 		"layout(binding=0) uniform sampler2D Tex;\n"
 		"layout(binding=1) uniform sampler2D FullbrightTex;\n"
-		"\n"
-		"layout(std430, binding=0) readonly buffer InstanceBuffer\n"
-		"{\n"
-		"	mat4	MVP;\n"
-		"	vec4	Blend;\n"
-		"	vec4	LightColor;\n"
-		"	vec4	Fog;\n"
-		"	int		Pose1;\n"
-		"	int		Pose2;\n"
-		"	int		UseAlphaTest;\n"
-		"	int		padding;\n"
-		"};\n"
 		"\n"
 		"layout(location=0) in vec2 in_texcoord;\n"
 		"layout(location=1) in vec4 in_color;\n"
@@ -219,71 +219,6 @@ void GLAlias_CreateShaders (void)
 		"}\n";
 
 	r_alias_program = GL_CreateProgram (vertSource, fragSource, "alias");
-}
-
-/*
-=============
-GL_DrawAliasFrame_GLSL -- ericw
-
-Optimized alias model drawing codepath.
-Compared to the original GL_DrawAliasFrame, this makes 1 draw call,
-no vertex data is uploaded (it's already in the r_meshvbo and r_meshindexesvbo
-static VBOs), and lerping and lighting is done in the vertex shader.
-
-Supports optional overbright, optional fullbright pixels.
-
-Based on code by MH from RMQEngine
-=============
-*/
-void GL_DrawAliasFrame_GLSL (aliashdr_t *paliashdr, lerpdata_t *lerpdata, gltexture_t *tx, gltexture_t *fb, const float *mvp)
-{
-	float		blend;
-	unsigned	state;
-	qmodel_t	*model = currententity->model;
-	GLuint		buf;
-	GLbyte		*ofs;
-	aliasinstance_t instance;
-
-	if (lerpdata->pose1 != lerpdata->pose2)
-		blend = lerpdata->blend;
-	else // poses the same means either 1. the entity has paused its animation, or 2. r_lerpmodels is disabled
-		blend = 0.f;
-
-	GL_UseProgram (r_alias_program);
-
-	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-	if (entalpha < 1.f)
-		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-	else
-		state |= GLS_BLEND_OPAQUE;
-	GL_SetState (state);
-
-	memcpy(instance.mvp, mvp, 16 * sizeof(float));
-	instance.blend[0] = shadevector[0];
-	instance.blend[1] = shadevector[1];
-	instance.blend[2] = shadevector[2];
-	instance.blend[3] = blend;
-	instance.light[0] = lightcolor[0];
-	instance.light[1] = lightcolor[1];
-	instance.light[2] = lightcolor[2];
-	instance.light[3] = entalpha;
-	memcpy(instance.fog, fog_data, 4 * sizeof(float));
-	instance.pose1 = lerpdata->pose1 * paliashdr->numverts_vbo;
-	instance.pose2 = lerpdata->pose2 * paliashdr->numverts_vbo;
-	instance.use_alpha_test = (currententity->model->flags & MF_HOLEY) ? 1 : 0;
-
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &instance, sizeof(instance), &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(instance));
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
-
-	GL_Bind (GL_TEXTURE0, tx);
-	GL_Bind (GL_TEXTURE1, fb);
-
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, currententity->model->meshindexesvbo);
-	glDrawElements (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)currententity->model->vboindexofs);
-
-	rs_aliaspasses += paliashdr->numtris;
 }
 
 /*
@@ -427,8 +362,6 @@ void R_SetupAliasLighting (entity_t	*e)
 	vec3_t		dist;
 	float		add;
 	int			i;
-	int		quantizedangle;
-	float		radiansangle;
 	vec3_t		lpos;
 
 	VectorCopy (e->origin, lpos);
@@ -443,7 +376,7 @@ void R_SetupAliasLighting (entity_t	*e)
 	{
 		if (cl_dlights[i].die >= cl.time)
 		{
-			VectorSubtract (currententity->origin, cl_dlights[i].origin, dist);
+			VectorSubtract (e->origin, cl_dlights[i].origin, dist);
 			add = cl_dlights[i].radius - VectorLength(dist);
 			if (add > 0)
 				VectorMA (lightcolor, add, cl_dlights[i].color, lightcolor);
@@ -463,7 +396,7 @@ void R_SetupAliasLighting (entity_t	*e)
 	}
 
 	// minimum light value on players (8)
-	if (currententity > cl_entities && currententity <= cl_entities + cl.maxclients)
+	if (e > cl_entities && e <= cl_entities + cl.maxclients)
 	{
 		add = 24.0f - (lightcolor[0] + lightcolor[1] + lightcolor[2]);
 		if (add > 0.0f)
@@ -475,7 +408,7 @@ void R_SetupAliasLighting (entity_t	*e)
 	}
 
 	// clamp lighting so it doesn't overbright as much (96)
-	if (overbright)
+	if (gl_overbright_models.value)
 	{
 		add = 288.0f / (lightcolor[0] + lightcolor[1] + lightcolor[2]);
 		if (add < 1.0f)
@@ -491,38 +424,21 @@ void R_SetupAliasLighting (entity_t	*e)
 			lightcolor[2] = 256.0f;
 		}
 
-	quantizedangle = ((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1);
-
-//ericw -- shadevector is passed to the shader to compute shadedots inside the
-//shader, see GLAlias_CreateShaders()
-	radiansangle = (quantizedangle / 16.0) * 2.0 * 3.14159;
-	shadevector[0] = cos(-radiansangle);
-	shadevector[1] = sin(-radiansangle);
-	shadevector[2] = 1;
-	VectorNormalize(shadevector);
-//ericw --
-
-	shadedots = r_avertexnormal_dots[quantizedangle];
 	VectorScale (lightcolor, 1.0f / 200.0f, lightcolor);
 }
 
 /*
 =================
-R_DrawAliasModel -- johnfitz -- almost completely rewritten
+R_DrawAliasModel_Real
 =================
 */
-void R_DrawAliasModel (entity_t *e)
+void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
 	gltexture_t	*tx, *fb;
 	lerpdata_t	lerpdata;
-	qboolean	alphatest = !!(e->model->flags & MF_HOLEY);
-	float		fovscale = 1.0f;
-	float		model_matrix[16];
-	float		translation_matrix[16];
-	float		scale_matrix[16];
-	float		mvp[16];
+	instance_t	*instance;
 
 	//
 	// setup pose/lerp data -- do it first so we don't miss updates due to culling
@@ -531,31 +447,14 @@ void R_DrawAliasModel (entity_t *e)
 	R_SetupAliasFrame (paliashdr, e->frame, &lerpdata);
 	R_SetupEntityTransform (e, &lerpdata);
 
+	if (lerpdata.pose1 == lerpdata.pose2)
+		lerpdata.blend = 0.f;
+
 	//
 	// cull it
 	//
 	if (R_CullModelForEntity(e))
 		return;
-
-	//
-	// transform it
-	//
-	if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
-		fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
-
-	R_EntityMatrix (model_matrix, lerpdata.origin, lerpdata.angles);
-
-	TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
-	MatrixMultiply (model_matrix, translation_matrix);
-
-	ScaleMatrix (scale_matrix, paliashdr->scale[0], paliashdr->scale[1] * fovscale, paliashdr->scale[2] * fovscale);
-	MatrixMultiply (model_matrix, scale_matrix);
-	
-	//
-	// random stuff
-	//
-	overbright = gl_overbright_models.value;
-	shading = true;
 
 	//
 	// set up for alpha blending
@@ -590,18 +489,15 @@ void R_DrawAliasModel (entity_t *e)
 	if (e->colormap != vid.colormap && !gl_nocolors.value)
 	{
 		i = e - cl_entities;
-		if (i >= 1 && i<=cl.maxclients /* && !strcmp (currententity->model->name, "progs/player.mdl") */)
+		if (i >= 1 && i<=cl.maxclients /* && !strcmp (e->model->name, "progs/player.mdl") */)
 		    tx = playertextures[i - 1];
 	}
 	if (!gl_fullbrights.value)
-		fb = NULL;
+		fb = blacktexture;
 
 	//
 	// draw it
 	//
-
-	memcpy(mvp, r_matviewproj, 16 * sizeof(float));
-	MatrixMultiply (mvp, model_matrix);
 
 	if (r_fullbright_cheatsafe)
 		lightcolor[0] = lightcolor[1] = lightcolor[2] = 0.5f;
@@ -615,19 +511,144 @@ void R_DrawAliasModel (entity_t *e)
 	if (!fb)
 		fb = blacktexture;
 
-	GL_BeginGroup (e->model->name);
+	if (showtris)
+	{
+		tx = blacktexture;
+		fb = whitetexture;
+		lightcolor[0] = lightcolor[2] = lightcolor[3] = 0.5f;
+		entalpha = 1.f;
+	}
 
-	GL_DrawAliasFrame_GLSL (paliashdr, &lerpdata, tx, fb, mvp);
+	if (num_model_instances)
+	{
+		instance_t *first = &model_instances[0];
+		if (num_model_instances == countof(model_instances) ||
+			first->ent->model != e->model ||
+			first->data.alias.texture != tx ||
+			first->data.alias.fullbright!= fb)
+		{
+			R_FlushModelInstances ();
+		}
+	}
+
+	instance = &model_instances[num_model_instances++];
+
+	instance->ent                       = e;
+	instance->data.alias.texture        = tx;
+	instance->data.alias.fullbright     = fb;
+	instance->data.alias.origin[0]      = lerpdata.origin[0];
+	instance->data.alias.origin[1]      = lerpdata.origin[1];
+	instance->data.alias.origin[2]      = lerpdata.origin[2];
+	instance->data.alias.angles[0]      = lerpdata.angles[0];
+	instance->data.alias.angles[1]      = lerpdata.angles[1];
+	instance->data.alias.angles[2]      = lerpdata.angles[2];
+	instance->data.alias.lightcolor[0]  = lightcolor[0];
+	instance->data.alias.lightcolor[1]  = lightcolor[1];
+	instance->data.alias.lightcolor[2]  = lightcolor[2];
+	instance->data.alias.alpha          = entalpha;
+	instance->data.alias.blend          = lerpdata.blend;
+	instance->data.alias.pose1          = lerpdata.pose1;
+	instance->data.alias.pose2          = lerpdata.pose2;
+}
+
+/*
+=================
+R_DrawAliasInstances
+=================
+*/
+void R_DrawAliasInstances (instance_t *inst, int count)
+{
+	qmodel_t	*model = inst->ent->model;
+	aliashdr_t	*paliashdr = (aliashdr_t *)Mod_Extradata (model);
+	int			i;
+	unsigned	state;
+	GLuint		buf;
+	GLbyte		*ofs;
+	size_t		ibuf_size;
+	aliasinstancebuffer_t ibuf;
+
+	GL_BeginGroup (model->name);
+
+	GL_UseProgram (r_alias_program);
+
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	if (inst->data.alias.alpha == 1.f)
+		state |= GLS_BLEND_OPAQUE;
+	else
+		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+	GL_SetState (state);
+
+	memcpy(ibuf.global.fog, fog_data, 4 * sizeof(float));
+	ibuf.global.use_alpha_test = (model->flags & MF_HOLEY) ? 1 : 0;
+
+	for (i = 0; i < count; i++)
+	{
+		struct aliasinstance_s *src = &inst[i].data.alias;
+		struct aliasgpuinstance_s *dst = &ibuf.inst[i];
+		entity_t	*e = inst[i].ent;
+		float		fovscale = 1.0f;
+		float		model_matrix[16];
+		float		translation_matrix[16];
+		float		scale_matrix[16];
+		int			quantizedangle;
+		float		radiansangle;
+
+		if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
+			fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
+
+		R_EntityMatrix (model_matrix, src->origin, src->angles);
+
+		TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
+		MatrixMultiply (model_matrix, translation_matrix);
+
+		ScaleMatrix (scale_matrix, paliashdr->scale[0], paliashdr->scale[1] * fovscale, paliashdr->scale[2] * fovscale);
+		MatrixMultiply (model_matrix, scale_matrix);
+
+		memcpy (dst->mvp, r_matviewproj, 16 * sizeof(float));
+		MatrixMultiply(dst->mvp, model_matrix);
+
+		quantizedangle = ((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1);
+		radiansangle = (quantizedangle / 16.0) * 2.0 * M_PI;
+		dst->shadevector[0] = cos(-radiansangle);
+		dst->shadevector[1] = sin(-radiansangle);
+		dst->shadevector[2] = 1;
+		VectorNormalize(dst->shadevector);
+
+		dst->blend = src->blend;
+		dst->light[0] = src->lightcolor[0];
+		dst->light[1] = src->lightcolor[1];
+		dst->light[2] = src->lightcolor[2];
+		dst->alpha = src->alpha;
+		dst->pose1 = src->pose1 * paliashdr->numverts_vbo;
+		dst->pose2 = src->pose2 * paliashdr->numverts_vbo;
+	}
+
+	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * count;
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf, ibuf_size, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, ibuf_size);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
+
+	GL_Bind (GL_TEXTURE0, inst->data.alias.texture);
+	GL_Bind (GL_TEXTURE1, inst->data.alias.fullbright);
+
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
+	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, count);
+
+	rs_aliaspasses += paliashdr->numtris * count;
 
 	GL_EndGroup();
 }
 
-//johnfitz -- values for shadow matrix
-#define SHADOW_SKEW_X -0.7 //skew along x axis. -0.7 to mimic glquake shadows
-#define SHADOW_SKEW_Y 0 //skew along y axis. 0 to mimic glquake shadows
-#define SHADOW_VSCALE 0 //0=completely flat
-#define SHADOW_HEIGHT 0.1 //how far above the floor to render the shadow
-//johnfitz
+/*
+=================
+R_DrawAliasModel
+=================
+*/
+void R_DrawAliasModel (entity_t *e)
+{
+	R_DrawAliasModel_Real (e, false);
+}
 
 /*
 =================
@@ -636,57 +657,5 @@ R_DrawAliasModel_ShowTris -- johnfitz
 */
 void R_DrawAliasModel_ShowTris (entity_t *e)
 {
-	aliashdr_t	*paliashdr;
-	lerpdata_t	lerpdata;
-	float		fovscale = 1.0f;
-	float		model_matrix[16];
-	float		translation_matrix[16];
-	float		scale_matrix[16];
-	float		mvp[16];
-
-	//
-	// setup pose/lerp data -- do it first so we don't miss updates due to culling
-	//
-	paliashdr = (aliashdr_t *)Mod_Extradata (e->model);
-	R_SetupAliasFrame (paliashdr, e->frame, &lerpdata);
-	R_SetupEntityTransform (e, &lerpdata);
-
-	//
-	// cull it
-	//
-	if (R_CullModelForEntity(e))
-		return;
-
-	//
-	// transform it
-	//
-	if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
-		fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
-
-	R_EntityMatrix (model_matrix, lerpdata.origin, lerpdata.angles);
-
-	TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
-	MatrixMultiply (model_matrix, translation_matrix);
-
-	ScaleMatrix (scale_matrix, paliashdr->scale[0], paliashdr->scale[1] * fovscale, paliashdr->scale[2] * fovscale);
-	MatrixMultiply (model_matrix, scale_matrix);
-
-	if (r_lightmap_cheatsafe) //no alpha in drawflat or lightmap mode
-		entalpha = 1;
-	else
-		entalpha = ENTALPHA_DECODE(e->alpha);
-
-	if (entalpha == 0)
-		return;
-
-	entalpha = 1.0f;
-
-	//
-	// draw it
-	//
-
-	memcpy(mvp, r_matviewproj, 16 * sizeof(float));
-	MatrixMultiply (mvp, model_matrix);
-
-	GL_DrawAliasFrame_GLSL (paliashdr, &lerpdata, whitetexture, whitetexture, mvp);
+	R_DrawAliasModel_Real (e, true);
 }

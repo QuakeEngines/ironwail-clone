@@ -2310,7 +2310,10 @@ visdone:
 		}
 	}
 
-	mod->sortkey = atoi (mod->name + 1);
+	if (mod->name[0] == '*')
+		mod->sortkey = MOD_SORT_BRUSH | ((atoi (mod->name + 1) & 1023) << 4);
+	else
+		mod->sortkey = MOD_SORT_BRUSH | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
 }
 
 /*
@@ -2880,7 +2883,7 @@ void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 		return;
 	memcpy (mod->cache.data, pheader, total);
 
-	mod->sortkey = (CRC_Block (mod->name, strlen(mod->name)) >> 2) | 0x4000;
+	mod->sortkey = MOD_SORT_ALIAS | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
 
 	Hunk_FreeToLowMark (start);
 }
@@ -3060,7 +3063,7 @@ void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer)
 	}
 
 	mod->type = mod_sprite;
-	mod->sortkey = (CRC_Block (mod->name, strlen(mod->name)) >> 2) | 0x8000;
+	mod->sortkey = MOD_SORT_SPRITE | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
 }
 
 //=============================================================================
