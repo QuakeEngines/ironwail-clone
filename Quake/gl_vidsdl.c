@@ -68,8 +68,8 @@ static const char *gl_version;
 static int gl_version_major;
 static int gl_version_minor;
 static int gl_version_number;
-static const char *gl_extensions;
 static char * gl_extensions_nice;
+static int gl_num_extensions;
 
 static vmode_t	modelist[MAX_MODE_LIST];
 static int		nummodes;
@@ -745,34 +745,37 @@ void VID_Lock (void)
 
 /*
 ===============
-GL_MakeNiceExtensionsList -- johnfitz
+GL_MakeNiceExtensionsList
 ===============
 */
-static char *GL_MakeNiceExtensionsList (const char *in)
+static char *GL_MakeNiceExtensionsList ()
 {
-	char *copy, *token, *out;
+	char *out;
 	int i, count;
 
-	if (!in) return Z_Strdup("(none)");
+	if (gl_num_extensions <= 0)
+		return Z_Strdup("(none)");
 
-	//each space will be replaced by 4 chars, so count the spaces before we malloc
-	for (i = 0, count = 1; i < (int) strlen(in); i++)
+	count = 1; // NUL
+	for (i = 0; i < gl_num_extensions; i++)
+		count += strlen ((const char*) GL_GetStringiFunc (GL_EXTENSIONS, i));
+	count += gl_num_extensions * 4; // 3 leading spaces + LF
+
+	out = (char *) Z_Malloc (count);
+	count = 0;
+	for (i = 0; i < gl_num_extensions; i++)
 	{
-		if (in[i] == ' ')
-			count++;
+		const char *ext = (const char*) GL_GetStringiFunc (GL_EXTENSIONS, i);
+		size_t len = strlen(ext);
+		out[count++] = ' ';
+		out[count++] = ' ';
+		out[count++] = ' ';
+		memcpy(out + count, ext, len);
+		count += len;
+		out[count++] = '\n';
 	}
+	out[count] = 0;
 
-	out = (char *) Z_Malloc (strlen(in) + count*3 + 1); //usually about 1-2k
-	out[0] = 0;
-
-	copy = (char *) Z_Strdup(in);
-	for (token = strtok(copy, " "); token; token = strtok(NULL, " "))
-	{
-		strcat(out, "\n   ");
-		strcat(out, token);
-	}
-
-	Z_Free (copy);
 	return out;
 }
 
@@ -783,38 +786,27 @@ GL_Info_f -- johnfitz
 */
 static void GL_Info_f (void)
 {
-	Con_SafePrintf ("GL_VENDOR: %s\n", gl_vendor);
-	Con_SafePrintf ("GL_RENDERER: %s\n", gl_renderer);
-	Con_SafePrintf ("GL_VERSION: %s\n", gl_version);
-	Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions_nice);
+	int i;
+	Con_SafePrintf ("GL_VENDOR:     %s\n", gl_vendor);
+	Con_SafePrintf ("GL_RENDERER:   %s\n", gl_renderer);
+	Con_SafePrintf ("GL_VERSION:    %s\n", gl_version);
+
+	Con_SafePrintf ("GL_EXTENSIONS: %d\n", gl_num_extensions);
+	for (i = 0; i < gl_num_extensions; i++)
+		Con_Printf("%3d. %s\n", i + 1, GL_GetStringiFunc (GL_EXTENSIONS, i));
 }
 
 /*
 ===============
-GL_ParseExtensionList
+GL_FindExtension
 ===============
 */
-static qboolean GL_ParseExtensionList (const char *list, const char *name)
+static qboolean GL_FindExtension (const char *name)
 {
-	const char	*start;
-	const char	*where, *terminator;
-
-	if (!list || !name || !*name)
-		return false;
-	if (strchr(name, ' ') != NULL)
-		return false;	// extension names must not have spaces
-
-	start = list;
-	while (1) {
-		where = strstr (start, name);
-		if (!where)
-			break;
-		terminator = where + strlen (name);
-		if (where == start || where[-1] == ' ')
-			if (*terminator == ' ' || *terminator == '\0')
-				return true;
-		start = terminator;
-	}
+	int i;
+	for (i = 0; i < gl_num_extensions; i++)
+		if (0 == strcmp(name, (const char*) GL_GetStringiFunc (GL_EXTENSIONS, i)))
+			return true;
 	return false;
 }
 
@@ -961,7 +953,7 @@ static void GL_CheckExtensions (void)
 
 	// anisotropic filtering
 	//
-	if (GL_ParseExtensionList(gl_extensions, "GL_EXT_texture_filter_anisotropic"))
+	if (GL_FindExtension ("GL_EXT_texture_filter_anisotropic"))
 	{
 		float test1,test2;
 		GLuint tex;
@@ -1131,7 +1123,7 @@ static void GL_Init (void)
 	gl_vendor = (const char *) glGetString (GL_VENDOR);
 	gl_renderer = (const char *) glGetString (GL_RENDERER);
 	gl_version = (const char *) glGetString (GL_VERSION);
-	gl_extensions = (const char *) glGetString (GL_EXTENSIONS);
+	glGetIntegerv (GL_NUM_EXTENSIONS, &gl_num_extensions);
 
 	Con_SafePrintf ("GL_VENDOR: %s\n", gl_vendor);
 	Con_SafePrintf ("GL_RENDERER: %s\n", gl_renderer);
@@ -1146,11 +1138,11 @@ static void GL_Init (void)
 	if (gl_version_number < MAKE_GL_VERSION(4, 4))
 		Sys_Error("OpenGL 4.4 required, found %d.%d\n", gl_version_major, gl_version_minor);
 
+	GL_CheckExtensions ();
+
 	if (gl_extensions_nice != NULL)
 		Z_Free (gl_extensions_nice);
-	gl_extensions_nice = GL_MakeNiceExtensionsList (gl_extensions);
-
-	GL_CheckExtensions (); //johnfitz
+	gl_extensions_nice = GL_MakeNiceExtensionsList ();
 
 	GL_GenVertexArraysFunc (1, &globalvao);
 	GL_BindVertexArrayFunc (globalvao);

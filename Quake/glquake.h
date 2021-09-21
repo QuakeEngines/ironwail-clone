@@ -209,6 +209,7 @@ extern int		gl_stencilbits;
 	x(void,			ObjectLabel, (GLenum identifier, GLuint name, GLsizei length, const GLchar *label))\
 	x(void,			PushDebugGroup, (GLenum source, GLuint id, GLsizei length, const char * message))\
 	x(void,			PopDebugGroup, (void))\
+	x(const GLubyte*,GetStringi, (GLenum name, GLuint index))\
 /*	x(void,			DrawBuffers, (GLsizei n, const GLenum *bufs))*/\
 
 #define QGL_DECLARE_FUNC(ret, name, args) extern ret (APIENTRYP GL_##name##Func) args;
