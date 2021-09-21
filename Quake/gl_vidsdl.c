@@ -1101,7 +1101,6 @@ static void GL_SetupState (void)
 	glClearColor (0.f, 0.f, 0.f, 0.f);
 	glFrontFace (GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	glHint (GL_PERSPECTIVE_CORRECTION_HINT, GL_NICEST); //johnfitz
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
