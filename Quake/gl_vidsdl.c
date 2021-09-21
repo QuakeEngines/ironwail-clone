@@ -68,7 +68,6 @@ static const char *gl_version;
 static int gl_version_major;
 static int gl_version_minor;
 static int gl_version_number;
-static char * gl_extensions_nice;
 static int gl_num_extensions;
 
 static vmode_t	modelist[MAX_MODE_LIST];
@@ -745,42 +744,6 @@ void VID_Lock (void)
 
 /*
 ===============
-GL_MakeNiceExtensionsList
-===============
-*/
-static char *GL_MakeNiceExtensionsList ()
-{
-	char *out;
-	int i, count;
-
-	if (gl_num_extensions <= 0)
-		return Z_Strdup("(none)");
-
-	count = 1; // NUL
-	for (i = 0; i < gl_num_extensions; i++)
-		count += strlen ((const char*) GL_GetStringiFunc (GL_EXTENSIONS, i));
-	count += gl_num_extensions * 4; // 3 leading spaces + LF
-
-	out = (char *) Z_Malloc (count);
-	count = 0;
-	for (i = 0; i < gl_num_extensions; i++)
-	{
-		const char *ext = (const char*) GL_GetStringiFunc (GL_EXTENSIONS, i);
-		size_t len = strlen(ext);
-		out[count++] = ' ';
-		out[count++] = ' ';
-		out[count++] = ' ';
-		memcpy(out + count, ext, len);
-		count += len;
-		out[count++] = '\n';
-	}
-	out[count] = 0;
-
-	return out;
-}
-
-/*
-===============
 GL_Info_f -- johnfitz
 ===============
 */
@@ -1138,10 +1101,6 @@ static void GL_Init (void)
 		Sys_Error("OpenGL 4.4 required, found %d.%d\n", gl_version_major, gl_version_minor);
 
 	GL_CheckExtensions ();
-
-	if (gl_extensions_nice != NULL)
-		Z_Free (gl_extensions_nice);
-	gl_extensions_nice = GL_MakeNiceExtensionsList ();
 
 	GL_GenVertexArraysFunc (1, &globalvao);
 	GL_BindVertexArrayFunc (globalvao);
