@@ -438,7 +438,7 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	int			i, anim, skinnum;
 	gltexture_t	*tx, *fb;
 	lerpdata_t	lerpdata;
-	instance_t	*instance;
+	aliasinstance_t	*instance;
 
 	//
 	// setup pose/lerp data -- do it first so we don't miss updates due to culling
@@ -519,36 +519,36 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 		entalpha = 1.f;
 	}
 
-	if (num_model_instances)
+	if (model_instances.count)
 	{
-		instance_t *first = &model_instances[0];
-		if (num_model_instances == countof(model_instances) ||
-			first->ent->model != e->model ||
-			first->data.alias.texture != tx ||
-			first->data.alias.fullbright!= fb)
+		aliasinstance_t *first = &model_instances.data.alias[0];
+		if (model_instances.count == countof(model_instances.data.alias) ||
+			first->ent->model != e->model || // check model first, before touching any type-specific fields
+			first->texture != tx ||
+			first->fullbright != fb)
 		{
 			R_FlushModelInstances ();
 		}
 	}
 
-	instance = &model_instances[num_model_instances++];
+	instance = &model_instances.data.alias[model_instances.count++];
 
-	instance->ent                       = e;
-	instance->data.alias.texture        = tx;
-	instance->data.alias.fullbright     = fb;
-	instance->data.alias.origin[0]      = lerpdata.origin[0];
-	instance->data.alias.origin[1]      = lerpdata.origin[1];
-	instance->data.alias.origin[2]      = lerpdata.origin[2];
-	instance->data.alias.angles[0]      = lerpdata.angles[0];
-	instance->data.alias.angles[1]      = lerpdata.angles[1];
-	instance->data.alias.angles[2]      = lerpdata.angles[2];
-	instance->data.alias.lightcolor[0]  = lightcolor[0];
-	instance->data.alias.lightcolor[1]  = lightcolor[1];
-	instance->data.alias.lightcolor[2]  = lightcolor[2];
-	instance->data.alias.alpha          = entalpha;
-	instance->data.alias.blend          = lerpdata.blend;
-	instance->data.alias.pose1          = lerpdata.pose1;
-	instance->data.alias.pose2          = lerpdata.pose2;
+	instance->ent           = e;
+	instance->texture       = tx;
+	instance->fullbright    = fb;
+	instance->origin[0]     = lerpdata.origin[0];
+	instance->origin[1]     = lerpdata.origin[1];
+	instance->origin[2]     = lerpdata.origin[2];
+	instance->angles[0]     = lerpdata.angles[0];
+	instance->angles[1]     = lerpdata.angles[1];
+	instance->angles[2]     = lerpdata.angles[2];
+	instance->lightcolor[0] = lightcolor[0];
+	instance->lightcolor[1] = lightcolor[1];
+	instance->lightcolor[2] = lightcolor[2];
+	instance->alpha         = entalpha;
+	instance->blend         = lerpdata.blend;
+	instance->pose1         = lerpdata.pose1;
+	instance->pose2         = lerpdata.pose2;
 }
 
 /*
@@ -556,7 +556,7 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 R_DrawAliasInstances
 =================
 */
-void R_DrawAliasInstances (instance_t *inst, int count)
+void R_DrawAliasInstances (aliasinstance_t *inst, int count)
 {
 	qmodel_t	*model = inst->ent->model;
 	aliashdr_t	*paliashdr = (aliashdr_t *)Mod_Extradata (model);
@@ -572,7 +572,7 @@ void R_DrawAliasInstances (instance_t *inst, int count)
 	GL_UseProgram (r_alias_program);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-	if (inst->data.alias.alpha == 1.f)
+	if (inst->alpha == 1.f)
 		state |= GLS_BLEND_OPAQUE;
 	else
 		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
@@ -583,8 +583,8 @@ void R_DrawAliasInstances (instance_t *inst, int count)
 
 	for (i = 0; i < count; i++)
 	{
-		struct aliasinstance_s *src = &inst[i].data.alias;
-		struct aliasgpuinstance_s *dst = &ibuf.inst[i];
+		aliasinstance_t *src = &inst[i];
+		aliasgpuinstance_t *dst = &ibuf.inst[i];
 		entity_t	*e = inst[i].ent;
 		float		fovscale = 1.0f;
 		float		model_matrix[16];
@@ -629,8 +629,8 @@ void R_DrawAliasInstances (instance_t *inst, int count)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
-	GL_Bind (GL_TEXTURE0, inst->data.alias.texture);
-	GL_Bind (GL_TEXTURE1, inst->data.alias.fullbright);
+	GL_Bind (GL_TEXTURE0, inst->texture);
+	GL_Bind (GL_TEXTURE1, inst->fullbright);
 
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
 	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, count);

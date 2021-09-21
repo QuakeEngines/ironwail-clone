@@ -166,29 +166,29 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 {
 	msprite_t		*psprite;
 	mspriteframe_t	*frame;
-	instance_t		*instance;
+	spriteinstance_t	*instance;
 
 	//TODO: frustum cull it?
 
 	frame = R_GetSpriteFrame (e);
 	psprite = (msprite_t *) e->model->cache.data;
 
-	if (num_model_instances)
+	if (model_instances.count)
 	{
-		instance_t *first = &model_instances[0];
-		if (num_model_instances == countof(model_instances) ||
-			first->ent->model != e->model ||
-			first->data.sprite.frame->gltexture != frame->gltexture)
+		spriteinstance_t *first = &model_instances.data.sprite[0];
+		if (model_instances.count == countof(model_instances.data.sprite) ||
+			first->ent->model != e->model || // check model first, before touching any type-specific fields
+			first->frame->gltexture != frame->gltexture)
 		{
 			R_FlushModelInstances ();
 		}
 	}
 
-	instance = &model_instances[num_model_instances++];
+	instance = &model_instances.data.sprite[model_instances.count++];
 
-	instance->ent                   = e;
-	instance->data.sprite.frame     = frame;
-	instance->data.sprite.showtris  = showtris;
+	instance->ent       = e;
+	instance->frame     = frame;
+	instance->showtris  = showtris;
 }
 
 /*
@@ -197,10 +197,10 @@ R_DrawSpriteInstances
 =================
 */
 static int lastfogframe = 0;
-void R_DrawSpriteInstances (instance_t *inst, int count)
+void R_DrawSpriteInstances (spriteinstance_t *inst, int count)
 {
 	qmodel_t		*model = inst->ent->model;
-	qboolean		showtris = inst->data.sprite.showtris;
+	qboolean		showtris = inst->showtris;
 	vec3_t			point, v_forward, v_right, v_up;
 	msprite_t		*psprite;
 	float			*s_up, *s_right;
@@ -217,7 +217,7 @@ void R_DrawSpriteInstances (instance_t *inst, int count)
 	for (i = 0; i < count; i++)
 	{
 		entity_t		*e = inst[i].ent;
-		mspriteframe_t	*frame = inst->data.sprite.frame;
+		mspriteframe_t	*frame = inst->frame;
 
 		switch(psprite->type)
 		{
@@ -313,7 +313,7 @@ void R_DrawSpriteInstances (instance_t *inst, int count)
 	else
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
-	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : inst->data.sprite.frame->gltexture);
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : inst->frame->gltexture);
 
 	GL_Upload (GL_ARRAY_BUFFER, verts, sizeof(verts[0]) * 4 * count, &buf, &ofs);
 	GL_BindBuffer (GL_ARRAY_BUFFER, buf);

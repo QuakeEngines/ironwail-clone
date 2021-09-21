@@ -673,8 +673,7 @@ void R_SetupView (void)
 //
 //==============================================================================
 
-instance_t model_instances[MAX_INSTANCES];
-int num_model_instances;
+instbuf_t model_instances;
 
 /*
 =============
@@ -683,7 +682,7 @@ R_ClearModelInstances
 */
 void R_ClearModelInstances (void)
 {
-	num_model_instances = 0;
+	model_instances.count = 0;
 }
 
 /*
@@ -693,22 +692,22 @@ R_FlushModelInstances
 */
 void R_FlushModelInstances (void)
 {
-	if (!num_model_instances)
+	if (!model_instances.count)
 		return;
 
-	switch (model_instances[0].ent->model->type)
+	switch (model_instances.data.ent->model->type)
 	{
 		case mod_alias:
-			R_DrawAliasInstances (model_instances, num_model_instances);
+			R_DrawAliasInstances (model_instances.data.alias, model_instances.count);
 			break;
 		case mod_sprite:
-			R_DrawSpriteInstances (model_instances, num_model_instances);
+			R_DrawSpriteInstances (model_instances.data.sprite, model_instances.count);
 			break;
 		default:
 			break;
 	}
 
-	num_model_instances = 0;
+	model_instances.count = 0;
 }
 
 /*
