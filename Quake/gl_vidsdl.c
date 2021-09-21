@@ -60,7 +60,11 @@ typedef struct {
 	int			bpp;
 } vmode_t;
 
-#define MAKE_GL_VERSION(major, minor)			(((major) << 16) | (minor))
+#define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
+#define MIN_GL_VERSION_MAJOR				4
+#define MIN_GL_VERSION_MINOR				4
+#define MIN_GL_VERSION						MAKE_GL_VERSION(MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR)
+#define MIN_GL_VERSION_STR					QS_STRINGIFY(MIN_GL_VERSION_MAJOR)"."QS_STRINGIFY(MIN_GL_VERSION_MINOR)
 
 static const char *gl_vendor;
 static const char *gl_renderer;
@@ -449,6 +453,12 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		if (vid_borderless.value)
 			flags |= SDL_WINDOW_BORDERLESS;
 		
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, MIN_GL_VERSION_MAJOR);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, MIN_GL_VERSION_MINOR);
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+#ifndef NDEBUG
+		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
+#endif
 		draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
 		if (!draw_context) { // scale back fsaa
 			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
@@ -457,10 +467,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		}
 		if (!draw_context) { // scale back SDL_GL_DEPTH_SIZE
 			SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
-			draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
-		}
-		if (!draw_context) { // scale back SDL_GL_STENCIL_SIZE
-			SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 			draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
 		}
 		if (!draw_context)
@@ -1097,8 +1103,8 @@ static void GL_Init (void)
 		gl_version_minor = 0;
 	}
 	gl_version_number = MAKE_GL_VERSION(gl_version_major, gl_version_minor);
-	if (gl_version_number < MAKE_GL_VERSION(4, 4))
-		Sys_Error("OpenGL 4.4 required, found %d.%d\n", gl_version_major, gl_version_minor);
+	if (gl_version_number < MIN_GL_VERSION)
+		Sys_Error("OpenGL " MIN_GL_VERSION_STR " required, found %d.%d\n", gl_version_major, gl_version_minor);
 
 	GL_CheckExtensions ();
 
