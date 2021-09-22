@@ -97,6 +97,7 @@ void R_DrawBrushModel (entity_t *e)
 
 	if (R_CullModelForEntity(e))
 		return;
+	R_NewModelInstance (mod_brush);
 
 	GL_BeginGroup (e->model->name);
 
@@ -191,6 +192,7 @@ void R_DrawBrushModel_ShowTris (entity_t *e)
 
 	if (R_CullModelForEntity(e))
 		return;
+	R_NewModelInstance (mod_brush);
 
 	currententity = e;
 	clmodel = e->model;

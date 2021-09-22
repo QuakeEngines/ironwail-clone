@@ -28,6 +28,12 @@ typedef struct spritevert_t {
 	float		uv[2];
 } spritevert_t;
 
+static int numbatchquads = 0;
+static spritevert_t batchverts[4 * MAX_INSTANCES];
+static gltexture_t *batchtexture;
+static qmodel_t *batchmodel;
+static qboolean batchshowtris;
+
 static GLuint r_sprite_program;
 static GLushort batchindices[6 * MAX_INSTANCES];
 static qboolean batchindices_init = false;
@@ -166,134 +172,124 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 {
 	msprite_t		*psprite;
 	mspriteframe_t	*frame;
-	spriteinstance_t	*instance;
+	vec3_t			point, v_forward, v_right, v_up;
+	float			*s_up, *s_right;
+	float			angle, sr, cr;
+	spritevert_t	*verts;
 
 	//TODO: frustum cull it?
 
 	frame = R_GetSpriteFrame (e);
 	psprite = (msprite_t *) e->model->cache.data;
 
-	if (model_instances.count)
+	switch(psprite->type)
 	{
-		spriteinstance_t *first = &model_instances.data.sprite[0];
-		if (model_instances.count == countof(model_instances.data.sprite) ||
-			first->ent->model != e->model || // check model first, before touching any type-specific fields
-			first->frame->gltexture != frame->gltexture)
-		{
-			R_FlushModelInstances ();
-		}
+	case SPR_VP_PARALLEL_UPRIGHT: //faces view plane, up is towards the heavens
+		v_up[0] = 0;
+		v_up[1] = 0;
+		v_up[2] = 1;
+		s_up = v_up;
+		s_right = vright;
+		break;
+	case SPR_FACING_UPRIGHT: //faces camera origin, up is towards the heavens
+		VectorSubtract(e->origin, r_origin, v_forward);
+		v_forward[2] = 0;
+		VectorNormalizeFast(v_forward);
+		v_right[0] = v_forward[1];
+		v_right[1] = -v_forward[0];
+		v_right[2] = 0;
+		v_up[0] = 0;
+		v_up[1] = 0;
+		v_up[2] = 1;
+		s_up = v_up;
+		s_right = v_right;
+		break;
+	case SPR_VP_PARALLEL: //faces view plane, up is towards the top of the screen
+		s_up = vup;
+		s_right = vright;
+		break;
+	case SPR_ORIENTED: //pitch yaw roll are independent of camera
+		AngleVectors (e->angles, v_forward, v_right, v_up);
+		s_up = v_up;
+		s_right = v_right;
+		break;
+	case SPR_VP_PARALLEL_ORIENTED: //faces view plane, but obeys roll value
+		angle = e->angles[ROLL] * M_PI_DIV_180;
+		sr = sin(angle);
+		cr = cos(angle);
+		v_right[0] = vright[0] * cr + vup[0] * sr;
+		v_right[1] = vright[1] * cr + vup[1] * sr;
+		v_right[2] = vright[2] * cr + vup[2] * sr;
+		v_up[0] = vright[0] * -sr + vup[0] * cr;
+		v_up[1] = vright[1] * -sr + vup[1] * cr;
+		v_up[2] = vright[2] * -sr + vup[2] * cr;
+		s_up = v_up;
+		s_right = v_right;
+		break;
+	default:
+		return;
 	}
 
-	instance = &model_instances.data.sprite[model_instances.count++];
+	R_NewModelInstance (mod_sprite);
 
-	instance->ent       = e;
-	instance->frame     = frame;
-	instance->showtris  = showtris;
+	if (numbatchquads)
+		if (numbatchquads == countof(batchverts) / 4 || batchmodel != e->model || batchtexture != frame->gltexture)
+			R_FlushSpriteInstances ();
+
+	if (!numbatchquads)
+	{
+		batchmodel = e->model;
+		batchtexture = frame->gltexture;
+		batchshowtris = showtris;
+	}
+	verts = batchverts + numbatchquads * 4;
+	++numbatchquads;
+
+	#define ADD_VERTEX(uvx, uvy, p)		\
+		VectorCopy(p, verts->pos);		\
+		verts->uv[0] = uvx;				\
+		verts->uv[1] = uvy;				\
+		++verts
+
+	VectorMA (e->origin, frame->down, s_up, point);
+	VectorMA (point, frame->left, s_right, point);
+	ADD_VERTEX (0, frame->tmax, point);
+
+	VectorMA (e->origin, frame->up, s_up, point);
+	VectorMA (point, frame->left, s_right, point);
+	ADD_VERTEX (0, 0, point);
+
+	VectorMA (e->origin, frame->up, s_up, point);
+	VectorMA (point, frame->right, s_right, point);
+	ADD_VERTEX (frame->smax, 0, point);
+
+	VectorMA (e->origin, frame->down, s_up, point);
+	VectorMA (point, frame->right, s_right, point);
+	ADD_VERTEX (frame->smax, frame->tmax, point);
+
+	#undef ADD_VERTEX
 }
 
 /*
 =================
-R_DrawSpriteInstances
+R_FlushSpriteInstances
 =================
 */
 static int lastfogframe = 0;
-void R_DrawSpriteInstances (spriteinstance_t *inst, int count)
+void R_FlushSpriteInstances (void)
 {
-	qmodel_t		*model = inst->ent->model;
-	qboolean		showtris = inst->showtris;
-	vec3_t			point, v_forward, v_right, v_up;
+	qboolean		showtris = batchshowtris;
 	msprite_t		*psprite;
-	float			*s_up, *s_right;
-	float			angle, sr, cr;
-	spritevert_t	verts[4 * MAX_INSTANCES];
-	int				i, j;
 	GLuint			buf;
 	GLbyte*			ofs;
 
+	if (!numbatchquads)
+		return;
+
 	R_InitSpriteIndices ();
+	psprite = (msprite_t *) batchmodel->cache.data;
 
-	psprite = (msprite_t *) model->cache.data;
-
-	for (i = 0; i < count; i++)
-	{
-		entity_t		*e = inst[i].ent;
-		mspriteframe_t	*frame = inst->frame;
-
-		switch(psprite->type)
-		{
-		case SPR_VP_PARALLEL_UPRIGHT: //faces view plane, up is towards the heavens
-			v_up[0] = 0;
-			v_up[1] = 0;
-			v_up[2] = 1;
-			s_up = v_up;
-			s_right = vright;
-			break;
-		case SPR_FACING_UPRIGHT: //faces camera origin, up is towards the heavens
-			VectorSubtract(e->origin, r_origin, v_forward);
-			v_forward[2] = 0;
-			VectorNormalizeFast(v_forward);
-			v_right[0] = v_forward[1];
-			v_right[1] = -v_forward[0];
-			v_right[2] = 0;
-			v_up[0] = 0;
-			v_up[1] = 0;
-			v_up[2] = 1;
-			s_up = v_up;
-			s_right = v_right;
-			break;
-		case SPR_VP_PARALLEL: //faces view plane, up is towards the top of the screen
-			s_up = vup;
-			s_right = vright;
-			break;
-		case SPR_ORIENTED: //pitch yaw roll are independent of camera
-			AngleVectors (e->angles, v_forward, v_right, v_up);
-			s_up = v_up;
-			s_right = v_right;
-			break;
-		case SPR_VP_PARALLEL_ORIENTED: //faces view plane, but obeys roll value
-			angle = e->angles[ROLL] * M_PI_DIV_180;
-			sr = sin(angle);
-			cr = cos(angle);
-			v_right[0] = vright[0] * cr + vup[0] * sr;
-			v_right[1] = vright[1] * cr + vup[1] * sr;
-			v_right[2] = vright[2] * cr + vup[2] * sr;
-			v_up[0] = vright[0] * -sr + vup[0] * cr;
-			v_up[1] = vright[1] * -sr + vup[1] * cr;
-			v_up[2] = vright[2] * -sr + vup[2] * cr;
-			s_up = v_up;
-			s_right = v_right;
-			break;
-		default:
-			return;
-		}
-
-		j = 0;
-		#define ADD_VERTEX(uvx, uvy, p)			\
-			VectorCopy(p, verts[i*4+j].pos);	\
-			verts[i*4+j].uv[0] = uvx;			\
-			verts[i*4+j].uv[1] = uvy;			\
-			++j
-
-		VectorMA (e->origin, frame->down, s_up, point);
-		VectorMA (point, frame->left, s_right, point);
-		ADD_VERTEX (0, frame->tmax, point);
-
-		VectorMA (e->origin, frame->up, s_up, point);
-		VectorMA (point, frame->left, s_right, point);
-		ADD_VERTEX (0, 0, point);
-
-		VectorMA (e->origin, frame->up, s_up, point);
-		VectorMA (point, frame->right, s_right, point);
-		ADD_VERTEX (frame->smax, 0, point);
-
-		VectorMA (e->origin, frame->down, s_up, point);
-		VectorMA (point, frame->right, s_right, point);
-		ADD_VERTEX (frame->smax, frame->tmax, point);
-
-		#undef ADD_VERTEX
-	}
-
-	GL_BeginGroup (model->name);
+	GL_BeginGroup (batchtexture->name);
 
 	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
@@ -313,22 +309,34 @@ void R_DrawSpriteInstances (spriteinstance_t *inst, int count)
 	else
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
-	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : inst->frame->gltexture);
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : batchtexture);
 
-	GL_Upload (GL_ARRAY_BUFFER, verts, sizeof(verts[0]) * 4 * count, &buf, &ofs);
+	GL_Upload (GL_ARRAY_BUFFER, batchverts, sizeof(batchverts[0]) * 4 * numbatchquads, &buf, &ofs);
 	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(spritevert_t, pos));
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(verts[0]), ofs + offsetof(spritevert_t, uv));
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, pos));
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, uv));
 
-	GL_Upload (GL_ELEMENT_ARRAY_BUFFER, batchindices, sizeof(batchindices[0]) * 6 * count, &buf, &ofs);
+	GL_Upload (GL_ELEMENT_ARRAY_BUFFER, batchindices, sizeof(batchindices[0]) * 6 * numbatchquads, &buf, &ofs);
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, buf);
-	glDrawElements (GL_TRIANGLES, 6 * count, GL_UNSIGNED_SHORT, ofs);
+	glDrawElements (GL_TRIANGLES, 6 * numbatchquads, GL_UNSIGNED_SHORT, ofs);
 
 	//johnfitz: offset decals
 	if (psprite->type == SPR_ORIENTED)
 		GL_PolygonOffset (OFFSET_NONE);
 
 	GL_EndGroup ();
+
+	numbatchquads = 0;
+}
+
+/*
+=================
+R_ClearSpriteInstances
+=================
+*/
+void R_ClearSpriteInstances (void)
+{
+	numbatchquads = 0;
 }
 
 /*

@@ -368,41 +368,14 @@ void R_DrawSpriteModel (entity_t *e);
 
 #define MAX_INSTANCES		256
 
-typedef struct {
-	int						count;
-	union {
-		// Note: entity field *must* come first in all type-specific structs
-		entity_t 			*ent;
-
-		struct aliasinstance_s {
-			entity_t 		*ent;
-			gltexture_t		*texture;
-			gltexture_t		*fullbright;
-			vec3_t			origin;
-			vec3_t			angles;
-			vec3_t			lightcolor;
-			float			alpha;
-			float			blend;
-			short			pose1;
-			short			pose2;
-		} alias[MAX_INSTANCES];
-
-		struct spriteinstance_s {
-			entity_t 		*ent;
-			mspriteframe_t	*frame;
-			qboolean		showtris;
-		} sprite[MAX_INSTANCES];
-	} data;
-} instbuf_t;
-typedef struct aliasinstance_s aliasinstance_t;
-typedef struct spriteinstance_s spriteinstance_t;
-
-extern instbuf_t model_instances;
-
 void R_ClearModelInstances (void);
 void R_FlushModelInstances (void);
-void R_DrawAliasInstances (aliasinstance_t *inst, int count);
-void R_DrawSpriteInstances (spriteinstance_t *inst, int count);
+void R_NewModelInstance (modtype_t type); // flushes if previous instance was of a different type
+
+void R_ClearAliasInstances (void);
+void R_ClearSpriteInstances (void);
+void R_FlushAliasInstances (void);
+void R_FlushSpriteInstances (void);
 
 void GL_BuildLightmaps (void);
 void GL_DeleteBModelVertexBuffer (void);

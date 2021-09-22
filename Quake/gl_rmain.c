@@ -673,7 +673,7 @@ void R_SetupView (void)
 //
 //==============================================================================
 
-instbuf_t model_instances;
+static int model_instance_type = -1;
 
 /*
 =============
@@ -682,7 +682,9 @@ R_ClearModelInstances
 */
 void R_ClearModelInstances (void)
 {
-	model_instances.count = 0;
+	model_instance_type = -1;
+	R_ClearAliasInstances ();
+	R_ClearSpriteInstances ();
 }
 
 /*
@@ -692,22 +694,33 @@ R_FlushModelInstances
 */
 void R_FlushModelInstances (void)
 {
-	if (!model_instances.count)
-		return;
-
-	switch (model_instances.data.ent->model->type)
+	switch (model_instance_type)
 	{
 		case mod_alias:
-			R_DrawAliasInstances (model_instances.data.alias, model_instances.count);
+			R_FlushAliasInstances ();
 			break;
 		case mod_sprite:
-			R_DrawSpriteInstances (model_instances.data.sprite, model_instances.count);
+			R_FlushSpriteInstances ();
 			break;
 		default:
 			break;
 	}
 
-	model_instances.count = 0;
+	model_instance_type = -1;
+}
+
+/*
+=============
+R_NewModelInstance
+=============
+*/
+void R_NewModelInstance (modtype_t type)
+{
+	if (model_instance_type == type)
+		return;
+	if (model_instance_type != -1)
+		R_FlushModelInstances ();
+	model_instance_type = type;
 }
 
 /*
@@ -747,7 +760,6 @@ void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 				R_DrawAliasModel (currententity);
 				break;
 			case mod_brush:
-				R_FlushModelInstances ();
 				R_DrawBrushModel (currententity);
 				break;
 			case mod_sprite:
@@ -828,7 +840,6 @@ void R_ShowTris (void)
 			switch (currententity->model->type)
 			{
 			case mod_brush:
-				R_FlushModelInstances ();
 				R_DrawBrushModel_ShowTris (currententity);
 				break;
 			case mod_alias:

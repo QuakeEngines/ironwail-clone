@@ -58,24 +58,29 @@ typedef struct {
 } lerpdata_t;
 //johnfitz
 
-typedef struct aliasgpuinstance_s {
+typedef struct aliasinstance_s {
 	float		mvp[16];
-	vec3_t		light;
+	vec3_t		lightcolor;
 	float		alpha;
 	float		shadeangle;
 	float		blend;
 	int32_t		pose1;
 	int32_t		pose2;
-} aliasgpuinstance_t;
+} aliasinstance_t;
 
-typedef struct aliasinstancebuffer_s {
+struct ibuf_s {
+	int			count;
+	entity_t	*ent;
+	gltexture_t	*texture;
+	gltexture_t	*fullbright;
+
 	struct {
 		vec4_t	fog;
 		int		use_alpha_test;
 		int		padding[3];
 	} global;
-	aliasgpuinstance_t inst[MAX_INSTANCES];
-} aliasinstancebuffer_t;
+	aliasinstance_t inst[MAX_INSTANCES];
+} ibuf;
 
 static GLuint r_alias_program;
 
@@ -442,6 +447,12 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	int			i, anim, skinnum;
 	gltexture_t	*tx, *fb;
 	lerpdata_t	lerpdata;
+	int			quantizedangle;
+	float		radiansangle;
+	float		fovscale = 1.0f;
+	float		model_matrix[16];
+	float		translation_matrix[16];
+	float		scale_matrix[16];
 	aliasinstance_t	*instance;
 
 	//
@@ -459,6 +470,18 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	//
 	if (R_CullModelForEntity(e))
 		return;
+
+	//
+	// transform it
+	//
+	if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
+		fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
+
+	R_EntityMatrix (model_matrix, lerpdata.origin, lerpdata.angles);
+	TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
+	MatrixMultiply (model_matrix, translation_matrix);
+	ScaleMatrix (scale_matrix, paliashdr->scale[0], paliashdr->scale[1] * fovscale, paliashdr->scale[2] * fovscale);
+	MatrixMultiply (model_matrix, scale_matrix);
 
 	//
 	// set up for alpha blending
@@ -523,60 +546,70 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 		entalpha = 1.f;
 	}
 
-	if (model_instances.count)
+	R_NewModelInstance (mod_alias);
+
+	if (ibuf.count)
 	{
-		aliasinstance_t *first = &model_instances.data.alias[0];
-		if (model_instances.count == countof(model_instances.data.alias) ||
-			first->ent->model != e->model || // check model first, before touching any type-specific fields
-			first->texture != tx ||
-			first->fullbright != fb)
+		if (ibuf.count == countof(ibuf.inst) ||
+			ibuf.ent->model != e->model ||
+			ibuf.texture != tx ||
+			ibuf.fullbright != fb)
 		{
-			R_FlushModelInstances ();
+			R_FlushAliasInstances ();
 		}
 	}
 
-	instance = &model_instances.data.alias[model_instances.count++];
+	if (!ibuf.count)
+	{
+		ibuf.ent        = e;
+		ibuf.texture    = tx;
+		ibuf.fullbright = fb;
+	}
 
-	instance->ent           = e;
-	instance->texture       = tx;
-	instance->fullbright    = fb;
-	instance->origin[0]     = lerpdata.origin[0];
-	instance->origin[1]     = lerpdata.origin[1];
-	instance->origin[2]     = lerpdata.origin[2];
-	instance->angles[0]     = lerpdata.angles[0];
-	instance->angles[1]     = lerpdata.angles[1];
-	instance->angles[2]     = lerpdata.angles[2];
+	instance = &ibuf.inst[ibuf.count++];
+
+	memcpy (instance->mvp, r_matviewproj, 16 * sizeof(float));
+	MatrixMultiply(instance->mvp, model_matrix);
+
+	quantizedangle = ((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1);
+	radiansangle = quantizedangle * (-2.0f * M_PI / SHADEDOT_QUANT);
+
 	instance->lightcolor[0] = lightcolor[0];
 	instance->lightcolor[1] = lightcolor[1];
 	instance->lightcolor[2] = lightcolor[2];
-	instance->alpha         = entalpha;
-	instance->blend         = lerpdata.blend;
-	instance->pose1         = lerpdata.pose1;
-	instance->pose2         = lerpdata.pose2;
+	instance->alpha = entalpha;
+	instance->shadeangle = radiansangle;
+	instance->blend = lerpdata.blend;
+	instance->pose1 = lerpdata.pose1 * paliashdr->numverts_vbo;
+	instance->pose2 = lerpdata.pose2 * paliashdr->numverts_vbo;
 }
 
 /*
 =================
-R_DrawAliasInstances
+R_FlushAliasInstances
 =================
 */
-void R_DrawAliasInstances (aliasinstance_t *inst, int count)
+void R_FlushAliasInstances (void)
 {
-	qmodel_t	*model = inst->ent->model;
-	aliashdr_t	*paliashdr = (aliashdr_t *)Mod_Extradata (model);
-	int			i;
+	qmodel_t	*model;
+	aliashdr_t	*paliashdr;
 	unsigned	state;
 	GLuint		buf;
 	GLbyte		*ofs;
 	size_t		ibuf_size;
-	aliasinstancebuffer_t ibuf;
+
+	if (!ibuf.count)
+		return;
+
+	model = ibuf.ent->model;
+	paliashdr = (aliashdr_t *)Mod_Extradata (model);
 
 	GL_BeginGroup (model->name);
 
 	GL_UseProgram (r_alias_program);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-	if (inst->alpha == 1.f)
+	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)
 		state |= GLS_BLEND_OPAQUE;
 	else
 		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
@@ -585,60 +618,32 @@ void R_DrawAliasInstances (aliasinstance_t *inst, int count)
 	memcpy(ibuf.global.fog, fog_data, 4 * sizeof(float));
 	ibuf.global.use_alpha_test = (model->flags & MF_HOLEY) ? 1 : 0;
 
-	for (i = 0; i < count; i++)
-	{
-		aliasinstance_t *src = &inst[i];
-		aliasgpuinstance_t *dst = &ibuf.inst[i];
-		entity_t	*e = inst[i].ent;
-		float		fovscale = 1.0f;
-		float		model_matrix[16];
-		float		translation_matrix[16];
-		float		scale_matrix[16];
-		int			quantizedangle;
-		float		radiansangle;
-
-		if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
-			fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
-
-		R_EntityMatrix (model_matrix, src->origin, src->angles);
-
-		TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
-		MatrixMultiply (model_matrix, translation_matrix);
-
-		ScaleMatrix (scale_matrix, paliashdr->scale[0], paliashdr->scale[1] * fovscale, paliashdr->scale[2] * fovscale);
-		MatrixMultiply (model_matrix, scale_matrix);
-
-		memcpy (dst->mvp, r_matviewproj, 16 * sizeof(float));
-		MatrixMultiply(dst->mvp, model_matrix);
-
-		quantizedangle = ((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1);
-		radiansangle = quantizedangle * (-2.0f * M_PI / SHADEDOT_QUANT);
-
-		dst->light[0] = src->lightcolor[0];
-		dst->light[1] = src->lightcolor[1];
-		dst->light[2] = src->lightcolor[2];
-		dst->alpha = src->alpha;
-		dst->shadeangle = radiansangle;
-		dst->blend = src->blend;
-		dst->pose1 = src->pose1 * paliashdr->numverts_vbo;
-		dst->pose2 = src->pose2 * paliashdr->numverts_vbo;
-	}
-
-	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * count;
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf, ibuf_size, &buf, &ofs);
+	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, ibuf_size);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
-	GL_Bind (GL_TEXTURE0, inst->texture);
-	GL_Bind (GL_TEXTURE1, inst->fullbright);
+	GL_Bind (GL_TEXTURE0, ibuf.texture);
+	GL_Bind (GL_TEXTURE1, ibuf.fullbright);
 
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
-	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, count);
+	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, ibuf.count);
 
-	rs_aliaspasses += paliashdr->numtris * count;
+	rs_aliaspasses += paliashdr->numtris * ibuf.count;
+	ibuf.count = 0;
 
 	GL_EndGroup();
+}
+
+/*
+=================
+R_ClearAliasInstances
+=================
+*/
+void R_ClearAliasInstances (void)
+{
+	ibuf.count = 0;
 }
 
 /*
