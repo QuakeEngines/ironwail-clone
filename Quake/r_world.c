@@ -707,40 +707,52 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 	msurface_t	*s;
 	texture_t	*t;
 	qboolean	bound, setup = false;
+	float		old_alpha;
+	worlduniforms_t uniforms;
 
 	for (i=0 ; i<model->numtextures ; i++)
 	{
+		float alpha;
 		t = model->textures[i];
 		if (!t || !t->texturechains[chain] || !(t->texturechains[chain]->flags & SURF_DRAWTURB))
 			continue;
 
+		s = t->texturechains[chain];
+		alpha = GL_WaterAlphaForEntitySurface (ent, s);
 		bound = false;
 
-		for (s = t->texturechains[chain]; s; s = s->texturechain)
+		for (; s; s = s->texturechain)
 		{
-			if (!setup) // only perform setup once we are sure we need to
+			if (!setup || alpha != old_alpha) // only perform setup once we are sure we need to
 			{
-				worlduniforms_t uniforms;
 				GLuint		buf;
 				GLbyte		*ofs;
 				unsigned	state;
-				float		entalpha = GL_WaterAlphaForEntitySurface (ent, s);
 
 				state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-				if (entalpha < 1.f)
+				if (alpha < 1.f)
 					state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 				else
 					state |= GLS_BLEND_OPAQUE;
+				old_alpha = alpha;
 
-				GL_UseProgram (r_water_program);
-				GL_SetState (state);
+				if (!setup)
+				{
+					GL_UseProgram (r_water_program);
+					GL_SetState (state);
 
-				memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
-				memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
-				uniforms.use_alpha_test = 0;
-				uniforms.alpha = entalpha;
-				uniforms.time = cl.time;
-				uniforms.padding = 0;
+					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+					uniforms.use_alpha_test = 0;
+					uniforms.alpha = alpha;
+					uniforms.time = cl.time;
+					uniforms.padding = 0;
+				}
+				else
+				{
+					GL_SetState (state);
+					uniforms.alpha = alpha;
+				}
 
 				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
 				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
