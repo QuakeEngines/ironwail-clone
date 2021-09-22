@@ -60,13 +60,12 @@ typedef struct {
 
 typedef struct aliasgpuinstance_s {
 	float		mvp[16];
-	vec3_t		shadevector;
-	float		blend;
 	vec3_t		light;
 	float		alpha;
+	float		shadeangle;
+	float		blend;
 	int32_t		pose1;
 	int32_t		pose2;
-	int32_t		padding[2];
 } aliasgpuinstance_t;
 
 typedef struct aliasinstancebuffer_s {
@@ -119,11 +118,11 @@ void GLAlias_CreateShaders (void)
 		"struct InstanceData\n"\
 		"{\n"\
 		"	mat4	MVP;\n"\
-		"	vec4	ShadeBlend; // xyz=ShadeVector w=Blend\n"\
 		"	vec4	LightColor; // xyz=LightColor w=Alpha\n"\
+		"	float	ShadeAngle;\n"\
+		"	float	Blend;\n"\
 		"	int		Pose1;\n"\
 		"	int		Pose2;\n"\
-		"	int		padding[2];\n"\
 		"};\n"\
 		"\n"\
 		"layout(std430, binding=0) restrict readonly buffer InstanceBuffer\n"\
@@ -181,12 +180,17 @@ void GLAlias_CreateShaders (void)
 		"	out_texcoord = TexCoords[gl_VertexID];\n"
 		"	Pose pose1 = GetPose(inst.Pose1);\n"
 		"	Pose pose2 = GetPose(inst.Pose2);\n"
-		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, inst.ShadeBlend.w);\n"
+		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, inst.Blend);\n"
 		"	gl_Position = inst.MVP * vec4(lerpedVert, 1.0);\n"
 		"	out_fogdist = gl_Position.w;\n"
-		"	float dot1 = r_avertexnormal_dot(pose1.nor, inst.ShadeBlend.xyz);\n"
-		"	float dot2 = r_avertexnormal_dot(pose2.nor, inst.ShadeBlend.xyz);\n"
-		"	out_color = inst.LightColor * vec4(vec3(mix(dot1, dot2, inst.ShadeBlend.w)), 1.0);\n"
+		"	vec3 shadevector;\n"
+		"	shadevector[0] = cos(inst.ShadeAngle);\n"
+		"	shadevector[1] = sin(inst.ShadeAngle);\n"
+		"	shadevector[2] = 1.0;\n"
+		"	shadevector = normalize(shadevector);\n"
+		"	float dot1 = r_avertexnormal_dot(pose1.nor, shadevector);\n"
+		"	float dot2 = r_avertexnormal_dot(pose2.nor, shadevector);\n"
+		"	out_color = inst.LightColor * vec4(vec3(mix(dot1, dot2, inst.Blend)), 1.0);\n"
 		"}\n";
 
 	const GLchar *fragSource = \
@@ -608,17 +612,14 @@ void R_DrawAliasInstances (aliasinstance_t *inst, int count)
 		MatrixMultiply(dst->mvp, model_matrix);
 
 		quantizedangle = ((int)(e->angles[1] * (SHADEDOT_QUANT / 360.0))) & (SHADEDOT_QUANT - 1);
-		radiansangle = (quantizedangle / 16.0) * 2.0 * M_PI;
-		dst->shadevector[0] = cos(-radiansangle);
-		dst->shadevector[1] = sin(-radiansangle);
-		dst->shadevector[2] = 1;
-		VectorNormalize(dst->shadevector);
+		radiansangle = quantizedangle * (-2.0f * M_PI / SHADEDOT_QUANT);
 
-		dst->blend = src->blend;
 		dst->light[0] = src->lightcolor[0];
 		dst->light[1] = src->lightcolor[1];
 		dst->light[2] = src->lightcolor[2];
 		dst->alpha = src->alpha;
+		dst->shadeangle = radiansangle;
+		dst->blend = src->blend;
 		dst->pose1 = src->pose1 * paliashdr->numverts_vbo;
 		dst->pose2 = src->pose2 * paliashdr->numverts_vbo;
 	}
