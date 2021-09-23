@@ -449,51 +449,6 @@ int SignbitsForPlane (mplane_t *out)
 }
 
 /*
-===============
-TurnVector -- johnfitz
-
-turn forward towards side on the plane defined by forward and side
-if angle = 90, the result will be equal to side
-assumes side and forward are perpendicular, and normalized
-to turn away from side, use a negative angle
-===============
-*/
-#define DEG2RAD( a ) ( (a) * M_PI_DIV_180 )
-void TurnVector (vec3_t out, const vec3_t forward, const vec3_t side, float angle)
-{
-	float scale_forward, scale_side;
-
-	scale_forward = cos( DEG2RAD( angle ) );
-	scale_side = sin( DEG2RAD( angle ) );
-
-	out[0] = scale_forward*forward[0] + scale_side*side[0];
-	out[1] = scale_forward*forward[1] + scale_side*side[1];
-	out[2] = scale_forward*forward[2] + scale_side*side[2];
-}
-
-/*
-===============
-R_SetFrustum -- johnfitz -- rewritten
-===============
-*/
-void R_SetFrustum (float fovx, float fovy)
-{
-	int		i;
-
-	TurnVector(frustum[0].normal, vpn, vright, fovx/2 - 90); //right plane
-	TurnVector(frustum[1].normal, vpn, vright, 90 - fovx/2); //left plane
-	TurnVector(frustum[2].normal, vpn, vup, 90 - fovy/2); //bottom plane
-	TurnVector(frustum[3].normal, vpn, vup, fovy/2 - 90); //top plane
-
-	for (i=0 ; i<4 ; i++)
-	{
-		frustum[i].type = PLANE_ANYZ;
-		frustum[i].dist = DotProduct (r_origin, frustum[i].normal); //FIXME: shouldn't this always be zero?
-		frustum[i].signbits = SignbitsForPlane (&frustum[i]);
-	}
-}
-
-/*
 =============
 GL_FrustumMatrix
 =============
@@ -520,35 +475,34 @@ static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
 }
 
 /*
-=============
-GL_SetFrustum -- johnfitz -- written to replace MYgluPerspective
-=============
+===============
+ExtractFrustumPlane
+
+Extracts the normalized frustum plane from the given view-projection matrix
+that corresponds to a value of 'ndcval' on the 'axis' axis in NDC space.
+===============
 */
-void GL_SetFrustum(float fovx, float fovy)
+void ExtractFrustumPlane (float mvp[16], int axis, float ndcval, qboolean flip, mplane_t *out)
 {
-	GL_FrustumMatrix(r_matproj, fovx * (M_PI / 180.0), fovy * (M_PI / 180.0));
+	float sign = flip ? -1.f : 1.f;
+	out->normal[0] =  (mvp[0*4 + axis] - ndcval * mvp[0*4 + 3]) * sign;
+	out->normal[1] =  (mvp[1*4 + axis] - ndcval * mvp[1*4 + 3]) * sign;
+	out->normal[2] =  (mvp[2*4 + axis] - ndcval * mvp[2*4 + 3]) * sign;
+	out->dist      = -(mvp[3*4 + axis] - ndcval * mvp[3*4 + 3]) * sign / VectorNormalize(out->normal);
+	out->type      = PLANE_ANYZ;
+	out->signbits  = SignbitsForPlane (out);
 }
 
 /*
-=============
-R_SetupGL
-=============
+===============
+R_SetFrustum
+===============
 */
-void R_SetupGL (void)
+void R_SetFrustum (void)
 {
-	int scale;
 	float translation[16];
 	float rotation[16];
-
-	//johnfitz -- rewrote this section
-	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
-	glViewport (glx + r_refdef.vrect.x,
-				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
-				r_refdef.vrect.width / scale,
-				r_refdef.vrect.height / scale);
-	//johnfitz
-
-	GL_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
+	GL_FrustumMatrix(r_matproj, DEG2RAD(r_fovx), DEG2RAD(r_fovy));
 
 	// View matrix
 	RotationMatrix(r_matview, DEG2RAD(-r_refdef.viewangles[ROLL]), 0);
@@ -563,6 +517,29 @@ void R_SetupGL (void)
 	// View projection matrix
 	memcpy(r_matviewproj, r_matproj, 16 * sizeof(float));
 	MatrixMultiply(r_matviewproj, r_matview);
+
+	ExtractFrustumPlane (r_matviewproj, 0,  1.f, true,  &frustum[0]); // right
+	ExtractFrustumPlane (r_matviewproj, 0, -1.f, false, &frustum[1]); // left
+	ExtractFrustumPlane (r_matviewproj, 1, -1.f, false, &frustum[2]); // bottom
+	ExtractFrustumPlane (r_matviewproj, 1,  1.f, true,  &frustum[3]); // top
+}
+
+/*
+=============
+R_SetupGL
+=============
+*/
+void R_SetupGL (void)
+{
+	int scale;
+
+	//johnfitz -- rewrote this section
+	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
+	glViewport (glx + r_refdef.vrect.x,
+				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
+				r_refdef.vrect.width / scale,
+				r_refdef.vrect.height / scale);
+	//johnfitz
 }
 
 /*
@@ -646,7 +623,7 @@ void R_SetupView (void)
 	}
 	//johnfitz
 
-	R_SetFrustum (r_fovx, r_fovy); //johnfitz -- use r_fov* vars
+	R_SetFrustum ();
 
 	R_MarkSurfaces (); //johnfitz -- create texture chains from PVS
 
