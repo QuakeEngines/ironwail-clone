@@ -364,7 +364,7 @@ static void R_TriangleIndicesForSurf (msurface_t *s, unsigned int *dest)
 	}
 }
 
-#define MAX_BATCH_SIZE 4096
+#define MAX_BATCH_SIZE 16384
 
 static unsigned int vbo_indices[MAX_BATCH_SIZE];
 static unsigned int num_vbo_indices;
