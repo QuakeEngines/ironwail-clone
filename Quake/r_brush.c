@@ -979,8 +979,9 @@ static void R_UploadLightmap(int lmap)
 
 	lm->modified = false;
 
-	glTexSubImage2D(GL_TEXTURE_2D, 0, lm->xofs, lm->yofs+lm->rectchange.t, LMBLOCK_WIDTH, lm->rectchange.h, gl_lightmap_format,
-			GL_UNSIGNED_BYTE, lm->data + lm->rectchange.t * lightmap_width * lightmap_bytes);
+	glTexSubImage2D (GL_TEXTURE_2D, 0, lm->xofs + lm->rectchange.l, lm->yofs + lm->rectchange.t, lm->rectchange.w, lm->rectchange.h,
+		gl_lightmap_format, GL_UNSIGNED_BYTE, lm->data + (lm->rectchange.t * lightmap_width + lm->rectchange.l) * lightmap_bytes);
+
 	lm->rectchange.l = LMBLOCK_WIDTH;
 	lm->rectchange.t = LMBLOCK_HEIGHT;
 	lm->rectchange.h = 0;
