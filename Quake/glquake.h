@@ -275,6 +275,8 @@ struct lightmap_s
 	glpoly_t	*polys;
 	qboolean	modified;
 	glRect_t	rectchange;
+	int			xofs;
+	int			yofs;
 
 	// the lightmap texture data needs to be kept in
 	// main memory so texsubimage can update properly

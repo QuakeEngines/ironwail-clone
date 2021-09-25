@@ -78,6 +78,8 @@ extern unsigned int d_8to24table_conchars[256];
 extern unsigned int d_8to24table_shirt[256];
 extern unsigned int d_8to24table_pants[256];
 
+extern GLint gl_max_texture_size;
+
 // TEXTURE MANAGER
 
 float TexMgr_FrameUsage (void);

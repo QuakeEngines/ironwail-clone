@@ -32,7 +32,7 @@ static cvar_t	gl_texturemode = {"gl_texturemode", "", CVAR_ARCHIVE};
 static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "1", CVAR_ARCHIVE};
 static cvar_t	gl_max_size = {"gl_max_size", "0", CVAR_NONE};
 static cvar_t	gl_picmip = {"gl_picmip", "0", CVAR_NONE};
-static GLint	gl_hardware_maxsize;
+GLint			gl_max_texture_size;
 
 #define	MAX_GLTEXTURES	4096
 static int numgltextures;
@@ -587,7 +587,7 @@ void TexMgr_Init (void)
 	Cmd_AddCommand ("imagedump", &TexMgr_Imagedump_f);
 
 	// poll max size from hardware
-	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_hardware_maxsize);
+	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_max_texture_size);
 
 	// load notexture images
 	notexture = TexMgr_LoadImage (NULL, "notexture", 2, 2, SRC_RGBA, notexture_data, "", (src_offset_t)notexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
@@ -630,7 +630,7 @@ int TexMgr_SafeTextureSize (int s)
 {
 	if ((int)gl_max_size.value > 0)
 		s = q_min(TexMgr_Pad((int)gl_max_size.value), s);
-	s = q_min(gl_hardware_maxsize, s);
+	s = q_min(gl_max_texture_size, s);
 	return s;
 }
 

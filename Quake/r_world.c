@@ -606,8 +606,8 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 	msurface_t	*s;
 	texture_t	*t;
 	qboolean	bound, setup = false;
-	int		lastlightmap;
 	gltexture_t	*fullbright = NULL;
+	gltexture_t	*lastlightmap = NULL;
 	float		entalpha;
 	unsigned	state;
 	GLuint		buf;
@@ -634,7 +634,7 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 		R_ClearBatch ();
 
 		bound = false;
-		lastlightmap = 0; // avoid compiler warning
+		lastlightmap = NULL;
 		for (s = t->texturechains[chain]; s; s = s->texturechain)
 		{
 			int use_alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) ? 1 : 0;
@@ -679,14 +679,15 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 				GL_Bind (GL_TEXTURE1, fullbright);
 
 				bound = true;
-				lastlightmap = s->lightmaptexturenum;
 			}
 
-			if (s->lightmaptexturenum != lastlightmap)
+			if (lightmaps[s->lightmaptexturenum].texture != lastlightmap)
+			{
 				R_FlushBatch ();
+				lastlightmap = lightmaps[s->lightmaptexturenum].texture;
+				GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lastlightmap);
+			}
 
-			GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmaps[s->lightmaptexturenum].texture);
-			lastlightmap = s->lightmaptexturenum;
 			R_BatchSurface (s);
 
 			rs_brushpasses++;
