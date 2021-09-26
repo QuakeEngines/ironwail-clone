@@ -570,11 +570,8 @@ void GL_BuildLightmaps (void)
 	}
 
 	// determine combined texture size and allocate memory for it
-	i = Q_log2 (lightmap_count);
-	if ((1 << i) < lightmap_count)
-		i++;
-	xblocks = 1 << ((i + 1) >> 1); // in case of odd bit counts allocate 1 more to the X axis
-	yblocks = 1 << (i >> 1);
+	xblocks = (int) ceil (sqrt (lightmap_count));
+	yblocks = (lightmap_count + xblocks - 1) / xblocks;
 	lightmap_width = xblocks * LMBLOCK_WIDTH;
 	lightmap_height = yblocks * LMBLOCK_HEIGHT;
 	if (q_max(lightmap_width, lightmap_height) > gl_max_texture_size)
@@ -592,7 +589,7 @@ void GL_BuildLightmaps (void)
 	for (i=0; i<lightmap_count; i++)
 	{
 		lm = &lightmaps[i];
-		lm->xofs = (i & (xblocks - 1)) * LMBLOCK_WIDTH;
+		lm->xofs = (i % xblocks) * LMBLOCK_WIDTH;
 		lm->yofs = (i / xblocks) * LMBLOCK_HEIGHT;
 		lm->data = lightmap_data + (lm->yofs * lightmap_width + lm->xofs) * lightmap_bytes;
 	}
