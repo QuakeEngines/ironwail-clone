@@ -1425,7 +1425,7 @@ GL_BindNative
 */
 qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle)
 {
-	SDL_assert(texunit > 0);
+	SDL_assert(texunit >= GL_TEXTURE0);
 	SDL_assert(texunit < GL_TEXTURE0 + countof(currenttexture));
 
 	if (handle == currenttexture[texunit - GL_TEXTURE0])
