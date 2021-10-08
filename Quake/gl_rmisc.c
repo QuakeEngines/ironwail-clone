@@ -49,6 +49,7 @@ extern cvar_t r_simd;
 qboolean use_simd;
 
 extern cvar_t r_sort_entities;
+extern cvar_t r_compute_mark;
 
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
@@ -182,6 +183,23 @@ float GL_WaterAlphaForSurface (msurface_t *fa)
 		return map_wateralpha;
 }
 
+/*
+====================
+GL_WaterAlphaForTextureType -- ericw
+====================
+*/
+float GL_WaterAlphaForTextureType (textype_t type)
+{
+	if (type == TEXTYPE_LAVA)
+		return map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha;
+	else if (type == TEXTYPE_TELE)
+		return map_telealpha > 0 ? map_telealpha : map_fallbackalpha;
+	else if (type == TEXTYPE_SLIME)
+		return map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha;
+	else
+		return map_wateralpha;
+}
+
 
 /*
 ===============
@@ -211,6 +229,7 @@ void R_Init (void)
 	R_SIMD_f(&r_simd);
 #endif
 	Cvar_RegisterVariable (&r_sort_entities);
+	Cvar_RegisterVariable (&r_compute_mark);
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 
@@ -411,6 +430,7 @@ void R_NewMap (void)
 
 	GL_BuildLightmaps ();
 	GL_BuildBModelVertexBuffer ();
+	GL_BuildBModelMarkBuffers ();
 	//ericw -- no longer load alias models into a VBO here, it's done in Mod_LoadAliasModel
 
 	r_framecount = 0; //johnfitz -- paranoid?
@@ -566,6 +586,40 @@ GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, con
 
 /*
 ====================
+GL_CreateComputeProgram
+
+Compiles and returns GLSL program.
+====================
+*/
+GLuint GL_CreateComputeProgram (const GLchar *source, const char *name)
+{
+	GLuint program, shader;
+
+	shader = GL_CreateShaderFunc (GL_COMPUTE_SHADER);
+	GL_ObjectLabelFunc (GL_SHADER, shader, -1, name);
+	GL_ShaderSourceFunc (shader, 1, &source, NULL);
+	GL_CompileShaderFunc (shader);
+	GL_CheckShader (shader, name, "compute");
+
+	program = GL_CreateProgramFunc ();
+	GL_ObjectLabelFunc (GL_PROGRAM, program, -1, name);
+	GL_AttachShaderFunc (program, shader);
+	GL_DeleteShaderFunc (shader);
+
+	GL_LinkProgramFunc (program);
+	GL_CheckProgram (program, name);
+
+	if (gl_num_programs == countof(gl_programs))
+		Sys_Error ("gl_programs overflow");
+
+	gl_programs[gl_num_programs] = program;
+	gl_num_programs++;
+
+	return program;
+}
+
+/*
+====================
 R_DeleteShaders
 
 Deletes any GLSL programs that have been created.
@@ -613,7 +667,10 @@ void GL_ClearCachedProgram (void)
 	GL_UseProgramFunc (0);
 }
 
-GLuint current_array_buffer, current_element_array_buffer;
+static GLuint current_array_buffer;
+static GLuint current_element_array_buffer;
+static GLuint current_shader_storage_buffer;
+static GLuint current_draw_indirect_buffer;
 
 /*
 ====================
@@ -633,6 +690,12 @@ void GL_BindBuffer (GLenum target, GLuint buffer)
 			break;
 		case GL_ELEMENT_ARRAY_BUFFER:
 			cache = &current_element_array_buffer;
+			break;
+		case GL_SHADER_STORAGE_BUFFER:
+			cache = &current_shader_storage_buffer;
+			break;
+		case GL_DRAW_INDIRECT_BUFFER:
+			cache = &current_draw_indirect_buffer;
 			break;
 		default:
 			Host_Error("GL_BindBuffer: unsupported target %d", (int)target);
@@ -675,6 +738,7 @@ void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr of
 		range->size   = size;
 	}
 
+	current_shader_storage_buffer = buffer;
 	GL_BindBufferRangeFunc (target, index, buffer, offset, size);
 }
 
@@ -691,6 +755,10 @@ void GL_DeleteBuffer (GLuint buffer)
 		current_array_buffer = 0;
 	if (buffer == current_element_array_buffer)
 		current_element_array_buffer = 0;
+	if (buffer == current_draw_indirect_buffer)
+		current_draw_indirect_buffer = 0;
+	if (buffer == current_shader_storage_buffer)
+		current_shader_storage_buffer = 0;
 
 	for (i = 0; i < countof(ssbo_ranges); i++)
 		if (ssbo_ranges[i].buffer == buffer)
@@ -713,12 +781,15 @@ void GL_ClearBufferBindings ()
 
 	current_array_buffer = 0;
 	current_element_array_buffer = 0;
+	current_draw_indirect_buffer = 0;
+	current_shader_storage_buffer = 0;
 
 	for (i = 0; i < countof(ssbo_ranges); i++)
 		ssbo_ranges[i].buffer = 0;
 
 	GL_BindBufferFunc (GL_ARRAY_BUFFER, 0);
 	GL_BindBufferFunc (GL_ELEMENT_ARRAY_BUFFER, 0);
+	GL_BindBufferFunc (GL_DRAW_INDIRECT_BUFFER, 0);
 	GL_BindBufferFunc (GL_SHADER_STORAGE_BUFFER, 0);
 }
 

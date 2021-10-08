@@ -645,7 +645,7 @@ static void VID_Restart (void)
 	GLSLGamma_DeleteTexture ();
 	R_WarpScaleView_DeleteTexture ();
 	R_DeleteShaders ();
-	GL_DeleteBModelVertexBuffer ();
+	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
 
 //
@@ -656,6 +656,7 @@ static void VID_Restart (void)
 	GL_Init ();
 	TexMgr_ReloadImages ();
 	GL_BuildBModelVertexBuffer ();
+	GL_BuildBModelMarkBuffers ();
 	GLMesh_LoadVertexBuffers ();
 	GL_SetupState ();
 

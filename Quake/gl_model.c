@@ -139,7 +139,7 @@ byte *Mod_DecompressVis (byte *in, qmodel_t *model)
 	row = (model->numleafs+7)>>3;
 	if (mod_decompressed == NULL || row > mod_decompressed_capacity)
 	{
-		mod_decompressed_capacity = row;
+		mod_decompressed_capacity = (row + 15) & ~15;
 		mod_decompressed = (byte *) realloc (mod_decompressed, mod_decompressed_capacity);
 		if (!mod_decompressed)
 			Sys_Error ("Mod_DecompressVis: realloc() failed on %d bytes", mod_decompressed_capacity);
@@ -436,6 +436,30 @@ qboolean Mod_CheckAnimTextureArrayQ64(texture_t *anims[], int numTex)
 }
 
 /*
+================
+Mod_TextureTypeFromName
+================
+*/
+textype_t Mod_TextureTypeFromName (const char *texname)
+{
+	if (texname[0] == '*')
+	{
+		if (!strncmp (texname + 1, "lava",  4))	return TEXTYPE_LAVA;
+		if (!strncmp (texname + 1, "slime", 5))	return TEXTYPE_SLIME;
+		if (!strncmp (texname + 1, "tele",  4))	return TEXTYPE_TELE;
+		return TEXTYPE_WATER;
+	}
+
+	if (texname[0] == '{')
+		return TEXTYPE_CUTOUT;
+
+	if (!q_strncasecmp (texname,"sky",3))
+		return TEXTYPE_SKY;
+
+	return TEXTYPE_DEFAULT;
+}
+
+/*
 =================
 Mod_LoadTextures
 =================
@@ -516,6 +540,7 @@ void Mod_LoadTextures (lump_t *l)
 
 		tx->fullbright = NULL; //johnfitz
 		tx->shift = 0;	// Q64 only
+		tx->type = Mod_TextureTypeFromName (tx->name);
 
 		if (loadmodel->bspversion != BSPVERSION_QUAKE64)
 		{
@@ -1024,15 +1049,15 @@ void Mod_LoadTexinfo (lump_t *l)
 		if (miptex >= loadmodel->numtextures-1 || !loadmodel->textures[miptex])
 		{
 			if (out->flags & TEX_SPECIAL)
-				out->texture = loadmodel->textures[loadmodel->numtextures-1];
+				out->texnum = loadmodel->numtextures-1;
 			else
-				out->texture = loadmodel->textures[loadmodel->numtextures-2];
+				out->texnum = loadmodel->numtextures-2;
 			out->flags |= TEX_MISSING;
 			missing++;
 		}
 		else
 		{
-			out->texture = loadmodel->textures[miptex];
+			out->texnum = miptex;
 		}
 		//johnfitz
 	}
@@ -1201,6 +1226,7 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 
 	for (surfnum=0 ; surfnum<count ; surfnum++, out++)
 	{
+		texture_t *texture;
 		if (bsp2)
 		{
 			out->firstedge = LittleLong(inl->firstedge);
@@ -1246,28 +1272,30 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 		else
 			out->samples = loadmodel->lightdata + (lofs * 3); //johnfitz -- lit support via lordhavoc (was "+ i")
 
+		texture = loadmodel->textures[out->texinfo->texnum];
+
 		//johnfitz -- this section rewritten
-		if (!q_strncasecmp(out->texinfo->texture->name,"sky",3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
+		if (!q_strncasecmp(texture->name,"sky",3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
 		{
 			out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
 			Mod_PolyForUnlitSurface (out); //no more subdivision
 		}
-		else if (out->texinfo->texture->name[0] == '*') // warp surface
+		else if (texture->name[0] == '*') // warp surface
 		{
 			out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
 
 		// detect special liquid types
-			if (!strncmp (out->texinfo->texture->name, "*lava", 5))
+			if (!strncmp (texture->name, "*lava", 5))
 				out->flags |= SURF_DRAWLAVA;
-			else if (!strncmp (out->texinfo->texture->name, "*slime", 6))
+			else if (!strncmp (texture->name, "*slime", 6))
 				out->flags |= SURF_DRAWSLIME;
-			else if (!strncmp (out->texinfo->texture->name, "*tele", 5))
+			else if (!strncmp (texture->name, "*tele", 5))
 				out->flags |= SURF_DRAWTELE;
 			else out->flags |= SURF_DRAWWATER;
 
 			Mod_PolyForUnlitSurface (out);
 		}
-		else if (out->texinfo->texture->name[0] == '{') // ericw -- fence textures
+		else if (texture->name[0] == '{') // ericw -- fence textures
 		{
 			out->flags |= SURF_DRAWFENCE;
 		}
@@ -1735,6 +1763,57 @@ void Mod_CheckWaterVis(void)
 	//this allows submodels to work okay (eg: ad uses func_illusionary teleporters for some reason).
 	loadmodel->contentstransparent = contenttransparent | (~contentfound & (SURF_DRAWWATER|SURF_DRAWTELE|SURF_DRAWSLIME|SURF_DRAWLAVA));
 }
+
+/*
+=================
+Mod_FindUsedTextures
+=================
+*/
+void Mod_FindUsedTextures (qmodel_t *mod)
+{
+	msurface_t *s;
+	int i, count;
+	int ofs[TEXTYPE_COUNT];
+	int mark = Hunk_HighMark ();
+	byte *inuse = (byte *) Hunk_HighAllocName ((mod->numtextures + 7) >> 3, "used textures");
+
+	memset (ofs, 0, sizeof(ofs));
+	for (i = 0, s = mod->surfaces + mod->firstmodelsurface; i < mod->nummodelsurfaces; i++, s++)
+	{
+		texture_t *t = mod->textures[s->texinfo->texnum];
+		byte *val = &inuse[s->texinfo->texnum >> 3];
+		if (!t)
+			continue;
+		int bit = 1 << (s->texinfo->texnum & 7);
+		if (!(*val & bit))
+		{
+			*val |= bit;
+			ofs[t->type]++;
+		}
+	}
+
+	count = 0;
+	for (i = 0; i < TEXTYPE_COUNT; i++)
+	{
+		int tmp = ofs[i];
+		ofs[i] = count;
+		count += tmp;
+	}
+
+	mod->numusedtextures = count;
+	mod->usedtextures = (int *) Hunk_Alloc (sizeof(mod->usedtextures[0]) * count);
+	for (i = 0; i < mod->numtextures; i++)
+	{
+		texture_t *t = mod->textures[i];
+		if (inuse[i >> 3] & (1 << (i & 7)))
+			mod->usedtextures[ofs[t->type]++] = i;
+	}
+
+	Hunk_FreeToHighMark (mark);
+
+	//Con_Printf("%s: %d/%d textures\n", mod->name, count, mod->numtextures);
+}
+
 
 /*
 =================
@@ -2367,6 +2446,12 @@ visdone:
 //
 // set up the submodels (FIXME: this is confusing)
 //
+	if (mod->numsubmodels > 1)
+		mod->nummodelsurfaces = mod->submodels[1].firstface;
+	else
+		mod->nummodelsurfaces = mod->numsurfaces;
+	mod->sortkey = MOD_SORT_BRUSH | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
+	Mod_FindUsedTextures (mod);
 
 	// johnfitz -- okay, so that i stop getting confused every time i look at this loop, here's how it works:
 	// we're looping through the submodels starting at 0.  Submodel 0 is the main model, so we don't have to
@@ -2409,6 +2494,8 @@ visdone:
 		//johnfitz
 
 		mod->numleafs = bm->visleafs;
+		mod->sortkey = MOD_SORT_BRUSH | ((atoi (mod->name + 1) & 1023) << 4);
+		Mod_FindUsedTextures (mod);
 
 		if (i < mod->numsubmodels-1)
 		{	// duplicate the basic information
@@ -2421,11 +2508,6 @@ visdone:
 			mod = loadmodel;
 		}
 	}
-
-	if (mod->name[0] == '*')
-		mod->sortkey = MOD_SORT_BRUSH | ((atoi (mod->name + 1) & 1023) << 4);
-	else
-		mod->sortkey = MOD_SORT_BRUSH | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
 }
 
 /*

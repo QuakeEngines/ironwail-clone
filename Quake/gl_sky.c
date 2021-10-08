@@ -43,6 +43,7 @@ gltexture_t	*skybox_textures[6];
 gltexture_t	*solidskytexture, *alphaskytexture;
 
 extern cvar_t gl_farclip;
+extern cvar_t r_compute_mark;
 cvar_t r_fastsky = {"r_fastsky", "0", CVAR_NONE};
 cvar_t r_skyalpha = {"r_skyalpha", "1", CVAR_NONE};
 cvar_t r_skyfog = {"r_skyfog","0.5",CVAR_NONE};
@@ -494,6 +495,9 @@ void Sky_Init (void)
 //
 //==============================================================================
 
+extern GLuint gl_bmodel_ibo;
+extern GLuint gl_bmodel_indirect_buffer;
+
 /*
 ================
 Sky_ProcessTextureChains -- handles sky polys in world model
@@ -510,15 +514,29 @@ void Sky_ProcessTextureChains (void)
 
 	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
 
-	for (i=0 ; i<cl.worldmodel->numtextures ; i++)
+	if (r_compute_mark.value)
 	{
-		t = cl.worldmodel->textures[i];
+		GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+		GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
 
-		if (!t || !t->texturechains[chain_world] || !(t->texturechains[chain_world]->flags & SURF_DRAWSKY))
-			continue;
-
-		for (s = t->texturechains[chain_world]; s; s = s->texturechain)
-			R_BatchSurface (s);
+		for (i=0 ; i<cl.worldmodel->numusedtextures; i++)
+		{
+			t = cl.worldmodel->textures[cl.worldmodel->usedtextures[i]];
+			if (!t || t->type != TEXTYPE_SKY)
+				continue;
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * i));
+		}
+	}
+	else
+	{
+		for (i=0 ; i<cl.worldmodel->numtextures ; i++)
+		{
+			t = cl.worldmodel->textures[i];
+			if (!t || !t->texturechains[chain_world] || !(t->texturechains[chain_world]->flags & SURF_DRAWSKY))
+				continue;
+			for (s = t->texturechains[chain_world]; s; s = s->texturechain)
+				R_BatchSurface (s);
+		}
 	}
 
 	R_FlushBatch();
@@ -532,7 +550,6 @@ Sky_ProcessEntities -- handles sky polys on brush models
 void Sky_ProcessEntities (void)
 {
 	entity_t	*e;
-	msurface_t	*s;
 	int			i, j;
 
 	if (!r_drawentities.value)
@@ -542,43 +559,80 @@ void Sky_ProcessEntities (void)
 
 	for (i=0 ; i<cl_numvisedicts ; i++)
 	{
+		qmodel_t *model;
 		qboolean setup = false;
-		e = cl_visedicts[i];
 
-		if (e->model->type != mod_brush)
+		e = cl_visedicts[i];
+		model = e->model;
+
+		if (model->type != mod_brush)
 			continue;
 		if (e->alpha == ENTALPHA_ZERO)
 			continue;
 		if (R_CullModelForEntity(e))
 			continue;
 
-		s = &e->model->surfaces[e->model->firstmodelsurface];
-		for (j=0 ; j<e->model->nummodelsurfaces ; j++, s++)
+		if (r_compute_mark.value)
 		{
-			if (!(s->flags & SURF_DRAWSKY))
-				continue;
-
-			if (!setup)
+			for (j = 0; j < model->numusedtextures; j++)
 			{
-				float mvp[16], model_matrix[16];
-				vec3_t angles;
+				texture_t *t = model->textures[model->usedtextures[j]];
+				if (!t || t->type != TEXTYPE_SKY)
+					continue;
 
-				setup = true;
+				if (!setup)
+				{
+					float mvp[16], model_matrix[16];
+					vec3_t angles;
 
-				angles[0] = -e->angles[0];
-				angles[1] =  e->angles[1];
-				angles[2] =  e->angles[2];
+					setup = true;
 
-				memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
-				R_EntityMatrix (model_matrix, e->origin, angles);
-				MatrixMultiply (mvp, model_matrix);
-				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
+					angles[0] = -e->angles[0];
+					angles[1] =  e->angles[1];
+					angles[2] =  e->angles[2];
+
+					memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
+					R_EntityMatrix (model_matrix, e->origin, angles);
+					MatrixMultiply (mvp, model_matrix);
+					GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
+
+					GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+					GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
+				}
+			
+				GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + j)));
+			}
+		}
+		else
+		{
+			msurface_t *s = &e->model->surfaces[e->model->firstmodelsurface];
+			for (j=0 ; j<e->model->nummodelsurfaces ; j++, s++)
+			{
+				if (!(s->flags & SURF_DRAWSKY))
+					continue;
+
+				if (!setup)
+				{
+					float mvp[16], model_matrix[16];
+					vec3_t angles;
+
+					setup = true;
+
+					angles[0] = -e->angles[0];
+					angles[1] =  e->angles[1];
+					angles[2] =  e->angles[2];
+
+					memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
+					R_EntityMatrix (model_matrix, e->origin, angles);
+					MatrixMultiply (mvp, model_matrix);
+					GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
+				}
+
+				R_BatchSurface (s);
 			}
 
-			R_BatchSurface (s);
+			R_FlushBatch ();
 		}
-
-		R_FlushBatch ();
 	}
 }
 

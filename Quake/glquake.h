@@ -120,6 +120,7 @@ extern int		gl_stencilbits;
 
 #define QGL_FUNCTIONS(x)\
 	x(void,			DrawElementsInstanced, (GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount))\
+	x(void,			DrawElementsIndirect, (GLenum mode, GLenum type, const void *indirect))\
 	x(void,			GenBuffers, (GLsizei n, GLuint *buffers))\
 	x(void,			DeleteBuffers, (GLsizei n, const GLuint *buffers))\
 	x(void,			BindBuffer, (GLenum target, GLuint buffer))\
@@ -175,6 +176,9 @@ extern int		gl_stencilbits;
 	x(void,			PushDebugGroup, (GLenum source, GLuint id, GLsizei length, const char * message))\
 	x(void,			PopDebugGroup, (void))\
 	x(const GLubyte*,GetStringi, (GLenum name, GLuint index))\
+	x(void,			BindTextures, (GLuint first, GLsizei count, const GLuint *textures))\
+	x(void,			MemoryBarrier, (GLbitfield barriers))\
+	x(void,			DispatchCompute, (GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z))\
 
 #define QGL_DECLARE_FUNC(ret, name, args) extern ret (APIENTRYP GL_##name##Func) args;
 QGL_FUNCTIONS(QGL_DECLARE_FUNC)
@@ -339,9 +343,33 @@ void R_ClearSpriteInstances (void);
 void R_FlushAliasInstances (void);
 void R_FlushSpriteInstances (void);
 
+typedef struct bmodel_draw_indirect_s {
+	GLuint		count;
+	GLuint		instanceCount;
+	GLuint		firstIndex;
+	GLuint		baseVertex;
+	GLuint		baseInstance;
+} bmodel_draw_indirect_t;
+
+typedef struct bmodel_gpu_leaf_s {
+	float		mins[3];
+	float		maxs[3];
+	GLuint		firstsurf;
+	GLuint		surfcountsky; // bit 0=sky; bits 1..31=surfcount
+} bmodel_gpu_leaf_t;
+
+typedef struct bmodel_gpu_surf_s {
+	vec4_t		plane;
+	GLuint		framecount;
+	GLuint		texnum;
+	GLuint		numedges;
+	GLuint		firstvert;
+} bmodel_gpu_surf_t;
+
 void GL_BuildLightmaps (void);
-void GL_DeleteBModelVertexBuffer (void);
+void GL_DeleteBModelBuffers (void);
 void GL_BuildBModelVertexBuffer (void);
+void GL_BuildBModelMarkBuffers (void);
 void GLMesh_LoadVertexBuffers (void);
 void GLMesh_DeleteVertexBuffers (void);
 void R_RebuildAllLightmaps (void);
@@ -360,6 +388,7 @@ void R_DrawParticles_ShowTris (void);
 
 GLint GL_GetUniformLocation (GLuint *programPtr, const char *name);
 GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name);
+GLuint GL_CreateComputeProgram (const GLchar *source, const char *name);
 void GL_UseProgram (GLuint program);
 void GL_ClearCachedProgram (void);
 void R_DeleteShaders (void);
@@ -385,7 +414,7 @@ void Sky_LoadTextureQ64 (texture_t *mt);
 void Sky_LoadSkyBox (const char *name);
 
 void R_ClearTextureChains (qmodel_t *mod, texchain_t chain);
-void R_ChainSurface (msurface_t *surf, texchain_t chain);
+void R_ChainSurface (qmodel_t *mod, msurface_t *surf, texchain_t chain);
 void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain);
 void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain);
 void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain);
@@ -411,5 +440,6 @@ void GLSLGamma_GammaCorrect (void);
 void R_WarpScaleView_DeleteTexture (void);
 
 float GL_WaterAlphaForSurface (msurface_t *fa);
+float GL_WaterAlphaForTextureType (textype_t type);
 
 #endif	/* GLQUAKE_H */

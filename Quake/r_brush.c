@@ -26,6 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern cvar_t gl_fullbrights, gl_overbright; //johnfitz
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
+extern cvar_t r_compute_mark;
 
 int		gl_lightmap_format;
 int		lightmap_bytes;
@@ -159,17 +160,20 @@ void R_DrawBrushModel (entity_t *e)
 	}
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 
-	R_ClearTextureChains (clmodel, chain_model);
-	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
+	if (!r_compute_mark.value)
 	{
-		pplane = psurf->plane;
-		dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
-		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
-			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+		R_ClearTextureChains (clmodel, chain_model);
+		for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
 		{
-			R_ChainSurface (psurf, chain_model);
-			R_RenderDynamicLightmaps(psurf);
-			rs_brushpolys++;
+			pplane = psurf->plane;
+			dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
+			if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
+				(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
+			{
+				R_ChainSurface (clmodel, psurf, chain_model);
+				R_RenderDynamicLightmaps(psurf);
+				rs_brushpolys++;
+			}
 		}
 	}
 
@@ -246,7 +250,7 @@ void R_DrawBrushModel_ShowTris (entity_t *e)
 		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
 			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
 		{
-			R_ChainSurface (psurf, chain_model);
+			R_ChainSurface (clmodel, psurf, chain_model);
 		}
 	}
 
@@ -438,6 +442,7 @@ void BuildSurfaceDisplayList (msurface_t *fa)
 
 	for (i=0 ; i<lnumverts ; i++)
 	{
+		texture_t *texture = currentmodel->textures[fa->texinfo->texnum];
 		lindex = currentmodel->surfedges[fa->firstedge + i];
 
 		if (lindex > 0)
@@ -451,20 +456,20 @@ void BuildSurfaceDisplayList (msurface_t *fa)
 			vec = r_pcurrentvertbase[r_pedge->v[1]].position;
 		}
 		s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3];
-		s /= fa->texinfo->texture->width;
+		s /= texture->width;
 
 		t = DotProduct (vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3];
-		t /= fa->texinfo->texture->height;
+		t /= texture->height;
 
 		VectorCopy (vec, poly->verts[i]);
 		poly->verts[i][3] = s;
 		poly->verts[i][4] = t;
 
 		// Q64 RERELEASE texture shift
-		if (fa->texinfo->texture->shift > 0)
+		if (texture->shift > 0)
 		{
-			poly->verts[i][3] /= ( 2 * fa->texinfo->texture->shift);
-			poly->verts[i][4] /= ( 2 * fa->texinfo->texture->shift);
+			poly->verts[i][3] /= (2 * texture->shift);
+			poly->verts[i][4] /= (2 * texture->shift);
 		}
 
 		//
@@ -651,13 +656,34 @@ void GL_BuildLightmaps (void)
 GLuint gl_bmodel_vbo = 0;
 size_t gl_bmodel_vbo_size = 0;
 
-void GL_DeleteBModelVertexBuffer (void)
+GLuint gl_bmodel_ibo = 0;
+size_t gl_bmodel_ibo_size = 0;
+GLuint gl_bmodel_indirect_buffer = 0;
+GLuint gl_bmodel_leaf_buffer = 0;
+GLuint gl_bmodel_surf_buffer = 0;
+GLuint gl_bmodel_marksurf_buffer = 0;
+
+/*
+==================
+GL_DeleteBModelBuffers
+==================
+*/
+void GL_DeleteBModelBuffers (void)
 {
-	GL_DeleteBuffersFunc (1, &gl_bmodel_vbo);
+	GL_DeleteBuffer (gl_bmodel_vbo);
+	GL_DeleteBuffer (gl_bmodel_ibo);
+	GL_DeleteBuffer (gl_bmodel_indirect_buffer);
+	GL_DeleteBuffer (gl_bmodel_leaf_buffer);
+	GL_DeleteBuffer (gl_bmodel_surf_buffer);
+	GL_DeleteBuffer (gl_bmodel_marksurf_buffer);
 	gl_bmodel_vbo = 0;
 	gl_bmodel_vbo_size = 0;
-
-	GL_ClearBufferBindings ();
+	gl_bmodel_ibo = 0;
+	gl_bmodel_ibo_size = 0;
+	gl_bmodel_indirect_buffer = 0;
+	gl_bmodel_leaf_buffer = 0;
+	gl_bmodel_surf_buffer = 0;
+	gl_bmodel_marksurf_buffer = 0;
 }
 
 /*
@@ -676,7 +702,7 @@ void GL_BuildBModelVertexBuffer (void)
 	float		*varray;
 
 // ask GL for a name for our VBO
-	GL_DeleteBuffersFunc (1, &gl_bmodel_vbo);
+	GL_DeleteBuffer (gl_bmodel_vbo);
 	GL_GenBuffersFunc (1, &gl_bmodel_vbo);
 	
 // count all verts in all models
@@ -719,6 +745,167 @@ void GL_BuildBModelVertexBuffer (void)
 	GL_BufferDataFunc (GL_ARRAY_BUFFER, varray_bytes, varray, GL_STATIC_DRAW);
 	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_vbo, -1, "brushverts");
 	free (varray);
+}
+
+/*
+===============
+GL_BuildBModelMarkBuffers
+===============
+*/
+void GL_BuildBModelMarkBuffers (void)
+{
+	int			i, j, k, sum;
+	int			numtex = 0, numtris = 0, maxnumtex = 0;
+	int			*texidx = NULL;
+	GLuint		*idx;
+	bmodel_draw_indirect_t *cmds;
+	bmodel_gpu_leaf_t *leafs;
+	bmodel_gpu_surf_t *surfs;
+
+	// count bmodel textures and triangles
+	for (j = 1 ; j < MAX_MODELS; j++)
+	{
+		qmodel_t *m = cl.model_precache[j];
+		if (!m || m->type != mod_brush)
+			continue;
+		m->firstcmd = numtex;
+		numtex += m->numusedtextures;
+		maxnumtex = q_max (maxnumtex, m->numtextures);
+		for (i = 0; i < m->nummodelsurfaces; i++)
+			numtris += m->surfaces[i + m->firstmodelsurface].numedges - 2;
+	}
+
+	// allocate cpu-side buffers
+	gl_bmodel_ibo_size = numtris * 3 * sizeof(idx[0]);
+	cmds = (bmodel_draw_indirect_t *) calloc (numtex, sizeof(cmds[0]));
+	idx = (GLuint *) calloc (numtris * 3, sizeof(idx[0]));
+	leafs = (bmodel_gpu_leaf_t *) calloc (cl.worldmodel->numleafs, sizeof(leafs[0]));
+	surfs = (bmodel_gpu_surf_t *) calloc (cl.worldmodel->numsurfaces, sizeof(surfs[0]));
+	texidx = (int *) calloc (maxnumtex, sizeof(texidx[0]));
+
+	// fill worldmodel leaf data
+	for (i = 0; i < cl.worldmodel->numleafs; i++)
+	{
+		mleaf_t *src = &cl.worldmodel->leafs[i + 1];
+		bmodel_gpu_leaf_t *dst = &leafs[i];
+
+		memcpy (dst->mins, src->minmaxs, 3 * sizeof(float));
+		memcpy (dst->maxs, src->minmaxs + 3, 3 * sizeof(float));
+		dst->firstsurf = src->firstmarksurface - cl.worldmodel->marksurfaces;
+		dst->surfcountsky = (src->nummarksurfaces << 1) | (src->contents == CONTENTS_SKY);
+	}
+
+	for (i = 0; i < cl.worldmodel->numusedtextures; i++)
+		texidx[cl.worldmodel->usedtextures[i]] = i;
+
+	// fill worldmodel surface data
+	for (i = 0; i < cl.worldmodel->numsurfaces; i++)
+	{
+		msurface_t *src = &cl.worldmodel->surfaces[i];
+		bmodel_gpu_surf_t *dst = &surfs[i];
+		float flip = (src->flags & SURF_PLANEBACK) ? -1.f : 1.f;
+
+		if (src->texinfo->texnum < 0 || src->texinfo->texnum >= cl.worldmodel->numtextures)
+			Sys_Error ("GL_BuildBModelMarkBuffers: bad texnum %d (total=%d)", src->texinfo->texnum, cl.worldmodel->numtextures);
+
+		dst->plane[0] = src->plane->normal[0] * flip;
+		dst->plane[1] = src->plane->normal[1] * flip;
+		dst->plane[2] = src->plane->normal[2] * flip;
+		dst->plane[3] = src->plane->dist * flip;
+		dst->texnum = texidx[src->texinfo->texnum];
+		dst->numedges = src->numedges;
+		dst->firstvert = src->vbo_firstvert;
+	}
+
+	// count triangles for each model texture
+	for (j = 1 ; j < MAX_MODELS; j++)
+	{
+		qmodel_t *m = cl.model_precache[j];
+		msurface_t *s;
+		if (!m || m->type != mod_brush)
+			continue;
+
+		memset (texidx, 0, sizeof(texidx[0]) * m->numtextures);
+		for (i = 0; i < m->numusedtextures; i++)
+			texidx[m->usedtextures[i]] = i;
+
+		for (i = 0, s = m->surfaces + m->firstmodelsurface; i < m->nummodelsurfaces; i++, s++)
+			cmds[m->firstcmd + texidx[s->texinfo->texnum]].count += (s->numedges - 2) * 3;
+	}
+
+	// compute per-drawcall index buffer offsets
+	sum = 0;
+	for (i = 0; i < numtex; i++)
+	{
+		cmds[i].firstIndex = sum;
+		sum += cmds[i].count;
+		cmds[i].instanceCount = 1;
+	}
+
+	// build index buffer
+	for (j = 1 ; j < MAX_MODELS; j++)
+	{
+		qmodel_t *m = cl.model_precache[j];
+		msurface_t *s;
+		if (!m || m->type != mod_brush)
+			continue;
+
+		memset (texidx, 0, sizeof(texidx[0]) * m->numtextures);
+		for (i = 0; i < m->numusedtextures; i++)
+			texidx[m->usedtextures[i]] = i;
+
+		for (i = 0, s = m->surfaces + m->firstmodelsurface; i < m->nummodelsurfaces; i++, s++)
+		{
+			bmodel_draw_indirect_t *draw = &cmds[m->firstcmd + texidx[s->texinfo->texnum]];
+			for (k = 2; k < s->numedges; k++)
+			{
+				idx[draw->firstIndex++] = s->vbo_firstvert;
+				idx[draw->firstIndex++] = s->vbo_firstvert + k - 1;
+				idx[draw->firstIndex++] = s->vbo_firstvert + k;
+			}
+		}
+	}
+
+	// restore firstIndex values (they get shifted in the previous loop)
+	sum = 0;
+	for (i = 0; i < numtex; i++)
+	{
+		cmds[i].firstIndex = sum;
+		sum += cmds[i].count;
+	}
+
+	// create gpu buffers
+	GL_GenBuffersFunc (1, &gl_bmodel_indirect_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_bmodel_indirect_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_indirect_buffer, -1, "bmodel indirect cmds");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, sizeof(cmds[0]) * numtex, cmds, GL_DYNAMIC_DRAW);
+
+	GL_GenBuffersFunc (1, &gl_bmodel_ibo);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_ibo, -1, "bmodel indices");
+	GL_BufferDataFunc (GL_ELEMENT_ARRAY_BUFFER, sizeof(idx[0]) * numtris * 3, idx, GL_DYNAMIC_DRAW);
+
+	GL_GenBuffersFunc (1, &gl_bmodel_leaf_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_bmodel_leaf_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_leaf_buffer, -1, "bmodel leafs");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, sizeof(leafs[0]) * cl.worldmodel->numleafs, leafs, GL_STATIC_DRAW);
+
+	GL_GenBuffersFunc (1, &gl_bmodel_surf_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_bmodel_surf_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_surf_buffer, -1, "bmodel surfs");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, sizeof(surfs[0]) * cl.worldmodel->numsurfaces, surfs, GL_STATIC_DRAW);
+
+	GL_GenBuffersFunc (1, &gl_bmodel_marksurf_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_bmodel_marksurf_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_bmodel_marksurf_buffer, -1, "bmodel marksurfs");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, sizeof(cl.worldmodel->marksurfaces[0]) * cl.worldmodel->nummarksurfaces, cl.worldmodel->marksurfaces, GL_STATIC_DRAW);
+
+	// free cpu-side arrays
+	free (texidx);
+	free (surfs);
+	free (leafs);
+	free (idx);
+	free (cmds);
 }
 
 /*

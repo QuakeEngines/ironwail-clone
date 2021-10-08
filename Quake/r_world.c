@@ -25,6 +25,31 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 extern cvar_t gl_fullbrights, gl_overbright, r_oldskyleaf, r_showtris; //johnfitz
+extern cvar_t r_compute_mark;
+
+extern gltexture_t *lightmap_texture;
+
+extern GLuint gl_bmodel_vbo;
+extern size_t gl_bmodel_vbo_size;
+extern GLuint gl_bmodel_ibo;
+extern size_t gl_bmodel_ibo_size;
+extern GLuint gl_bmodel_indirect_buffer;
+extern GLuint gl_bmodel_leaf_buffer;
+extern GLuint gl_bmodel_surf_buffer;
+extern GLuint gl_bmodel_marksurf_buffer;
+
+static GLuint r_world_program;
+static GLuint r_water_program;
+static GLuint r_reset_indirect_draw_params_program;
+static GLuint r_cull_leaves_program;
+
+typedef struct gpumark_frame_s {
+	vec4_t		frustum[4];
+	GLuint		oldskyleaf;
+	float		vieworg[3];
+	GLuint		framecount;
+	GLuint		padding[3];
+} gpumark_frame_t;
 
 byte *SV_FatPVS (vec3_t org, qmodel_t *worldmodel);
 
@@ -61,10 +86,10 @@ void R_ClearTextureChains (qmodel_t *mod, texchain_t chain)
 R_ChainSurface -- ericw -- adds the given surface to its texture chain
 ================
 */
-void R_ChainSurface (msurface_t *surf, texchain_t chain)
+void R_ChainSurface (qmodel_t *mod, msurface_t *surf, texchain_t chain)
 {
-	surf->texturechain = surf->texinfo->texture->texturechains[chain];
-	surf->texinfo->texture->texturechains[chain] = surf;
+	surf->texturechain = mod->textures[surf->texinfo->texnum]->texturechains[chain];
+	mod->textures[surf->texinfo->texnum]->texturechains[chain] = surf;
 }
 
 /*
@@ -164,6 +189,57 @@ int R_CullBoxSIMD (soa_aabb_t box, int activelanes)
 }
 #endif // defined(USE_SSE2)
 
+/*
+===============
+R_MarkVisSurfacesCompute
+===============
+*/
+static void R_MarkSurfacesCompute (byte* vis)
+{
+	int			i;
+	GLuint		buf;
+	GLbyte*		ofs;
+	size_t		vissize = (cl.worldmodel->numleafs + 7) >> 3;
+	gpumark_frame_t frame;
+
+	GL_BeginGroup ("Mark surfaces");
+
+	for (i = 0; i < 4; i++)
+	{
+		frame.frustum[i][0] = frustum[i].normal[0];
+		frame.frustum[i][1] = frustum[i].normal[1];
+		frame.frustum[i][2] = frustum[i].normal[2];
+		frame.frustum[i][3] = frustum[i].dist;
+	}
+	frame.oldskyleaf = r_oldskyleaf.value != 0.f;
+	frame.vieworg[0] = r_refdef.vieworg[0];
+	frame.vieworg[1] = r_refdef.vieworg[1];
+	frame.vieworg[2] = r_refdef.vieworg[2];
+	frame.framecount = r_framecount;
+
+	vissize = (vissize + 3) & ~3; // round up to uint
+
+	GL_UseProgram (r_reset_indirect_draw_params_program);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_bmodel_indirect_buffer, 0, cl.worldmodel->numusedtextures * sizeof(bmodel_draw_indirect_t));
+	GL_DispatchComputeFunc ((cl.worldmodel->numusedtextures + 63) / 64, 1, 1);
+	GL_MemoryBarrierFunc (GL_SHADER_STORAGE_BARRIER_BIT);
+
+	GL_UseProgram (r_cull_leaves_program);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_ibo, 0, gl_bmodel_ibo_size);
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, vis, vissize, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, vissize);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_leaf_buffer, 0, cl.worldmodel->numleafs * sizeof(bmodel_gpu_leaf_t));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 4, gl_bmodel_marksurf_buffer, 0, cl.worldmodel->nummarksurfaces * sizeof(cl.worldmodel->marksurfaces[0]));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 5, gl_bmodel_surf_buffer, 0, cl.worldmodel->numsurfaces * sizeof(bmodel_gpu_surf_t));
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &frame, sizeof(frame), &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 6, buf, (GLintptr)ofs, sizeof(frame));
+
+	GL_DispatchComputeFunc ((cl.worldmodel->numleafs + 63) / 64, 1, 1);
+	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
+
+	GL_EndGroup ();
+}
+
 #if defined(USE_SIMD)
 /*
 ===============
@@ -177,6 +253,35 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 	int			numleafs = cl.worldmodel->numleafs;
 	int			numsurfaces = cl.worldmodel->numsurfaces;
 	soa_aabb_t	*leafbounds = cl.worldmodel->soa_leafbounds;
+
+	if (r_compute_mark.value)
+	{
+		R_MarkSurfacesCompute (vis);
+		
+		// iterate through leaves, marking surfaces
+		for (i = 0; i < numleafs; i += 8)
+		{
+			int mask = vis[i>>3];
+			if (mask == 0)
+				continue;
+
+			mask = R_CullBoxSIMD(leafbounds[i>>3], mask);
+			if (mask == 0)
+				continue;
+
+			for (j = 0; j < 8 && i + j < numleafs; j++)
+			{
+				if (!(mask & (1 << j)))
+					continue;
+				mleaf_t *leaf = &cl.worldmodel->leafs[1 + i + j];
+
+				// add static models
+				if (leaf->efrags)
+					R_StoreEfrags (&leaf->efrags);
+			}
+		}
+		return;
+	}
 
 	memset(cl.worldmodel->surfvis, 0, (cl.worldmodel->numsurfaces + 7) >> 3);
 
@@ -234,7 +339,7 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 			surf = &cl.worldmodel->surfaces[i + j];
 			rs_brushpolys++; //count wpolys here
 			surf->visframe = r_visframecount;
-			R_ChainSurface(surf, chain_world);
+			R_ChainSurface(cl.worldmodel, surf, chain_world);
 			R_RenderDynamicLightmaps(surf);
 		}
 	}
@@ -251,6 +356,27 @@ void R_MarkVisSurfaces (byte* vis)
 	int			i, j;
 	msurface_t	*surf;
 	mleaf_t		*leaf;
+
+	if (r_compute_mark.value)
+	{
+		R_MarkSurfacesCompute (vis);
+
+		leaf = &cl.worldmodel->leafs[1];
+		for (i=0 ; i<cl.worldmodel->numleafs ; i++, leaf++)
+		{
+			if (vis[i>>3] & (1<<(i&7)))
+			{
+				if (R_CullBox(leaf->minmaxs, leaf->minmaxs + 3))
+					continue;
+
+				// add static models
+				if (leaf->efrags)
+					R_StoreEfrags (&leaf->efrags);
+			}
+		}
+
+		return;
+	}
 
 	leaf = &cl.worldmodel->leafs[1];
 	for (i=0 ; i<cl.worldmodel->numleafs ; i++, leaf++)
@@ -271,7 +397,7 @@ void R_MarkVisSurfaces (byte* vis)
 						if (!R_BackFaceCull (surf))
 						{
 							rs_brushpolys++; //count wpolys here
-							R_ChainSurface(surf, chain_world);
+							R_ChainSurface(cl.worldmodel, surf, chain_world);
 							R_RenderDynamicLightmaps(surf);
 						}
 					}
@@ -439,8 +565,22 @@ float GL_WaterAlphaForEntitySurface (entity_t *ent, msurface_t *s)
 	return entalpha;
 }
 
-static GLuint r_world_program;
-static GLuint r_water_program;
+/*
+================
+GL_WaterAlphaForEntityTexture
+ 
+Returns the water alpha to use for the entity and texture combination.
+================
+*/
+float GL_WaterAlphaForEntityTexture (entity_t *ent, texture_t *t)
+{
+	float entalpha;
+	if (ent == NULL || ent->alpha == ENTALPHA_DEFAULT)
+		entalpha = GL_WaterAlphaForTextureType(t->type);
+	else
+		entalpha = ENTALPHA_DECODE(ent->alpha);
+	return entalpha;
+}
 
 typedef struct {
 	float	mvp[16];
@@ -450,13 +590,6 @@ typedef struct {
 	float	time;
 	int		padding;
 } worlduniforms_t;
-
-// uniforms used in vert shader
-
-// uniforms used in frag shader
-static GLuint texLoc;
-static GLuint LMTexLoc;
-static GLuint fullbrightTexLoc;
 
 /*
 =============
@@ -537,14 +670,6 @@ void GLWorld_CreateShaders (void)
 
 	r_world_program = GL_CreateProgram (vertSource, fragSource, "world");
 	
-	if (r_world_program != 0)
-	{
-		// get uniform locations
-		texLoc = GL_GetUniformLocation (&r_world_program, "Tex");
-		LMTexLoc = GL_GetUniformLocation (&r_world_program, "LMTex");
-		fullbrightTexLoc = GL_GetUniformLocation (&r_world_program, "FullbrightTex");
-	}
-
 	vertSource = \
 		"#version 430\n"
 		"\n"
@@ -590,10 +715,147 @@ void GLWorld_CreateShaders (void)
 
 	#undef WORLD_PARAM_BUFFER
 	#undef WORLD_VERTEX_BUFFER
-}
 
-extern GLuint gl_bmodel_vbo;
-extern size_t gl_bmodel_vbo_size;
+	#define WORLD_DRAW_BUFFER\
+		"struct DrawElementsIndirectCommand\n"\
+		"{\n"\
+		"	uint	count;\n"\
+		"	uint	instanceCount;\n"\
+		"	uint	firstIndex;\n"\
+		"	uint	baseVertex;\n"\
+		"	uint	baseInstance;\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=0) buffer DrawIndirectBuffer\n"\
+		"{\n"\
+		"	DrawElementsIndirectCommand cmds[];\n"\
+		"};\n"\
+
+	const char* computeSource = \
+		"#version 430\n"
+		"\n"
+		"layout(local_size_x=64) in;\n"
+		"\n"
+		WORLD_DRAW_BUFFER
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	uint thread_id = gl_GlobalInvocationID.x;\n"
+		"	if (thread_id < cmds.length())\n"
+		"		cmds[thread_id].count = 0u;\n"
+		"}\n";
+
+	r_reset_indirect_draw_params_program = GL_CreateComputeProgram (computeSource, "clear indirect draw params");
+
+	computeSource = \
+		"#version 430\n"
+		"\n"
+		"layout(local_size_x=64) in;\n"
+		"\n"
+		WORLD_DRAW_BUFFER
+		"\n"
+		"layout(std430, binding=1) restrict writeonly buffer IndexBuffer\n"
+		"{\n"
+		"	uint indices[];\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=2) restrict readonly buffer VisBuffer\n"
+		"{\n"
+		"	uint vis[];\n"
+		"};\n"
+		"\n"
+		"struct Leaf\n"
+		"{\n"
+		"	float	mins[3];\n"
+		"	float	maxs[3];\n"
+		"	uint	firstsurf;\n"
+		"	uint	surfcountsky; // bit 0=sky; bits 1..31=surfcount\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=3) restrict readonly buffer LeafBuffer\n"
+		"{\n"
+		"	Leaf leaves[];\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=4) restrict readonly buffer MarkSurfBuffer\n"
+		"{\n"
+		"	int marksurf[];\n"
+		"};\n"
+		"\n"
+		"struct Surface\n"
+		"{\n"
+		"	vec4	plane;\n"
+		"	uint	framecount;\n"
+		"	uint	texnum;\n"
+		"	uint	numedges;\n"
+		"	uint	firstvert;\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=5) restrict buffer SurfaceBuffer\n"
+		"{\n"
+		"	Surface surfaces[];\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=6) restrict readonly buffer FrameBuffer\n"
+		"{\n"
+		"	vec4	frustum[4];\n"
+		"	uint	oldskyleaf;\n"
+		"	float	vieworg[3];\n"
+		"	uint	framecount;\n"
+		"	uint	padding[3];\n"
+		"};\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	uint thread_id = gl_GlobalInvocationID.x;\n"
+		"	if (thread_id >= leaves.length())\n"
+		"		return;\n"
+		"	uint visible = vis[thread_id >> 5u] & (1u << (thread_id & 31u));\n"
+		"	if (visible == 0u)\n"
+		"		return;\n"
+		"\n"
+		"	Leaf leaf = leaves[thread_id];\n"
+		"	uint i, j;\n"
+		"	for (i = 0u; i < 4u; i++)\n"
+		"	{\n"
+		"		vec4 plane = frustum[i];\n"
+		"		vec3 v;\n"
+		"		v.x = plane.x < 0.f ? leaf.mins[0] : leaf.maxs[0];\n"
+		"		v.y = plane.y < 0.f ? leaf.mins[1] : leaf.maxs[1];\n"
+		"		v.z = plane.z < 0.f ? leaf.mins[2] : leaf.maxs[2];\n"
+		"		if (dot(plane.xyz, v) < plane.w)\n"
+		"			return;\n"
+		"	}\n"
+		"\n"
+		"	if ((leaf.surfcountsky & 1u) > oldskyleaf)\n"
+		"		return;\n"
+		"	uint surfcount = leaf.surfcountsky >> 1u;\n"
+		"	vec3 campos = vec3(vieworg[0], vieworg[1], vieworg[2]);\n"
+		"	for (i = 0u; i < surfcount; i++)\n"
+		"	{\n"
+		"		int surfindex = marksurf[leaf.firstsurf + i];\n"
+		"		Surface surf = surfaces[surfindex];\n"
+		"		if (dot(surf.plane.xyz, campos) < surf.plane.w)\n"
+		"			continue;\n"
+		"		if (atomicExchange(surfaces[surfindex].framecount, framecount) == framecount)\n"
+		"			continue;\n"
+		"		uint texnum = surf.texnum;\n"
+		"		uint numedges = surf.numedges;\n"
+		"		uint firstvert = surf.firstvert;\n"
+		"		uint ofs = cmds[texnum].firstIndex + atomicAdd(cmds[texnum].count, 3u * (numedges - 2u));\n"
+		"		for (j = 2u; j < numedges; j++)\n"
+		"		{\n"
+		"			indices[ofs++] = firstvert;\n"
+		"			indices[ofs++] = firstvert + j - 1u;\n"
+		"			indices[ofs++] = firstvert + j;\n"
+		"		}\n"
+		"	}\n"
+		"}\n";
+
+	#undef WORLD_DRAW_BUFFER
+
+	r_cull_leaves_program = GL_CreateComputeProgram (computeSource, "mark");
+}
 
 /*
 ================
@@ -602,49 +864,50 @@ R_DrawTextureChains_GLSL -- ericw
 */
 void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 {
-	int			i;
-	msurface_t	*s;
 	texture_t	*t;
-	qboolean	bound, setup = false;
-	gltexture_t	*fullbright = NULL;
-	gltexture_t	*lastlightmap = NULL;
+	int			i;
 	float		entalpha;
 	unsigned	state;
-	GLuint		buf;
-	GLbyte		*ofs;
+	qboolean	setup = false;
 	worlduniforms_t uniforms;
 
 	entalpha = (ent != NULL) ? ENTALPHA_DECODE(ent->alpha) : 1.0f;
 
-	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-	if (entalpha < 1)
-		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-	else
-		state |= GLS_BLEND_OPAQUE;
-
-	for (i=0 ; i<model->numtextures ; i++)
+	if (r_compute_mark.value)
 	{
-		t = model->textures[i];
-		if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
-			continue;
-
-		if (!gl_fullbrights.value || !(fullbright = R_TextureAnimation(t, ent != NULL ? ent->frame : 0)->fullbright))
-			fullbright = blacktexture;
-
-		R_ClearBatch ();
-
-		bound = false;
-		lastlightmap = NULL;
-		for (s = t->texturechains[chain]; s; s = s->texturechain)
+		for (i = 0; i < model->numusedtextures; i++)
 		{
-			int use_alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) ? 1 : 0;
+			gltexture_t	*fullbright = NULL;
+			int			use_alpha_test;
 
-			if (!setup || uniforms.use_alpha_test != use_alpha_test) // only perform setup when needed
+			t = model->textures[model->usedtextures[i]];
+			if (!t || !t->gltexture || t->type > TEXTYPE_CUTOUT)
+				continue;
+
+			use_alpha_test = (t->type == TEXTYPE_CUTOUT);
+
+			t = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+
+			if (!gl_fullbrights.value || !(fullbright = t->fullbright))
+				fullbright = blacktexture;
+
+			if (!setup || uniforms.use_alpha_test != use_alpha_test)
 			{
+				GLuint buf;
+				GLbyte *ofs;
+
 				if (!setup)
 				{
+					state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+					if (entalpha < 1)
+						state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+					else
+						state |= GLS_BLEND_OPAQUE;
+	
 					GL_UseProgram (r_world_program);
 					GL_SetState (state);
+					GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+
 					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
@@ -652,48 +915,115 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 					uniforms.alpha = entalpha;
 					uniforms.time = cl.time;
 					uniforms.padding = 0;
+					uniforms.use_alpha_test = use_alpha_test;
+
+					GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+					GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
+
+					setup = true;
 				}
 				else
 				{
-					R_FlushBatch ();
+					uniforms.use_alpha_test = use_alpha_test;
 				}
-
-				uniforms.use_alpha_test = use_alpha_test;
 
 				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
 				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
-
-				setup = true;
 			}
 
-			if (!bound) //only bind once we are sure we need this texture
+			GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? greytexture : t->gltexture);
+			GL_Bind (GL_TEXTURE1, r_lightmap_cheatsafe ? blacktexture : fullbright);
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
+		}
+	}
+	else
+	{
+		msurface_t	*s;
+		qboolean	bound;
+		gltexture_t	*fullbright = NULL;
+		gltexture_t	*lastlightmap = NULL;
+		GLuint		buf;
+		GLbyte		*ofs;
+
+		for (i=0 ; i<model->numtextures ; i++)
+		{
+			t = model->textures[i];
+			if (!t || !t->texturechains[chain] || t->texturechains[chain]->flags & (SURF_DRAWTILED | SURF_NOTEXTURE))
+				continue;
+
+			if (!gl_fullbrights.value || !(fullbright = R_TextureAnimation(t, ent != NULL ? ent->frame : 0)->fullbright))
+				fullbright = blacktexture;
+
+			R_ClearBatch ();
+
+			bound = false;
+			lastlightmap = NULL;
+			for (s = t->texturechains[chain]; s; s = s->texturechain)
 			{
-				gltexture_t *tx = (R_TextureAnimation(t, ent != NULL ? ent->frame : 0))->gltexture;
-				if (r_lightmap_cheatsafe)
+				int use_alpha_test = (t->texturechains[chain]->flags & SURF_DRAWFENCE) ? 1 : 0;
+
+				if (!setup || uniforms.use_alpha_test != use_alpha_test) // only perform setup when needed
 				{
-					tx = greytexture;
-					fullbright = blacktexture;
+					if (!setup)
+					{
+						state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+						if (entalpha < 1)
+							state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+						else
+							state |= GLS_BLEND_OPAQUE;
+
+						GL_UseProgram (r_world_program);
+						GL_SetState (state);
+						GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+						memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+						memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+						uniforms.alpha = entalpha;
+						uniforms.time = cl.time;
+						uniforms.padding = 0;
+					}
+					else
+					{
+						R_FlushBatch ();
+					}
+
+					uniforms.use_alpha_test = use_alpha_test;
+
+					GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+
+					setup = true;
 				}
 
-				GL_Bind (GL_TEXTURE0, tx);
-				GL_Bind (GL_TEXTURE1, fullbright);
+				if (!bound) //only bind once we are sure we need this texture
+				{
+					gltexture_t *tx = (R_TextureAnimation(t, ent != NULL ? ent->frame : 0))->gltexture;
+					if (r_lightmap_cheatsafe)
+					{
+						tx = greytexture;
+						fullbright = blacktexture;
+					}
 
-				bound = true;
+					GL_Bind (GL_TEXTURE0, tx);
+					GL_Bind (GL_TEXTURE1, fullbright);
+
+					bound = true;
+				}
+
+				if (lightmaps[s->lightmaptexturenum].texture != lastlightmap)
+				{
+					R_FlushBatch ();
+					lastlightmap = lightmaps[s->lightmaptexturenum].texture;
+					GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lastlightmap);
+				}
+
+				R_BatchSurface (s);
+
+				rs_brushpasses++;
 			}
 
-			if (lightmaps[s->lightmaptexturenum].texture != lastlightmap)
-			{
-				R_FlushBatch ();
-				lastlightmap = lightmaps[s->lightmaptexturenum].texture;
-				GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lastlightmap);
-			}
-
-			R_BatchSurface (s);
-
-			rs_brushpasses++;
+			R_FlushBatch ();
 		}
-
-		R_FlushBatch ();
 	}
 }
 
@@ -705,25 +1035,22 @@ R_DrawTextureChains_Water -- johnfitz
 void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain)
 {
 	int			i;
-	msurface_t	*s;
 	texture_t	*t;
-	qboolean	bound, setup = false;
+	qboolean	setup = false;
 	float		old_alpha;
 	worlduniforms_t uniforms;
 
-	for (i=0 ; i<model->numtextures ; i++)
+	if (r_compute_mark.value)
 	{
-		float alpha;
-		t = model->textures[i];
-		if (!t || !t->texturechains[chain] || !(t->texturechains[chain]->flags & SURF_DRAWTURB))
-			continue;
-
-		s = t->texturechains[chain];
-		alpha = GL_WaterAlphaForEntitySurface (ent, s);
-		bound = false;
-
-		for (; s; s = s->texturechain)
+		for (i = 0; i < model->numusedtextures; i++)
 		{
+			float alpha;
+			texture_t *t = model->textures[model->usedtextures[i]];
+			if (!t || !t->gltexture || !TEXTYPE_ISLIQUID(t->type))
+				continue;
+
+			alpha = GL_WaterAlphaForEntityTexture (ent, t);
+
 			if (!setup || alpha != old_alpha) // only perform setup once we are sure we need to
 			{
 				GLuint		buf;
@@ -741,6 +1068,8 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 				{
 					GL_UseProgram (r_water_program);
 					GL_SetState (state);
+					GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+					GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
 
 					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
 					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
@@ -762,17 +1091,78 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 				setup = true;
 			}
 
-			if (!bound) //only bind once we are sure we need this texture
+			GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
+		}
+	}
+	else
+	{
+		msurface_t	*s;
+		qboolean	bound;
+
+		for (i=0 ; i<model->numtextures ; i++)
+		{
+			float alpha;
+			t = model->textures[i];
+			if (!t || !t->texturechains[chain] || !(t->texturechains[chain]->flags & SURF_DRAWTURB))
+				continue;
+
+			s = t->texturechains[chain];
+			alpha = GL_WaterAlphaForEntitySurface (ent, s);
+			bound = false;
+
+			for (; s; s = s->texturechain)
 			{
-				GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
-				bound = true;
+				if (!setup || alpha != old_alpha) // only perform setup once we are sure we need to
+				{
+					GLuint		buf;
+					GLbyte		*ofs;
+					unsigned	state;
+
+					state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+					if (alpha < 1.f)
+						state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+					else
+						state |= GLS_BLEND_OPAQUE;
+					old_alpha = alpha;
+
+					if (!setup)
+					{
+						GL_UseProgram (r_water_program);
+						GL_SetState (state);
+
+						memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+						memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+						uniforms.use_alpha_test = 0;
+						uniforms.alpha = alpha;
+						uniforms.time = cl.time;
+						uniforms.padding = 0;
+					}
+					else
+					{
+						GL_SetState (state);
+						uniforms.alpha = alpha;
+					}
+
+					GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+					setup = true;
+				}
+
+				if (!bound) //only bind once we are sure we need this texture
+				{
+					GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
+					bound = true;
+				}
+
+				R_BatchSurface (s);
+				rs_brushpasses++;
 			}
 
-			R_BatchSurface (s);
-			rs_brushpasses++;
+			R_FlushBatch ();
 		}
-
-		R_FlushBatch ();
 	}
 }
 
@@ -788,10 +1178,10 @@ void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain)
 	texture_t	*t;
 	qboolean	setup = false;
 
-	for (i=0 ; i<model->numtextures ; i++)
+	for (i=0 ; i<model->numusedtextures ; i++)
 	{
-		t = model->textures[i];
-		if (!t || !t->texturechains[chain])
+		t = model->textures[model->usedtextures[i]];
+		if (!t || (!r_compute_mark.value && !t->texturechains[chain]))
 			continue;
 
 		if (!setup)
@@ -818,15 +1208,25 @@ void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain)
 			GL_Bind (GL_TEXTURE0, whitetexture);
 			GL_Bind (GL_TEXTURE1, whitetexture);
 			GL_Bind (GL_TEXTURE2, whitetexture);
+		
+			if (r_compute_mark.value)
+			{
+				GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+				GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
+			}
 
 			setup = true;
 		}
 
-		for (s = t->texturechains[chain]; s; s = s->texturechain)
-			R_BatchSurface (s);
+		if (r_compute_mark.value)
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
+		else
+			for (s = t->texturechains[chain]; s; s = s->texturechain)
+				R_BatchSurface (s);
 	}
 
-	R_FlushBatch ();
+	if (!r_compute_mark.value)
+		R_FlushBatch ();
 }
 
 /*
@@ -859,7 +1259,82 @@ void R_DrawWorld (void)
 
 	GL_BeginGroup ("World");
 
-	R_DrawTextureChains (cl.worldmodel, NULL, chain_world);
+	if (r_compute_mark.value)
+	{
+		int i;
+		entity_t *ent = NULL;
+		float entalpha;
+		unsigned state;
+		qboolean	setup = false;
+		worlduniforms_t uniforms;
+
+		entalpha = (ent != NULL) ? ENTALPHA_DECODE(ent->alpha) : 1.0f;
+
+		for (i = 0; i < cl.worldmodel->numusedtextures; i++)
+		{
+			texture_t	*t = cl.worldmodel->textures[cl.worldmodel->usedtextures[i]];
+			gltexture_t	*fullbright = NULL;
+			int			use_alpha_test;
+
+			if (!t || !t->gltexture || t->type > TEXTYPE_CUTOUT)
+				continue;
+
+			use_alpha_test = (t->type == TEXTYPE_CUTOUT);
+
+			t = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+
+			if (!gl_fullbrights.value || !(fullbright = t->fullbright))
+				fullbright = blacktexture;
+
+			if (!setup || uniforms.use_alpha_test != use_alpha_test)
+			{
+				GLuint buf;
+				GLbyte *ofs;
+
+				if (!setup)
+				{
+					state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+					if (entalpha < 1)
+						state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+					else
+						state |= GLS_BLEND_OPAQUE;
+	
+					GL_UseProgram (r_world_program);
+					GL_SetState (state);
+					GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
+					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
+					uniforms.alpha = entalpha;
+					uniforms.time = cl.time;
+					uniforms.padding = 0;
+					uniforms.use_alpha_test = use_alpha_test;
+
+					GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+					GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
+
+					setup = true;
+				}
+				else
+				{
+					uniforms.use_alpha_test = use_alpha_test;
+				}
+
+				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+			}
+
+			GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? greytexture : t->gltexture);
+			GL_Bind (GL_TEXTURE1, r_lightmap_cheatsafe ? blacktexture : fullbright);
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * i));
+		}
+	}
+	else
+	{
+		R_DrawTextureChains (cl.worldmodel, NULL, chain_world);
+	}
 
 	GL_EndGroup ();
 }

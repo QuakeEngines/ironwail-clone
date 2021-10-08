@@ -82,11 +82,26 @@ typedef enum {
 	chain_model = 1
 } texchain_t;
 
+typedef enum {
+	TEXTYPE_DEFAULT,
+	TEXTYPE_CUTOUT,
+	TEXTYPE_SKY,
+	TEXTYPE_LAVA,
+	TEXTYPE_SLIME,
+	TEXTYPE_TELE,
+	TEXTYPE_WATER,
+
+	TEXTYPE_COUNT
+} textype_t;
+
+#define TEXTYPE_ISLIQUID(x) ((unsigned)((x)-TEXTYPE_LAVA)<=(unsigned)(TEXTYPE_WATER-TEXTYPE_LAVA))
+
 typedef struct texture_s
 {
 	char				name[16];
 	unsigned			width, height;
 	unsigned			shift;		// Q64
+	textype_t			type;
 	struct gltexture_s	*gltexture; //johnfitz -- pointer to gltexture
 	struct gltexture_s	*fullbright; //johnfitz -- fullbright mask texture
 	struct msurface_s	*texturechains[2];	// for texture chains
@@ -122,7 +137,7 @@ typedef struct
 typedef struct
 {
 	float		vecs[2][4];
-	texture_t	*texture;
+	int			texnum;
 	int			flags;
 } mtexinfo_t;
 
@@ -490,6 +505,9 @@ typedef struct qmodel_s
 
 	int			numtextures;
 	texture_t	**textures;
+	int			firstcmd; // index of first indirect draw command
+	int			numusedtextures;
+	int			*usedtextures;
 
 	byte		*visdata;
 	byte		*lightdata;
