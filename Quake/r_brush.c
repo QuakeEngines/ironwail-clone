@@ -762,6 +762,9 @@ void GL_BuildBModelMarkBuffers (void)
 	bmodel_gpu_leaf_t *leafs;
 	bmodel_gpu_surf_t *surfs;
 
+	if (!cl.worldmodel)
+		return;
+
 	// count bmodel textures and triangles
 	for (j = 1 ; j < MAX_MODELS; j++)
 	{
