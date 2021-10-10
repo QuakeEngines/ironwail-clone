@@ -176,7 +176,10 @@ extern int		gl_stencilbits;
 	x(void,			PushDebugGroup, (GLenum source, GLuint id, GLsizei length, const char * message))\
 	x(void,			PopDebugGroup, (void))\
 	x(const GLubyte*,GetStringi, (GLenum name, GLuint index))\
+	x(void,			TexImage3D, (GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const GLvoid *pixels))\
+	x(void,			TexSubImage3D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const GLvoid *pixels))\
 	x(void,			BindTextures, (GLuint first, GLsizei count, const GLuint *textures))\
+	x(void,			BindImageTexture, (GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format))\
 	x(void,			MemoryBarrier, (GLbitfield barriers))\
 	x(void,			DispatchCompute, (GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z))\
 
@@ -277,14 +280,9 @@ struct lightmap_s
 {
 	gltexture_t *texture;
 	glpoly_t	*polys;
-	qboolean	modified;
-	glRect_t	rectchange;
 	int			xofs;
 	int			yofs;
-
-	// the lightmap texture data needs to be kept in
-	// main memory so texsubimage can update properly
-	byte		*data;//[4*LMBLOCK_WIDTH*LMBLOCK_HEIGHT];
+	unsigned	stylemask[MAX_LIGHTSTYLES >> 5];
 };
 extern struct lightmap_s *lightmaps;
 extern int lightmap_count;	//allocated lightmaps
@@ -372,13 +370,11 @@ void GL_BuildBModelVertexBuffer (void);
 void GL_BuildBModelMarkBuffers (void);
 void GLMesh_LoadVertexBuffers (void);
 void GLMesh_DeleteVertexBuffers (void);
-void R_RebuildAllLightmaps (void);
 
 int R_LightPoint (vec3_t p);
 
-void R_BuildLightMap (msurface_t *surf, byte *dest, int stride);
-void R_RenderDynamicLightmaps (msurface_t *fa);
-void R_UploadLightmaps (void);
+void R_InvalidateLightmaps (void);
+void R_UpdateLightmaps (void);
 
 void R_DrawWorld_ShowTris (void);
 void R_DrawBrushModel_ShowTris (entity_t *e);
@@ -402,6 +398,7 @@ void GLAlias_CreateShaders (void);
 void GLSky_CreateShaders (void);
 void GLParticle_CreateShaders (void);
 void GLSprite_CreateShaders (void);
+void GLLightmap_CreateShaders (void);
 
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 

@@ -647,6 +647,7 @@ static void VID_Restart (void)
 	R_DeleteShaders ();
 	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
+	R_InvalidateLightmaps ();
 
 //
 // set new mode
@@ -1142,6 +1143,7 @@ static void GL_Init (void)
 	GLSky_CreateShaders ();
 	GLParticle_CreateShaders ();
 	GLSprite_CreateShaders ();
+	GLLightmap_CreateShaders ();
 
 	GL_ClearBufferBindings ();
 	GL_InitDynamicBuffers ();

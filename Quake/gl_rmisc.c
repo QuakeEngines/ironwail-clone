@@ -61,7 +61,7 @@ GL_Overbright_f -- johnfitz
 */
 static void GL_Overbright_f (cvar_t *var)
 {
-	R_RebuildAllLightmaps ();
+	R_InvalidateLightmaps ();
 }
 
 /*

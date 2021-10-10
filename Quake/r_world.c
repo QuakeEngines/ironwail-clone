@@ -340,7 +340,6 @@ void R_MarkVisSurfacesSIMD (byte *vis)
 			rs_brushpolys++; //count wpolys here
 			surf->visframe = r_visframecount;
 			R_ChainSurface(cl.worldmodel, surf, chain_world);
-			R_RenderDynamicLightmaps(surf);
 		}
 	}
 }
@@ -398,7 +397,6 @@ void R_MarkVisSurfaces (byte* vis)
 						{
 							rs_brushpolys++; //count wpolys here
 							R_ChainSurface(cl.worldmodel, surf, chain_world);
-							R_RenderDynamicLightmaps(surf);
 						}
 					}
 				}
@@ -1243,7 +1241,6 @@ void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain)
 	else
 		entalpha = 1;
 
-	R_UploadLightmaps ();
 	R_DrawTextureChains_GLSL (model, ent, chain);
 }
 

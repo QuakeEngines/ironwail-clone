@@ -37,7 +37,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define TEXPREF_FULLBRIGHT		0x0100	// use fullbright mask palette
 #define TEXPREF_NOBRIGHT		0x0200	// use nobright mask palette
 #define TEXPREF_CONCHARS		0x0400	// use conchars palette
-#define TEXPREF_WARPIMAGE		0x0800	// resize this texture when warpimagesize changes
+#define TEXPREF_ARRAY			0x0800	// array texture
 
 enum srcformat {SRC_INDEXED, SRC_LIGHTMAP, SRC_RGBA};
 
@@ -45,6 +45,7 @@ typedef uintptr_t src_offset_t;
 
 typedef struct gltexture_s {
 //managed by texture manager
+	GLenum			target;
 	GLuint			texnum;
 	struct gltexture_s	*next;
 	qmodel_t		*owner;
@@ -52,6 +53,7 @@ typedef struct gltexture_s {
 	char			name[64];
 	unsigned int		width; //size of image as it exists in opengl
 	unsigned int		height; //size of image as it exists in opengl
+	unsigned int		depth; //size of image as it exists in opengl
 	unsigned int		flags;
 	char			source_file[MAX_QPATH]; //relative filepath to data source, or "" if source is in memory
 	src_offset_t		source_offset; //byte offset into file, or memory address
@@ -94,6 +96,8 @@ void TexMgr_DeleteTextureObjects (void);
 
 // IMAGE LOADING
 gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int height, enum srcformat format,
+			       byte *data, const char *source_file, src_offset_t source_offset, unsigned flags);
+gltexture_t *TexMgr_LoadImageEx (qmodel_t *owner, const char *name, int width, int height, int depth, enum srcformat format,
 			       byte *data, const char *source_file, src_offset_t source_offset, unsigned flags);
 void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants);
 void TexMgr_ReloadImages (void);

@@ -99,24 +99,24 @@ static void TexMgr_SetFilterModes (gltexture_t *glt)
 
 	if (glt->flags & TEXPREF_NEAREST)
 	{
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	}
 	else if (glt->flags & TEXPREF_LINEAR)
 	{
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	}
 	else if (glt->flags & TEXPREF_MIPMAP)
 	{
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
+		glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
+		glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
+		glTexParameterf(glt->target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
 	}
 	else
 	{
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].magfilter);
+		glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
+		glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].magfilter);
 	}
 }
 
@@ -189,9 +189,9 @@ static void TexMgr_Anisotropy_f (cvar_t *var)
 		/*  TexMgr_SetFilterModes (glt);*/
 		    if (glt->flags & TEXPREF_MIPMAP) {
 			GL_Bind (GL_TEXTURE0, glt);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
-			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
+			glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
+			glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
+			glTexParameterf(glt->target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
 		    }
 		}
 	}
@@ -251,15 +251,15 @@ static void TexMgr_Imagedump_f (void)
 
 		if (glt->flags & TEXPREF_ALPHA)
 		{
-			buffer = (byte *) malloc(glt->width*glt->height*4);
-			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-			Image_WriteTGA (tganame, buffer, glt->width, glt->height, 32, true);
+			buffer = (byte *) malloc(glt->width*glt->height*glt->depth*4);
+			glGetTexImage(glt->target, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, 32, true);
 		}
 		else
 		{
-			buffer = (byte *) malloc(glt->width*glt->height*3);
-			glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
-			Image_WriteTGA (tganame, buffer, glt->width, glt->height, 24, true);
+			buffer = (byte *) malloc(glt->width*glt->height*glt->depth*3);
+			glGetTexImage(glt->target, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, 24, true);
 		}
 		free (buffer);
 	}
@@ -283,9 +283,9 @@ float TexMgr_FrameUsage (void)
 		if (glt->visframe == r_framecount)
 		{
 			if (glt->flags & TEXPREF_MIPMAP)
-				texels += glt->width * glt->height * 4.0f / 3.0f;
+				texels += glt->width * glt->height * glt->depth * 4.0f / 3.0f;
 			else
-				texels += (glt->width * glt->height);
+				texels += (glt->width * glt->height * glt->depth);
 		}
 	}
 
@@ -652,13 +652,16 @@ int TexMgr_PadConditional (int s)
 TexMgr_MipMapW
 ================
 */
-static unsigned *TexMgr_MipMapW (unsigned *data, int width, int height)
+static unsigned *TexMgr_MipMapW (unsigned *data, int width, int height, int depth)
 {
 	int	i, size;
 	byte	*out, *in;
 
+	if (!data)
+		return NULL;
+
 	out = in = (byte *)data;
-	size = (width*height)>>1;
+	size = ((width*height)>>1)*depth;
 
 	for (i = 0; i < size; i++, out += 4, in += 8)
 	{
@@ -676,13 +679,17 @@ static unsigned *TexMgr_MipMapW (unsigned *data, int width, int height)
 TexMgr_MipMapH
 ================
 */
-static unsigned *TexMgr_MipMapH (unsigned *data, int width, int height)
+static unsigned *TexMgr_MipMapH (unsigned *data, int width, int height, int depth)
 {
 	int	i, j;
 	byte	*out, *in;
 
+	if (!data)
+		return NULL;
+
 	out = in = (byte *)data;
 	height>>=1;
+	height*=depth;
 	width<<=2;
 
 	for (i = 0; i < height; i++, in += width)
@@ -772,6 +779,9 @@ static void TexMgr_AlphaEdgeFix (byte *data, int width, int height)
 		lastrow, thisrow, nextrow,
 		lastpix, thispix, nextpix;
 	byte	*dest = data;
+
+	if (!data)
+		return;
 
 	for (i = 0; i < height; i++)
 	{
@@ -962,6 +972,19 @@ static byte *TexMgr_PadImageH (byte *in, int width, int height, byte padbyte)
 
 /*
 ================
+GL_TexImage -- calls glTexImage2D/3D based on texture type
+================
+*/
+static void GL_TexImage (gltexture_t *glt, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid* pixels)
+{
+	if (glt->target == GL_TEXTURE_2D_ARRAY)
+		GL_TexImage3DFunc (glt->target, level, internalformat, width, height, glt->depth, 0, format, type, pixels);
+	else
+		glTexImage2D (glt->target, level, internalformat, width, height, 0, format, type, pixels);
+}
+
+/*
+================
 TexMgr_LoadImage32 -- handles 32bit source data
 ================
 */
@@ -975,23 +998,23 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	mipheight = TexMgr_SafeTextureSize (glt->height >> picmip);
 	while ((int) glt->width > mipwidth)
 	{
-		TexMgr_MipMapW (data, glt->width, glt->height);
+		TexMgr_MipMapW (data, glt->width, glt->height, glt->depth);
 		glt->width >>= 1;
-		if (glt->flags & TEXPREF_ALPHA)
+		if (glt->flags & TEXPREF_ALPHA && glt->target == GL_TEXTURE_2D)
 			TexMgr_AlphaEdgeFix ((byte *)data, glt->width, glt->height);
 	}
 	while ((int) glt->height > mipheight)
 	{
-		TexMgr_MipMapH (data, glt->width, glt->height);
+		TexMgr_MipMapH (data, glt->width, glt->height, glt->depth);
 		glt->height >>= 1;
-		if (glt->flags & TEXPREF_ALPHA)
+		if (glt->flags & TEXPREF_ALPHA && glt->target == GL_TEXTURE_2D)
 			TexMgr_AlphaEdgeFix ((byte *)data, glt->width, glt->height);
 	}
 
 	// upload
 	GL_Bind (GL_TEXTURE0, glt);
 	internalformat = (glt->flags & TEXPREF_ALPHA) ? gl_alpha_format : gl_solid_format;
-	glTexImage2D (GL_TEXTURE_2D, 0, internalformat, glt->width, glt->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+	GL_TexImage (glt, 0, internalformat, glt->width, glt->height, GL_RGBA, GL_UNSIGNED_BYTE, data);
 
 	// upload mipmaps
 	if (glt->flags & TEXPREF_MIPMAP)
@@ -1003,15 +1026,15 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 		{
 			if (mipwidth > 1)
 			{
-				TexMgr_MipMapW (data, mipwidth, mipheight);
+				TexMgr_MipMapW (data, mipwidth, mipheight, glt->depth);
 				mipwidth >>= 1;
 			}
 			if (mipheight > 1)
 			{
-				TexMgr_MipMapH (data, mipwidth, mipheight);
+				TexMgr_MipMapH (data, mipwidth, mipheight, glt->depth);
 				mipheight >>= 1;
 			}
-			glTexImage2D (GL_TEXTURE_2D, miplevel, internalformat, mipwidth, mipheight, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
+			GL_TexImage (glt, miplevel, internalformat, mipwidth, mipheight, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		}
 	}
 
@@ -1046,10 +1069,10 @@ static void TexMgr_LoadImage8 (gltexture_t *glt, byte *data)
 	// detect false alpha cases
 	if (glt->flags & TEXPREF_ALPHA && !(glt->flags & TEXPREF_CONCHARS))
 	{
-		for (i = 0; i < (int) (glt->width * glt->height); i++)
+		for (i = 0; i < (int) (glt->width * glt->height * glt->depth); i++)
 			if (data[i] == 255) //transparent index
 				break;
-		if (i == (int) (glt->width * glt->height))
+		if (i == (int) (glt->width * glt->height * glt->depth))
 			glt->flags -= TEXPREF_ALPHA;
 	}
 
@@ -1099,7 +1122,7 @@ static void TexMgr_LoadImage8 (gltexture_t *glt, byte *data)
 	}
 
 	// convert to 32bit
-	data = (byte *)TexMgr_8to32(data, glt->width * glt->height, usepal);
+	data = (byte *)TexMgr_8to32(data, glt->width * glt->height * glt->depth, usepal);
 
 	// fix edges
 	if (glt->flags & TEXPREF_ALPHA)
@@ -1125,7 +1148,7 @@ static void TexMgr_LoadLightmap (gltexture_t *glt, byte *data)
 {
 	// upload it
 	GL_Bind (GL_TEXTURE0, glt);
-	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, glt->width, glt->height, 0, gl_lightmap_format, GL_UNSIGNED_BYTE, data);
+	GL_TexImage (glt, 0, GL_RGBA8, glt->width, glt->height, gl_lightmap_format, GL_UNSIGNED_BYTE, data);
 
 	// set filter modes
 	TexMgr_SetFilterModes (glt);
@@ -1133,33 +1156,40 @@ static void TexMgr_LoadLightmap (gltexture_t *glt, byte *data)
 
 /*
 ================
-TexMgr_LoadImage -- the one entry point for loading all textures
+TexMgr_LoadImageEx -- the one entry point for loading all textures
 ================
 */
-gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int height, enum srcformat format,
+gltexture_t *TexMgr_LoadImageEx (qmodel_t *owner, const char *name, int width, int height, int depth, enum srcformat format,
 			       byte *data, const char *source_file, src_offset_t source_offset, unsigned flags)
 {
-	unsigned short crc;
+	unsigned short crc = 0;
 	gltexture_t *glt;
 	int mark;
 
 	if (isDedicated)
 		return NULL;
 
+	if (flags & TEXPREF_ARRAY)
+		flags = (flags & ~TEXPREF_MIPMAP) | TEXPREF_NOPICMIP;
+
 	// cache check
-	switch (format)
+	if (data)
 	{
-	case SRC_INDEXED:
-		crc = CRC_Block(data, width * height);
-		break;
-	case SRC_LIGHTMAP:
-		crc = CRC_Block(data, width * height * lightmap_bytes);
-		break;
-	case SRC_RGBA:
-		crc = CRC_Block(data, width * height * 4);
-		break;
-	default: /* not reachable but avoids compiler warnings */
-		crc = 0;
+		switch (format)
+		{
+		case SRC_INDEXED:
+			crc = CRC_Block(data, width * height * depth);
+			break;
+		case SRC_LIGHTMAP:
+			crc = CRC_Block(data, width * height * depth * lightmap_bytes);
+			break;
+		case SRC_RGBA:
+			crc = CRC_Block(data, width * height * depth * 4);
+			break;
+		default: /* not reachable but avoids compiler warnings */
+			crc = 0;
+			break;
+		}
 	}
 	if ((flags & TEXPREF_OVERWRITE) && (glt = TexMgr_FindTexture (owner, name)))
 	{
@@ -1171,9 +1201,11 @@ gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int
 
 	// copy data
 	glt->owner = owner;
+	glt->target = flags & TEXPREF_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
 	q_strlcpy (glt->name, name, sizeof(glt->name));
 	glt->width = width;
 	glt->height = height;
+	glt->depth = depth;
 	glt->flags = flags;
 	glt->shirt = -1;
 	glt->pants = -1;
@@ -1206,6 +1238,18 @@ gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int
 
 	return glt;
 }
+
+/*
+================
+TexMgr_LoadImage
+================
+*/
+gltexture_t *TexMgr_LoadImage (qmodel_t *owner, const char *name, int width, int height, enum srcformat format,
+			       byte *data, const char *source_file, src_offset_t source_offset, unsigned flags)
+{
+	return TexMgr_LoadImageEx (owner, name, width, height, 1, format, data, source_file, source_offset, flags);
+}
+
 
 /*
 ================================================================================
@@ -1254,7 +1298,7 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 	else if (!glt->source_file[0] && glt->source_offset) {
 		data = (byte *) glt->source_offset; //image in memory
 	}
-	if (!data) {
+	if (!data && shirt > -1 && pants > -1) {
 invalid:	Con_Printf ("TexMgr_ReloadImage: invalid source for %s\n", glt->name);
 		Hunk_FreeToLowMark(mark);
 		return;
@@ -1412,7 +1456,7 @@ qboolean GL_Bind (GLenum texunit, gltexture_t *texture)
 {
 	if (!texture)
 		texture = nulltexture;
-	if (!GL_BindNative (texunit, GL_TEXTURE_2D, texture->texnum))
+	if (!GL_BindNative (texunit, texture->target, texture->texnum))
 		return false;
 	texture->visframe = r_framecount;
 	return true;
