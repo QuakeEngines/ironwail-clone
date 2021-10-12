@@ -466,11 +466,14 @@ void SCR_DrawFPS (void)
 		oldframecount = r_framecount;
 	}
 
-	if (scr_showfps.value)
+	if (scr_showfps.value && lastfps)
 	{
 		char	st[16];
 		int	x, y;
-		sprintf (st, "%4.0f fps", lastfps);
+		if (scr_showfps.value > 0.f)
+			sprintf (st, "%4.0f fps", lastfps);
+		else
+			sprintf (st, "%.2f ms", 1000.f / lastfps);
 		x = 320 - (strlen(st)<<3);
 		y = 200 - 8;
 		if (scr_clock.value) y -= 8; //make room for clock
