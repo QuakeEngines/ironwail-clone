@@ -1842,7 +1842,7 @@ void Mod_PrepareSIMDData (void)
 #ifdef USE_SIMD
 	int i;
 
-	loadmodel->soa_leafbounds = Hunk_Alloc(6 * sizeof(float) * ((loadmodel->numleafs + 7) & ~7));
+	loadmodel->soa_leafbounds = Hunk_AllocName (6 * sizeof(float) * ((loadmodel->numleafs + 7) & ~7), "soa_leafbounds");
 
 	for (i = 0; i < loadmodel->numleafs; ++i)
 	{
