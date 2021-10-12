@@ -553,17 +553,16 @@ void Mod_LoadTextures (lump_t *l)
 			memcpy ( tx+1, mt64+1, pixels);
 		}
 
-		//johnfitz -- lots of changes
 		if (!isDedicated) //no texture uploading for dedicated server
 		{
-			if (!q_strncasecmp(tx->name,"sky",3)) //sky texture //also note -- was Q_strncmp, changed to match qbsp
+			if (tx->type == TEXTYPE_SKY)
 			{
 				if (loadmodel->bspversion == BSPVERSION_QUAKE64)
 					Sky_LoadTextureQ64 (tx);
 				else
 					Sky_LoadTexture (tx);
 			}
-			else if (tx->name[0] == '*') //warping texture
+			else if (TEXTYPE_ISLIQUID (tx->type))
 			{
 				//external textures -- first look in "textures/mapname/" then look in "textures/"
 				mark = Hunk_LowMark();
@@ -597,7 +596,7 @@ void Mod_LoadTextures (lump_t *l)
 				int	extraflags;
 
 				extraflags = 0;
-				if (tx->name[0] == '{')
+				if (tx->type == TEXTYPE_CUTOUT)
 					extraflags |= TEXPREF_ALPHA;
 				// ericw
 
@@ -1274,32 +1273,31 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 
 		texture = loadmodel->textures[out->texinfo->texnum];
 
-		//johnfitz -- this section rewritten
-		if (!q_strncasecmp(texture->name,"sky",3)) // sky surface //also note -- was Q_strncmp, changed to match qbsp
+		if (texture->type == TEXTYPE_SKY)
 		{
 			out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
 			Mod_PolyForUnlitSurface (out); //no more subdivision
 		}
-		else if (texture->name[0] == '*') // warp surface
+		else if (TEXTYPE_ISLIQUID (texture->type))
 		{
 			out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
 
-		// detect special liquid types
-			if (!strncmp (texture->name, "*lava", 5))
+			if (texture->type == TEXTYPE_LAVA)
 				out->flags |= SURF_DRAWLAVA;
-			else if (!strncmp (texture->name, "*slime", 6))
+			else if (texture->type == TEXTYPE_SLIME)
 				out->flags |= SURF_DRAWSLIME;
-			else if (!strncmp (texture->name, "*tele", 5))
+			else if (texture->type == TEXTYPE_TELE)
 				out->flags |= SURF_DRAWTELE;
-			else out->flags |= SURF_DRAWWATER;
+			else
+				out->flags |= SURF_DRAWWATER;
 
 			Mod_PolyForUnlitSurface (out);
 		}
-		else if (texture->name[0] == '{') // ericw -- fence textures
+		else if (texture->type == TEXTYPE_CUTOUT)
 		{
 			out->flags |= SURF_DRAWFENCE;
 		}
-		else if (out->texinfo->flags & TEX_MISSING) // texture is missing from bsp
+		else if (out->texinfo->flags & TEX_MISSING)
 		{
 			if (out->samples) //lightmapped
 			{
