@@ -29,7 +29,7 @@ const int	gl_solid_format = GL_RGB;
 const int	gl_alpha_format = GL_RGBA;
 
 static cvar_t	gl_texturemode = {"gl_texturemode", "", CVAR_ARCHIVE};
-static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "1", CVAR_ARCHIVE};
+static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "8", CVAR_ARCHIVE};
 static cvar_t	gl_max_size = {"gl_max_size", "0", CVAR_NONE};
 static cvar_t	gl_picmip = {"gl_picmip", "0", CVAR_NONE};
 GLint			gl_max_texture_size;
@@ -71,7 +71,7 @@ static glmode_t glmodes[] = {
 	{GL_LINEAR,  GL_LINEAR_MIPMAP_LINEAR,	"GL_LINEAR_MIPMAP_LINEAR"},
 };
 #define NUM_GLMODES (int)(sizeof(glmodes)/sizeof(glmodes[0]))
-static int glmode_idx = NUM_GLMODES - 1; /* trilinear */
+static int glmode_idx = 2; /* nearest with linear mips */
 
 /*
 ===============
