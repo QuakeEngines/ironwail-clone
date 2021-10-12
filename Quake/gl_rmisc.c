@@ -49,7 +49,6 @@ extern cvar_t r_simd;
 qboolean use_simd;
 
 extern cvar_t r_sort_entities;
-extern cvar_t r_compute_mark;
 
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
@@ -168,24 +167,7 @@ static void R_SetSlimealpha_f (cvar_t *var)
 
 /*
 ====================
-GL_WaterAlphaForSurfface -- ericw
-====================
-*/
-float GL_WaterAlphaForSurface (msurface_t *fa)
-{
-	if (fa->flags & SURF_DRAWLAVA)
-		return map_lavaalpha > 0 ? map_lavaalpha : map_fallbackalpha;
-	else if (fa->flags & SURF_DRAWTELE)
-		return map_telealpha > 0 ? map_telealpha : map_fallbackalpha;
-	else if (fa->flags & SURF_DRAWSLIME)
-		return map_slimealpha > 0 ? map_slimealpha : map_fallbackalpha;
-	else
-		return map_wateralpha;
-}
-
-/*
-====================
-GL_WaterAlphaForTextureType -- ericw
+GL_WaterAlphaForTextureType
 ====================
 */
 float GL_WaterAlphaForTextureType (textype_t type)
@@ -229,7 +211,6 @@ void R_Init (void)
 	R_SIMD_f(&r_simd);
 #endif
 	Cvar_RegisterVariable (&r_sort_entities);
-	Cvar_RegisterVariable (&r_compute_mark);
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 

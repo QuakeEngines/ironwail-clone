@@ -75,13 +75,6 @@ typedef struct mplane_s
 	byte	pad[2];
 } mplane_t;
 
-// ericw -- each texture has two chains, so we can clear the model chains
-//          without affecting the world
-typedef enum {
-	chain_world = 0,
-	chain_model = 1
-} texchain_t;
-
 typedef enum {
 	TEXTYPE_DEFAULT,
 	TEXTYPE_CUTOUT,
@@ -104,7 +97,6 @@ typedef struct texture_s
 	textype_t			type;
 	struct gltexture_s	*gltexture; //johnfitz -- pointer to gltexture
 	struct gltexture_s	*fullbright; //johnfitz -- fullbright mask texture
-	struct msurface_s	*texturechains[2];	// for texture chains
 	int					anim_total;				// total tenths in sequence ( 0 = no)
 	int					anim_min, anim_max;		// time for this frame min <=time< max
 	struct texture_s	*anim_next;		// in the animation sequence
@@ -167,7 +159,6 @@ typedef struct msurface_s
 	int			light_s, light_t;	// gl lightmap coordinates
 
 	glpoly_t	*polys;				// multiple if warped
-	struct	msurface_s	*texturechain;
 
 	mtexinfo_t	*texinfo;
 
@@ -245,7 +236,6 @@ typedef struct
 } hull_t;
 
 typedef float soa_aabb_t[2 * 3 * 8]; // 8 AABB's in SoA form
-typedef float soa_plane_t[4 * 8]; // 8 planes in SoA form
 
 /*
 ==============================================================================
@@ -498,8 +488,6 @@ typedef struct qmodel_s
 	int			*marksurfaces;
 
 	soa_aabb_t	*soa_leafbounds;
-	byte		*surfvis;
-	soa_plane_t	*soa_surfplanes;
 
 	hull_t		hulls[MAX_MAP_HULLS];
 

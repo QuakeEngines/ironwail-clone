@@ -278,7 +278,6 @@ typedef struct glRect_s {
 } glRect_t;
 struct lightmap_s
 {
-	gltexture_t *texture;
 	glpoly_t	*polys;
 	int			xofs;
 	int			yofs;
@@ -416,16 +415,10 @@ void Sky_LoadTexture (texture_t *mt);
 void Sky_LoadTextureQ64 (texture_t *mt);
 void Sky_LoadSkyBox (const char *name);
 
-void R_ClearTextureChains (qmodel_t *mod, texchain_t chain);
-void R_ChainSurface (qmodel_t *mod, msurface_t *surf, texchain_t chain);
-void R_DrawTextureChains (qmodel_t *model, entity_t *ent, texchain_t chain);
-void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain);
-void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain);
+void R_DrawBrushFaces (qmodel_t *model, entity_t *ent);
+void R_DrawBrushFaces_Water (qmodel_t *model, entity_t *ent);
+void R_DrawBrushFaces_ShowTris (qmodel_t *model);
 void R_DrawWorld_Water (void);
-
-void R_ClearBatch (void);
-void R_FlushBatch (void);
-void R_BatchSurface (msurface_t *s);
 
 void GL_BindBuffer (GLenum target, GLuint buffer);
 void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);
@@ -442,7 +435,6 @@ void GLSLGamma_GammaCorrect (void);
 
 void R_WarpScaleView_DeleteTexture (void);
 
-float GL_WaterAlphaForSurface (msurface_t *fa);
 float GL_WaterAlphaForTextureType (textype_t type);
 
 #endif	/* GLQUAKE_H */

@@ -26,7 +26,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern cvar_t gl_fullbrights, gl_overbright; //johnfitz
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
-extern cvar_t r_compute_mark;
 
 int		gl_lightmap_format;
 int		lightmap_bytes;
@@ -94,10 +93,6 @@ R_DrawBrushModel
 */
 void R_DrawBrushModel (entity_t *e)
 {
-	int			i;
-	msurface_t	*psurf;
-	float		dot;
-	mplane_t	*pplane;
 	qmodel_t	*clmodel;
 	float		oldmvp[16], model_matrix[16];
 
@@ -123,8 +118,6 @@ void R_DrawBrushModel (entity_t *e)
 		modelorg[2] = DotProduct (temp, up);
 	}
 
-	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
-
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 	if (gl_zfix.value)
 	{
@@ -146,24 +139,8 @@ void R_DrawBrushModel (entity_t *e)
 	}
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 
-	if (!r_compute_mark.value)
-	{
-		R_ClearTextureChains (clmodel, chain_model);
-		for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
-		{
-			pplane = psurf->plane;
-			dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
-			if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
-				(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
-			{
-				R_ChainSurface (clmodel, psurf, chain_model);
-				rs_brushpolys++;
-			}
-		}
-	}
-
-	R_DrawTextureChains (clmodel, e, chain_model);
-	R_DrawTextureChains_Water (clmodel, e, chain_model);
+	R_DrawBrushFaces (clmodel, e);
+	R_DrawBrushFaces_Water (clmodel, e);
 
 	memcpy(r_matviewproj, oldmvp, 16 * sizeof(float));
 
@@ -177,10 +154,6 @@ R_DrawBrushModel_ShowTris -- johnfitz
 */
 void R_DrawBrushModel_ShowTris (entity_t *e)
 {
-	int			i;
-	msurface_t	*psurf;
-	float		dot;
-	mplane_t	*pplane;
 	qmodel_t	*clmodel;
 
 	if (R_CullModelForEntity(e))
@@ -202,8 +175,6 @@ void R_DrawBrushModel_ShowTris (entity_t *e)
 		modelorg[1] = -DotProduct (temp, right);
 		modelorg[2] = DotProduct (temp, up);
 	}
-
-	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
 
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 	if (gl_zfix.value)
@@ -227,19 +198,7 @@ void R_DrawBrushModel_ShowTris (entity_t *e)
 	}
 	e->angles[0] = -e->angles[0];	// stupid quake bug
 
-	R_ClearTextureChains (clmodel, chain_model);
-	for (i=0 ; i<clmodel->nummodelsurfaces ; i++, psurf++)
-	{
-		pplane = psurf->plane;
-		dot = DotProduct (modelorg, pplane->normal) - pplane->dist;
-		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
-			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
-		{
-			R_ChainSurface (clmodel, psurf, chain_model);
-		}
-	}
-
-	R_DrawTextureChains_ShowTris (clmodel, chain_model);
+	R_DrawBrushFaces_ShowTris (clmodel);
 
 	memcpy(r_matviewproj, oldmvp, 16 * sizeof(float));
 }
@@ -716,9 +675,6 @@ void GL_BuildLightmaps (void)
 
 	lightmap_texture =
 		TexMgr_LoadImage (cl.worldmodel, "lightmap", lightmap_width, lightmap_height, SRC_LIGHTMAP, NULL, "", 0, TEXPREF_LINEAR | TEXPREF_NOPICMIP);
-
-	for (i=0; i<lightmap_count; i++)
-		lightmaps[i].texture = lightmap_texture;
 
 	R_UpdateLightmaps ();
 
