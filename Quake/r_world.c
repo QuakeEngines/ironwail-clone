@@ -597,7 +597,7 @@ GLWorld_CreateShaders
 void GLWorld_CreateShaders (void)
 {
 	#define WORLD_PARAM_BUFFER\
-		"layout(std430, binding=0) restrict readonly buffer ParamBuffer\n"\
+		"layout(std430, binding=1) restrict readonly buffer ParamBuffer\n"\
 		"{\n"\
 		"	mat4	MVP;\n"\
 		"	vec4	Fog;\n"\
@@ -613,7 +613,7 @@ void GLWorld_CreateShaders (void)
 		"	float data[7];\n"\
 		"};\n"\
 		"\n"\
-		"layout(std430, binding=1) restrict readonly buffer VertexBuffer\n"\
+		"layout(std430, binding=2) restrict readonly buffer VertexBuffer\n"\
 		"{\n"\
 		"	PackedVertex vertices[];\n"\
 		"};\n"\
@@ -626,13 +626,15 @@ void GLWorld_CreateShaders (void)
 		"\n"
 		WORLD_VERTEX_BUFFER
 		"\n"
-		"layout(location=0) out vec4 out_uv;\n"
-		"layout(location=1) out float out_fogdist;\n"
+		"layout(location=0) out vec3 out_pos;\n"
+		"layout(location=1) out vec4 out_uv;\n"
+		"layout(location=2) out float out_fogdist;\n"
 		"\n"
 		"void main()\n"
 		"{\n"
 		"	PackedVertex vert = vertices[gl_VertexID];\n"
-		"	gl_Position = MVP * vec4(vert.data[0], vert.data[1], vert.data[2], 1.0);\n"
+		"	out_pos = vec3(vert.data[0], vert.data[1], vert.data[2]);\n"
+		"	gl_Position = MVP * vec4(out_pos, 1.0);\n"
 		"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
 		"	out_fogdist = gl_Position.w;\n"
 		"}\n";
@@ -646,8 +648,22 @@ void GLWorld_CreateShaders (void)
 		"\n"
 		WORLD_PARAM_BUFFER
 		"\n"
-		"layout(location=0) in vec4 in_uv;\n"
-		"layout(location=1) in float in_fogdist;\n"
+		"struct Light\n"
+		"{\n"
+		"	vec3	origin;\n"
+		"	float	radius;\n"
+		"	vec3	color;\n"
+		"	float	minlight;\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=0) restrict readonly buffer LightBuffer\n"
+		"{\n"
+		"	Light lights[];\n"
+		"};\n"
+		"\n"
+		"layout(location=0) in vec3 in_pos;\n"
+		"layout(location=1) in vec4 in_uv;\n"
+		"layout(location=2) in float in_fogdist;\n"
 		"\n"
 		"layout(location=0) out vec4 out_fragcolor;\n"
 		"\n"
@@ -656,7 +672,30 @@ void GLWorld_CreateShaders (void)
 		"	vec4 result = texture(Tex, in_uv.xy);\n"
 		"	if (UseAlphaTest && result.a < 0.666)\n"
 		"		discard;\n"
-		"	result.rgb *= texture(LMTex, in_uv.zw).rgb * 2.0;\n"
+		"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"
+		"	int numlights = lights.length() - 1;\n"
+		"	if (numlights > 0)\n"
+		"	{\n"
+		"		int i;\n"
+		"		vec3 nor = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"
+		"		float planedist = dot(in_pos, nor);\n"
+		"		for (i = 0; i < numlights; i++)\n"
+		"		{\n"
+		"			Light l = lights[i];\n"
+		"			// mimics R_AddDynamicLights, up to a point\n"
+		"			float rad = l.radius;\n"
+		"			float dist = dot(l.origin, nor) - planedist;\n"
+		"			rad -= abs(dist);\n"
+		"			float minlight = l.minlight;\n"
+		"			if (rad < minlight)\n"
+		"				continue;\n"
+		"			vec3 local_pos = l.origin - nor * dist;\n"
+		"			minlight = rad - minlight;\n"
+		"			dist = length(in_pos - local_pos);\n"
+		"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * (rad - dist) * l.color;\n"
+		"		}\n"
+		"	}\n"
+		"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"
 		"	result.rgb += texture(FullbrightTex, in_uv.xy).rgb;\n"
 		"	result = clamp(result, 0.0, 1.0);\n"
 		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
@@ -906,7 +945,7 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 					GL_SetState (state);
 					GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
-					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
 					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
@@ -926,7 +965,7 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 				}
 
 				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
 			}
 
 			GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? greytexture : t->gltexture);
@@ -972,7 +1011,7 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 
 						GL_UseProgram (r_world_program);
 						GL_SetState (state);
-						GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+						GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 						memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
 						memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
@@ -988,7 +1027,7 @@ void R_DrawTextureChains_GLSL (qmodel_t *model, entity_t *ent, texchain_t chain)
 					uniforms.use_alpha_test = use_alpha_test;
 
 					GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
 
 					setup = true;
 				}
@@ -1083,8 +1122,8 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 				}
 
 				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
-				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 				setup = true;
 			}
@@ -1143,8 +1182,8 @@ void R_DrawTextureChains_Water (qmodel_t *model, entity_t *ent, texchain_t chain
 					}
 
 					GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
-					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 					setup = true;
 				}
@@ -1200,8 +1239,8 @@ void R_DrawTextureChains_ShowTris (qmodel_t *model, texchain_t chain)
 			uniforms.padding = 0;
 
 			GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
+			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 			GL_Bind (GL_TEXTURE0, whitetexture);
 			GL_Bind (GL_TEXTURE1, whitetexture);
@@ -1300,7 +1339,7 @@ void R_DrawWorld (void)
 					GL_SetState (state);
 					GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
-					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+					GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 					memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
 					memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
@@ -1320,7 +1359,7 @@ void R_DrawWorld (void)
 				}
 
 				GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(uniforms));
+				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
 			}
 
 			GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? greytexture : t->gltexture);

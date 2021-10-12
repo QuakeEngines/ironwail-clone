@@ -584,8 +584,6 @@ R_SetupView -- johnfitz -- this is the stuff that needs to be done once per fram
 */
 void R_SetupView (void)
 {
-	// Need to do those early because we now update dynamic light maps during R_MarkSurfaces
-	R_PushDlights ();
 	R_AnimateLight ();
 	R_UpdateLightmaps ();
 	r_framecount++;
@@ -635,6 +633,8 @@ void R_SetupView (void)
 	R_SortEntities ();
 
 	R_Clear ();
+
+	R_PushDlights ();
 
 	//johnfitz -- cheat-protect some draw modes
 	r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;

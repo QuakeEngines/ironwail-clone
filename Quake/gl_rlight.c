@@ -72,92 +72,60 @@ DYNAMIC LIGHTS
 
 /*
 =============
-R_MarkLights -- johnfitz -- rewritten to use LordHavoc's lighting speedup
-=============
-*/
-void R_MarkLights (dlight_t *light, int num, mnode_t *node)
-{
-	mplane_t	*splitplane;
-	msurface_t	*surf;
-	vec3_t		impact;
-	float		dist, l, maxdist;
-	int			i, j, s, t;
-
-start:
-
-	if (node->contents < 0)
-		return;
-
-	splitplane = node->plane;
-	if (splitplane->type < 3)
-		dist = light->origin[splitplane->type] - splitplane->dist;
-	else
-		dist = DotProduct (light->origin, splitplane->normal) - splitplane->dist;
-
-	if (dist > light->radius)
-	{
-		node = node->children[0];
-		goto start;
-	}
-	if (dist < -light->radius)
-	{
-		node = node->children[1];
-		goto start;
-	}
-
-	maxdist = light->radius*light->radius;
-// mark the polygons
-	surf = cl.worldmodel->surfaces + node->firstsurface;
-	for (i=0 ; i<node->numsurfaces ; i++, surf++)
-	{
-		for (j=0 ; j<3 ; j++)
-			impact[j] = light->origin[j] - surf->plane->normal[j]*dist;
-		// clamp center of light to corner and check brightness
-		l = DotProduct (impact, surf->texinfo->vecs[0]) + surf->texinfo->vecs[0][3] - surf->texturemins[0];
-		s = l+0.5;if (s < 0) s = 0;else if (s > surf->extents[0]) s = surf->extents[0];
-		s = l - s;
-		l = DotProduct (impact, surf->texinfo->vecs[1]) + surf->texinfo->vecs[1][3] - surf->texturemins[1];
-		t = l+0.5;if (t < 0) t = 0;else if (t > surf->extents[1]) t = surf->extents[1];
-		t = l - t;
-		// compare to minimum light
-		if ((s*s+t*t+dist*dist) < maxdist)
-		{
-			if (surf->dlightframe != r_dlightframecount) // not dynamic until now
-			{
-				surf->dlightbits[num >> 5] = 1U << (num & 31);
-				surf->dlightframe = r_dlightframecount;
-			}
-			else // already dynamic
-				surf->dlightbits[num >> 5] |= 1U << (num & 31);
-		}
-	}
-
-	if (node->children[0]->contents >= 0)
-		R_MarkLights (light, num, node->children[0]);
-	if (node->children[1]->contents >= 0)
-		R_MarkLights (light, num, node->children[1]);
-}
-
-/*
-=============
 R_PushDlights
 =============
 */
 void R_PushDlights (void)
 {
-	int		i;
-	dlight_t	*l;
+	int				i, j, count;
+	dlight_t		*l;
+	gpulight_t		lights[MAX_DLIGHTS + 1];
+	GLuint			buf;
+	GLbyte			*ofs;
+	size_t			size;
 
 	r_dlightframecount = r_framecount + 1;	// because the count hasn't
 											//  advanced yet for this frame
+	count = 0;
 	l = cl_dlights;
 
-	for (i=0 ; i<MAX_DLIGHTS ; i++, l++)
+	if (r_dynamic.value)
 	{
-		if (l->die < cl.time || !l->radius)
-			continue;
-		R_MarkLights (l, i, cl.worldmodel->nodes);
+		for (i = 0; i < MAX_DLIGHTS; i++, l++)
+		{
+			gpulight_t *out;
+			qboolean cull = false;
+			if (l->die < cl.time || !l->radius)
+				continue;
+
+			for (j = 0; j < 4; j++)
+			{
+				mplane_t *p = &frustum[j];
+				if (DotProduct (p->normal, l->origin) - p->dist + l->radius < 0.f)
+				{
+					cull = true;
+					break;
+				}
+			}
+			if (cull)
+				continue;
+
+			out = &lights[count++];
+			out->pos[0]   = l->origin[0];
+			out->pos[1]   = l->origin[1];
+			out->pos[2]   = l->origin[2];
+			out->radius   = l->radius;
+			out->color[0] = l->color[0] * (1.f/256.f);
+			out->color[1] = l->color[1] * (1.f/256.f);
+			out->color[2] = l->color[2] * (1.f/256.f);
+			out->minlight = l->minlight;
+		}
 	}
+	memset (&lights[count], 0, sizeof(lights[count]));
+
+	size = sizeof(lights[0]) * (count + 1); // avoid zero-length SSBO
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &lights, size, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, size);
 }
 
 

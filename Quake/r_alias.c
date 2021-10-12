@@ -130,7 +130,7 @@ void GLAlias_CreateShaders (void)
 		"	int		Pose2;\n"\
 		"};\n"\
 		"\n"\
-		"layout(std430, binding=0) restrict readonly buffer InstanceBuffer\n"\
+		"layout(std430, binding=1) restrict readonly buffer InstanceBuffer\n"\
 		"{\n"\
 		"	vec4	Fog;\n"\
 		"	int		UseAlphaTest;\n"\
@@ -143,12 +143,12 @@ void GLAlias_CreateShaders (void)
 		"\n"
 		ALIAS_INSTANCE_BUFFER
 		"\n"
-		"layout(std430, binding=1) restrict readonly buffer PoseBuffer\n"
+		"layout(std430, binding=2) restrict readonly buffer PoseBuffer\n"
 		"{\n"
 		"	uvec2 PackedPosNor[];\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=2) restrict readonly buffer UVBuffer\n"
+		"layout(std430, binding=3) restrict readonly buffer UVBuffer\n"
 		"{\n"
 		"	vec2 TexCoords[];\n"
 		"};\n"
@@ -620,9 +620,9 @@ void R_FlushAliasInstances (void)
 
 	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, ibuf_size);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, ibuf_size);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
 	GL_Bind (GL_TEXTURE0, ibuf.texture);
 	GL_Bind (GL_TEXTURE1, ibuf.fullbright);
