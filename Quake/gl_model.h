@@ -161,8 +161,6 @@ typedef struct msurface_s
 
 	int			light_s, light_t;	// gl lightmap coordinates
 
-	glpoly_t	*polys;				// multiple if warped
-
 	mtexinfo_t	*texinfo;
 
 	int		vbo_firstvert;		// index of this surface's first vert in the VBO

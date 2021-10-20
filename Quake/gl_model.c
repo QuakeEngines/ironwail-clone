@@ -1134,53 +1134,6 @@ void CalcSurfaceExtents (msurface_t *s)
 }
 
 /*
-================
-Mod_PolyForUnlitSurface -- johnfitz -- creates polys for unlightmapped surfaces (sky and water)
-
-TODO: merge this into BuildSurfaceDisplayList?
-================
-*/
-void Mod_PolyForUnlitSurface (msurface_t *fa)
-{
-	vec3_t		verts[64];
-	int			numverts, i, lindex;
-	float		*vec;
-	glpoly_t	*poly;
-	float		texscale;
-
-	if (fa->flags & (SURF_DRAWTURB | SURF_DRAWSKY))
-		texscale = (1.0/128.0); //warp animation repeats every 128
-	else
-		texscale = (1.0/32.0); //to match r_notexture_mip
-
-	// convert edges back to a normal polygon
-	numverts = 0;
-	for (i=0 ; i<fa->numedges ; i++)
-	{
-		lindex = loadmodel->surfedges[fa->firstedge + i];
-
-		if (lindex > 0)
-			vec = loadmodel->vertexes[loadmodel->edges[lindex].v[0]].position;
-		else
-			vec = loadmodel->vertexes[loadmodel->edges[-lindex].v[1]].position;
-		VectorCopy (vec, verts[numverts]);
-		numverts++;
-	}
-
-	//create the poly
-	poly = (glpoly_t *) Hunk_Alloc (sizeof(glpoly_t) + (numverts-4) * VERTEXSIZE*sizeof(float));
-	poly->next = NULL;
-	fa->polys = poly;
-	poly->numverts = numverts;
-	for (i=0, vec=(float *)verts; i<numverts; i++, vec+= 3)
-	{
-		VectorCopy (vec, poly->verts[i]);
-		poly->verts[i][3] = DotProduct(vec, fa->texinfo->vecs[0]) * texscale;
-		poly->verts[i][4] = DotProduct(vec, fa->texinfo->vecs[1]) * texscale;
-	}
-}
-
-/*
 =================
 Mod_LoadFaces
 =================
@@ -1272,7 +1225,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 		if (texture->type == TEXTYPE_SKY)
 		{
 			out->flags |= (SURF_DRAWSKY | SURF_DRAWTILED);
-			Mod_PolyForUnlitSurface (out); //no more subdivision
 		}
 		else if (TEXTYPE_ISLIQUID (texture->type))
 		{
@@ -1286,8 +1238,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 				out->flags |= SURF_DRAWTELE;
 			else
 				out->flags |= SURF_DRAWWATER;
-
-			Mod_PolyForUnlitSurface (out);
 		}
 		else if (texture->type == TEXTYPE_CUTOUT)
 		{
@@ -1302,7 +1252,6 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 			else // not lightmapped
 			{
 				out->flags |= (SURF_NOTEXTURE | SURF_DRAWTILED);
-				Mod_PolyForUnlitSurface (out);
 			}
 		}
 		//johnfitz

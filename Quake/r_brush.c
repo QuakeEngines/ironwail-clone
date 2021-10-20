@@ -261,89 +261,6 @@ void GL_FillSurfaceLightmap (msurface_t *surf)
 }
 
 /*
-================
-BuildSurfaceDisplayList -- called at level load time
-================
-*/
-void BuildSurfaceDisplayList (qmodel_t *model, int surfidx)
-{
-	int			i, lindex, lnumverts;
-	medge_t		*pedges, *r_pedge;
-	float		*vec;
-	float		s, t;
-	glpoly_t	*poly;
-	msurface_t	*fa = model->surfaces + surfidx;
-	struct lightmap_s *lm = &lightmaps[fa->lightmaptexturenum];
-
-// reconstruct the polygon
-	pedges = model->edges;
-	lnumverts = fa->numedges;
-
-	//
-	// draw texture
-	//
-	poly = (glpoly_t *) Hunk_Alloc (sizeof(glpoly_t) + (lnumverts-4) * VERTEXSIZE*sizeof(float));
-	poly->next = fa->polys;
-	fa->polys = poly;
-	poly->numverts = lnumverts;
-
-	for (i=0 ; i<lnumverts ; i++)
-	{
-		texture_t *texture = model->textures[fa->texinfo->texnum];
-		lindex = model->surfedges[fa->firstedge + i];
-
-		if (lindex > 0)
-		{
-			r_pedge = &pedges[lindex];
-			vec = model->vertexes[r_pedge->v[0]].position;
-		}
-		else
-		{
-			r_pedge = &pedges[-lindex];
-			vec = model->vertexes[r_pedge->v[1]].position;
-		}
-		s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3];
-		s /= texture->width;
-
-		t = DotProduct (vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3];
-		t /= texture->height;
-
-		VectorCopy (vec, poly->verts[i]);
-		poly->verts[i][3] = s;
-		poly->verts[i][4] = t;
-
-		// Q64 RERELEASE texture shift
-		if (texture->shift > 0)
-		{
-			poly->verts[i][3] /= (2 * texture->shift);
-			poly->verts[i][4] /= (2 * texture->shift);
-		}
-
-		//
-		// lightmap texture coordinates
-		//
-		s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3];
-		s -= fa->texturemins[0];
-		s += (fa->light_s + lm->xofs) * 16;
-		s += 8;
-		s /= lightmap_width*16; //fa->texinfo->texture->width;
-
-		t = DotProduct (vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3];
-		t -= fa->texturemins[1];
-		t += (fa->light_t + lm->yofs) * 16;
-		t += 8;
-		t /= lightmap_height*16; //fa->texinfo->texture->height;
-
-		poly->verts[i][5] = s;
-		poly->verts[i][6] = t;
-	}
-
-	//johnfitz -- removed gl_keeptjunctions code
-
-	poly->numverts = lnumverts;
-}
-
-/*
 ==================
 GL_FreeLightmap
 ==================
@@ -532,7 +449,6 @@ void GL_BuildLightmaps (void)
 			if (m->surfaces[i].flags & SURF_DRAWTILED)
 				continue;
 			GL_FillSurfaceLightmap (m->surfaces + i);
-			BuildSurfaceDisplayList (m, i);
 			//johnfitz
 		}
 	}
@@ -610,9 +526,11 @@ surfaces from world + all brush models
 void GL_BuildBModelVertexBuffer (void)
 {
 	unsigned int	numverts, varray_bytes, varray_index;
-	int		i, j;
+	int			i, j, k;
 	qmodel_t	*m;
 	float		*varray;
+	float		lmscalex = 1.f / 16.f / lightmap_width;
+	float		lmscaley = 1.f / 16.f / lightmap_height;
 
 // ask GL for a name for our VBO
 	GL_DeleteBuffer (gl_bmodel_vbo);
@@ -643,12 +561,95 @@ void GL_BuildBModelVertexBuffer (void)
 		if (!m || m->name[0] == '*' || m->type != mod_brush)
 			continue;
 
-		for (i=0 ; i<m->numsurfaces ; i++)
+		for (i = 0; i < m->numsurfaces; i++)
 		{
-			msurface_t *s = &m->surfaces[i];
-			s->vbo_firstvert = varray_index;
-			memcpy (&varray[VERTEXSIZE * varray_index], s->polys->verts, VERTEXSIZE * sizeof(float) * s->numedges);
-			varray_index += s->numedges;
+			msurface_t	*fa = &m->surfaces[i];
+			texture_t	*texture = m->textures[fa->texinfo->texnum];
+			float		*verts = &varray[VERTEXSIZE * varray_index];
+			float		texscalex, texscaley, useofs;
+			medge_t		*r_pedge;
+			struct lightmap_s *lm;
+
+			if (fa->flags & SURF_DRAWTILED)
+			{
+				// match old Mod_PolyForUnlitSurface
+				if (fa->flags & (SURF_DRAWTURB | SURF_DRAWSKY))
+					texscalex = 1.f / 128.f; //warp animation repeats every 128
+				else
+					texscalex = 32.f; //to match r_notexture_mip
+				texscaley = texscalex;
+				useofs = 0.f; //unlit surfaces don't use the texture offset
+				lm = NULL;
+			}
+			else
+			{
+				texscalex = 1.f / texture->width;
+				texscaley = 1.f / texture->height;
+				useofs = 1.f;
+				lm = &lightmaps[fa->lightmaptexturenum];
+			}
+
+			fa->vbo_firstvert = varray_index;
+			varray_index += fa->numedges;
+
+			for (k = 0; k < fa->numedges; k++, verts += VERTEXSIZE)
+			{
+				float	*vec;
+				float	s, t;
+				int		lindex;
+
+				lindex = m->surfedges[fa->firstedge + k];
+				if (lindex > 0)
+				{
+					r_pedge = &m->edges[lindex];
+					vec = m->vertexes[r_pedge->v[0]].position;
+				}
+				else
+				{
+					r_pedge = &m->edges[-lindex];
+					vec = m->vertexes[r_pedge->v[1]].position;
+				}
+
+				s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3] * useofs;
+				s *= texscalex;
+
+				t = DotProduct (vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3] * useofs;
+				t *= texscaley;
+
+				VectorCopy (vec, verts);
+				verts[3] = s;
+				verts[4] = t;
+
+				if (!(fa->flags & SURF_DRAWTILED))
+				{
+					// match old BuildSurfaceDisplayList
+
+					// Q64 RERELEASE texture shift
+					if (texture->shift > 0)
+					{
+						verts[3] /= (2 * texture->shift);
+						verts[4] /= (2 * texture->shift);
+					}
+
+					//
+					// lightmap texture coordinates
+					//
+					s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3];
+					s -= fa->texturemins[0];
+					s += (fa->light_s + lm->xofs) * 16;
+					s += 8;
+					s *= lmscalex;
+
+					t = DotProduct (vec, fa->texinfo->vecs[1]) + fa->texinfo->vecs[1][3];
+					t -= fa->texturemins[1];
+					t += (fa->light_t + lm->yofs) * 16;
+					t += 8;
+					t *= lmscaley;
+
+					verts[5] = s;
+					verts[6] = t;
+				}
+			}
 		}
 	}
 
