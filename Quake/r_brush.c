@@ -209,9 +209,6 @@ int AllocBlock (int w, int h, int *x, int *y)
 }
 
 
-mvertex_t	*r_pcurrentvertbase;
-qmodel_t	*currentmodel;
-
 int	nColinElim;
 
 /*
@@ -268,17 +265,18 @@ void GL_FillSurfaceLightmap (msurface_t *surf)
 BuildSurfaceDisplayList -- called at level load time
 ================
 */
-void BuildSurfaceDisplayList (msurface_t *fa)
+void BuildSurfaceDisplayList (qmodel_t *model, int surfidx)
 {
 	int			i, lindex, lnumverts;
 	medge_t		*pedges, *r_pedge;
 	float		*vec;
 	float		s, t;
 	glpoly_t	*poly;
+	msurface_t	*fa = model->surfaces + surfidx;
 	struct lightmap_s *lm = &lightmaps[fa->lightmaptexturenum];
 
 // reconstruct the polygon
-	pedges = currentmodel->edges;
+	pedges = model->edges;
 	lnumverts = fa->numedges;
 
 	//
@@ -291,18 +289,18 @@ void BuildSurfaceDisplayList (msurface_t *fa)
 
 	for (i=0 ; i<lnumverts ; i++)
 	{
-		texture_t *texture = currentmodel->textures[fa->texinfo->texnum];
-		lindex = currentmodel->surfedges[fa->firstedge + i];
+		texture_t *texture = model->textures[fa->texinfo->texnum];
+		lindex = model->surfedges[fa->firstedge + i];
 
 		if (lindex > 0)
 		{
 			r_pedge = &pedges[lindex];
-			vec = r_pcurrentvertbase[r_pedge->v[0]].position;
+			vec = model->vertexes[r_pedge->v[0]].position;
 		}
 		else
 		{
 			r_pedge = &pedges[-lindex];
-			vec = r_pcurrentvertbase[r_pedge->v[1]].position;
+			vec = model->vertexes[r_pedge->v[1]].position;
 		}
 		s = DotProduct (vec, fa->texinfo->vecs[0]) + fa->texinfo->vecs[0][3];
 		s /= texture->width;
@@ -482,8 +480,6 @@ void GL_BuildLightmaps (void)
 			break;
 		if (m->name[0] == '*')
 			continue;
-		r_pcurrentvertbase = m->vertexes;
-		currentmodel = m;
 		for (i=0 ; i<m->numsurfaces ; i++)
 		{
 			//johnfitz -- rewritten to use SURF_DRAWTILED instead of the sky/water flags
@@ -530,15 +526,13 @@ void GL_BuildLightmaps (void)
 			break;
 		if (m->name[0] == '*')
 			continue;
-		r_pcurrentvertbase = m->vertexes;
-		currentmodel = m;
 		for (i=0 ; i<m->numsurfaces ; i++)
 		{
 			//johnfitz -- rewritten to use SURF_DRAWTILED instead of the sky/water flags
 			if (m->surfaces[i].flags & SURF_DRAWTILED)
 				continue;
 			GL_FillSurfaceLightmap (m->surfaces + i);
-			BuildSurfaceDisplayList (m->surfaces + i);
+			BuildSurfaceDisplayList (m, i);
 			//johnfitz
 		}
 	}
