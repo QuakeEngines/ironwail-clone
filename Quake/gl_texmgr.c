@@ -64,7 +64,7 @@ typedef struct
 	int	minfilter;
 	const char  *name;
 } glmode_t;
-static glmode_t glmodes[] = {
+static const glmode_t glmodes[] = {
 	{GL_NEAREST, GL_NEAREST,		"GL_NEAREST"},
 	{GL_NEAREST, GL_NEAREST_MIPMAP_NEAREST,	"GL_NEAREST_MIPMAP_NEAREST"},
 	{GL_NEAREST, GL_NEAREST_MIPMAP_LINEAR,	"GL_NEAREST_MIPMAP_LINEAR"},
@@ -74,6 +74,43 @@ static glmode_t glmodes[] = {
 };
 #define NUM_GLMODES (int)(sizeof(glmodes)/sizeof(glmodes[0]))
 static int glmode_idx = 2; /* nearest with linear mips */
+
+static GLuint gl_samplers[NUM_GLMODES * 2]; // x2: nomip + mip
+
+/*
+===============
+TexMgr_DeleteSamplers
+===============
+*/
+static void TexMgr_DeleteSamplers (void)
+{
+	GL_DeleteSamplersFunc (countof(gl_samplers), gl_samplers);
+	memset (gl_samplers, 0, sizeof(gl_samplers));
+}
+
+/*
+===============
+TexMgr_CreateSamplers
+===============
+*/
+static void TexMgr_CreateSamplers (void)
+{
+	int i;
+
+	TexMgr_DeleteSamplers ();
+	GL_GenSamplersFunc (countof(gl_samplers), gl_samplers);
+
+	for (i = 0; i < NUM_GLMODES; i++)
+	{
+		GL_SamplerParameteriFunc (gl_samplers[i*2+0], GL_TEXTURE_MAG_FILTER, glmodes[i].magfilter);
+		GL_SamplerParameteriFunc (gl_samplers[i*2+0], GL_TEXTURE_MIN_FILTER, glmodes[i].magfilter);
+		GL_SamplerParameterfFunc (gl_samplers[i*2+0], GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
+
+		GL_SamplerParameteriFunc (gl_samplers[i*2+1], GL_TEXTURE_MAG_FILTER, glmodes[i].magfilter);
+		GL_SamplerParameteriFunc (gl_samplers[i*2+1], GL_TEXTURE_MIN_FILTER, glmodes[i].minfilter);
+		GL_SamplerParameterfFunc (gl_samplers[i*2+1], GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
+	}
+}
 
 /*
 ===============
@@ -98,7 +135,20 @@ TexMgr_SetFilterModes
 static void TexMgr_SetFilterModes (gltexture_t *glt)
 {
 	if (glt->bindless_handle)
+	{
+		int sampleridx;
+		if (glt->flags & (TEXPREF_NEAREST|TEXPREF_LINEAR))
+			return;
+
+		GL_MakeTextureHandleNonResidentARBFunc (glt->bindless_handle);
+		sampleridx = glmode_idx * 2;
+		if (glt->flags & TEXPREF_MIPMAP)
+			sampleridx++;
+		glt->bindless_handle = GL_GetTextureSamplerHandleARBFunc (glt->texnum, gl_samplers[sampleridx]);
+		GL_MakeTextureHandleResidentARBFunc (glt->bindless_handle);
+
 		return;
+	}
 
 	GL_Bind (GL_TEXTURE0, glt);
 
@@ -142,16 +192,9 @@ static void TexMgr_TextureMode_f (cvar_t *var)
 			if (glmode_idx != i)
 			{
 				glmode_idx = i;
-				if (gl_bindless_able)
-				{
-					VID_Changed_f (var);
-				}
-				else
-				{
-					for (glt = active_gltextures; glt; glt = glt->next)
-						TexMgr_SetFilterModes (glt);
-					Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
-				}
+				for (glt = active_gltextures; glt; glt = glt->next)
+					TexMgr_SetFilterModes (glt);
+				Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
 			}
 			return;
 		}
@@ -462,6 +505,7 @@ void TexMgr_DeleteTextureObjects (void)
 	{
 		GL_DeleteTexture (glt);
 	}
+	TexMgr_DeleteSamplers ();
 }
 
 /*
@@ -606,6 +650,8 @@ void TexMgr_Init (void)
 
 	// poll max size from hardware
 	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_max_texture_size);
+
+	TexMgr_CreateSamplers ();
 
 	// load notexture images
 	notexture = TexMgr_LoadImage (NULL, "notexture", 2, 2, SRC_RGBA, notexture_data, "", (src_offset_t)notexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
@@ -1418,6 +1464,8 @@ TexMgr_ReloadImages -- reloads all texture images. called only by vid_restart
 void TexMgr_ReloadImages (void)
 {
 	gltexture_t *glt;
+
+	TexMgr_CreateSamplers ();
 
 // ericw -- tricky bug: if the hunk is almost full, an allocation in TexMgr_ReloadImage
 // triggers cache items to be freed, which calls back into TexMgr to free the

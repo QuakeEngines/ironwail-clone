@@ -183,9 +183,15 @@ extern	qboolean	gl_bindless_able;
 	x(void,			BindImageTexture, (GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format))\
 	x(void,			MemoryBarrier, (GLbitfield barriers))\
 	x(void,			DispatchCompute, (GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z))\
+	x(void,			GenSamplers, (GLsizei n, GLuint *samplers))\
+	x(void,			DeleteSamplers, (GLsizei n, const GLuint *samplers))\
+	x(void,			SamplerParameteri, (GLuint sampler, GLenum pname, GLint param))\
+	x(void,			SamplerParameterf, (GLuint sampler, GLenum pname, GLfloat param))\
+	x(void,			BindSampler, (GLuint unit, GLuint sampler))\
 
 #define QGL_ARB_bindless_texture_FUNCTIONS(x)\
 	x(GLuint64,		GetTextureHandleARB, (GLuint texture))\
+	x(GLuint64,		GetTextureSamplerHandleARB, (GLuint texture, GLuint sampler))\
 	x(void,			MakeTextureHandleResidentARB, (GLuint64 handle))\
 	x(void,			MakeTextureHandleNonResidentARB, (GLuint64 handle))\
 
