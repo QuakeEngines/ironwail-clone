@@ -77,16 +77,12 @@ R_PushDlights
 */
 void R_PushDlights (void)
 {
-	int				i, j, count;
+	int				i, j;
 	dlight_t		*l;
-	gpulight_t		lights[MAX_DLIGHTS + 1];
-	GLuint			buf;
-	GLbyte			*ofs;
-	size_t			size;
 
 	r_dlightframecount = r_framecount + 1;	// because the count hasn't
 											//  advanced yet for this frame
-	count = 0;
+	r_framedata.global.numlights = 0;
 	l = cl_dlights;
 
 	if (r_dynamic.value)
@@ -110,7 +106,7 @@ void R_PushDlights (void)
 			if (cull)
 				continue;
 
-			out = &lights[count++];
+			out = &r_framedata.lights[r_framedata.global.numlights++];
 			out->pos[0]   = l->origin[0];
 			out->pos[1]   = l->origin[1];
 			out->pos[2]   = l->origin[2];
@@ -121,11 +117,6 @@ void R_PushDlights (void)
 			out->minlight = l->minlight;
 		}
 	}
-	memset (&lights[count], 0, sizeof(lights[count]));
-
-	size = sizeof(lights[0]) * (count + 1); // avoid zero-length SSBO
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &lights, size, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, size);
 }
 
 

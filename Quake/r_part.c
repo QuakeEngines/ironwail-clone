@@ -60,10 +60,30 @@ GLParticle_CreateShaders
 */
 void GLParticle_CreateShaders (void)
 {
+	#define FRAMEDATA_BUFFER\
+		"struct Light\n"\
+		"{\n"\
+		"	vec3	origin;\n"\
+		"	float	radius;\n"\
+		"	vec3	color;\n"\
+		"	float	minlight;\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
+		"{\n"\
+		"	mat4	ViewProj;\n"\
+		"	vec3	FogColor;\n"\
+		"	float	FogDensity;\n"\
+		"	float	Time;\n"\
+		"	int		NumLights;\n"\
+		"	float	padding_framedatabuffer[2];\n"\
+		"	Light	lights[];\n"\
+		"};\n"\
+
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
+		FRAMEDATA_BUFFER
 		"\n"
 		"layout(location=0) in vec4 in_pos;\n"
 		"layout(location=1) in vec4 in_color;\n"
@@ -74,7 +94,7 @@ void GLParticle_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
+		"	gl_Position = ViewProj * in_pos;\n"
 		"	out_fogdist = gl_Position.w;\n"
 		"	int vtx = gl_VertexID % 3;\n"
 		"	out_uv = vec2(vtx == 1, vtx == 2);\n"
@@ -84,9 +104,9 @@ void GLParticle_CreateShaders (void)
 	const GLchar *fragSource = \
 		"#version 430\n"
 		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
+		FRAMEDATA_BUFFER
 		"\n"
-		"layout(location=2) uniform vec4 Fog;\n"
+		"layout(binding=0) uniform sampler2D Tex;\n"
 		"\n"
 		"layout(location=0) in vec2 in_uv;\n"
 		"layout(location=1) in vec4 in_color;\n"
@@ -98,9 +118,9 @@ void GLParticle_CreateShaders (void)
 		"{\n"
 		"	vec4 result = texture(Tex, in_uv);\n"
 		"	result *= in_color;\n"
-		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
+		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
 		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
+		"	result.rgb = mix(FogColor, result.rgb, fog);\n"
 		"	out_fragcolor = result;\n"
 		"}\n";
 
@@ -927,8 +947,6 @@ static void R_DrawParticles_Real (qboolean showtris)
 	GL_BeginGroup ("Particles");
 
 	GL_UseProgram (r_particle_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-	GL_Uniform4fvFunc (2, 1, fog_data);
 	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));

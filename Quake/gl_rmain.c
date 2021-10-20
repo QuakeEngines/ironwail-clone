@@ -26,7 +26,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 qboolean	r_cache_thrash;		// compatability
 
 vec3_t		modelorg, r_entorigin;
-entity_t	*currententity;
+
+gpuframedata_t r_framedata;
 
 int			r_visframecount;	// bumped when going to a new PVS
 int			r_framecount;		// used for dlight push checking
@@ -76,7 +77,6 @@ cvar_t	r_novis = {"r_novis","0",CVAR_ARCHIVE};
 #if defined(USE_SIMD)
 cvar_t	r_simd = {"r_simd","1",CVAR_ARCHIVE};
 #endif
-cvar_t	r_sort_entities = {"r_sort_entities","1",CVAR_NONE};
 
 cvar_t	gl_finish = {"gl_finish","0",CVAR_NONE};
 cvar_t	gl_clear = {"gl_clear","1",CVAR_NONE};
@@ -376,7 +376,8 @@ void GL_PolygonOffset (int offset)
 
 static unsigned short visedict_keys[MAX_VISEDICTS];
 static unsigned short visedict_order[2][MAX_VISEDICTS];
-static entity_t *cl_sorted_visedicts[MAX_VISEDICTS];
+static entity_t *cl_sorted_visedicts[MAX_VISEDICTS + 1]; // +1 for worldspawn
+static int cl_modtype_ofs[mod_numtypes*2 + 1]; // x2: opaque/translucent; +1: total in last slot
 
 /*
 =============
@@ -385,24 +386,54 @@ R_SortEntities
 */
 static void R_SortEntities (void)
 {
-	int i, pass;
+	int i, j, pass;
 	int bins[256];
+	int typebins[mod_numtypes*2];
 
-	if (!r_sort_entities.value)
-		return;
+	if (!r_drawentities.value)
+		cl_numvisedicts = 0;
 
-	// fill entity sort key array and initial order
+	// remove entities with no or invisible models
+	for (i = 0, j = 0; i < cl_numvisedicts; i++)
+	{
+		entity_t *ent = cl_visedicts[i];
+		if (!ent->model || ent->alpha == ENTALPHA_ZERO)
+			continue;
+		if (ent->model->type == mod_brush && R_CullModelForEntity (ent))
+			continue;
+		cl_visedicts[j++] = ent;
+	}
+	cl_numvisedicts = j;
+
+	memset (typebins, 0, sizeof(typebins));
+	if (r_drawworld.value)
+		typebins[mod_brush * 2 + 0]++; // count worldspawn
+
+	// fill entity sort key array, initial order, and per-type counts
 	for (i = 0; i < cl_numvisedicts; i++)
 	{
 		entity_t *ent = cl_visedicts[i];
-		if (!ent->model)
-			visedict_keys[i] = ~0u; // unknown type, render at the end
-		else if (ent->model->type == mod_alias)
-			visedict_keys[i] = ent->model->sortkey | (ent->skinnum & 15);
+		qboolean translucent = !ENTALPHA_OPAQUE (ent->alpha);
+		if (ent->model->type == mod_alias)
+			visedict_keys[i] = ent->model->sortkey | (ent->skinnum & MODSORT_FRAMEMASK);
 		else
-			visedict_keys[i] = ent->model->sortkey | (ent->frame & 15);
+			visedict_keys[i] = ent->model->sortkey | (ent->frame & MODSORT_FRAMEMASK);
+
+		if ((unsigned)ent->model->type >= (unsigned)mod_numtypes)
+			Sys_Error ("Model '%s' has invalid type %d", ent->model->name, ent->model->type);
+		typebins[ent->model->type * 2 + translucent]++;
+
 		visedict_order[0][i] = i;
 	}
+
+	// convert typebin counts into offsets
+	for (i = 0, j = 0; i < countof(typebins); i++)
+	{
+		int tmp = typebins[i];
+		cl_modtype_ofs[i] = typebins[i] = j;
+		j += tmp;
+	}
+	cl_modtype_ofs[i] = j;
 
 	// LSD-first radix sort: 2 passes x 8 bits
 	for (pass = 0; pass < 2; pass++)
@@ -417,7 +448,7 @@ static void R_SortEntities (void)
 		for (i = 0; i < cl_numvisedicts; i++)
 			bins[(visedict_keys[i] >> shift) & 255]++;
 
-		// exclusive scan: turn counts into offsets, starting at 0
+		// turn bin counts into offsets
 		sum = 0;
 		for (i = 0; i < 256; i++)
 		{
@@ -432,8 +463,14 @@ static void R_SortEntities (void)
 	}
 
 	// write sorted list
+	if (r_drawworld.value)
+		cl_sorted_visedicts[typebins[mod_brush * 2 + 0]++] = &cl_entities[0]; // add the world as the first brush entity
 	for (i = 0; i < cl_numvisedicts; i++)
-		cl_sorted_visedicts[i] = cl_visedicts[visedict_order[0][i]];
+	{
+		entity_t *ent = cl_visedicts[visedict_order[0][i]];
+		qboolean translucent = !ENTALPHA_OPAQUE (ent->alpha);
+		cl_sorted_visedicts[typebins[ent->model->type * 2 + translucent]++] = ent;
+	}
 }
 
 int SignbitsForPlane (mplane_t *out)
@@ -573,7 +610,25 @@ R_SetupScene -- johnfitz -- this is the stuff that needs to be done once per eye
 void R_SetupScene (void)
 {
 	R_SetupGL ();
-	R_ClearModelInstances ();
+}
+
+/*
+===============
+R_UploadFrameData
+===============
+*/
+void R_UploadFrameData (void)
+{
+	GLuint	buf;
+	GLbyte	*ofs;
+	size_t	size;
+
+	memcpy (r_framedata.global.viewproj, r_matviewproj, 16 * sizeof(float));
+	r_framedata.global.time = cl.time;
+
+	size = sizeof(r_framedata.global) + sizeof(r_framedata.lights[0]) * q_max (r_framedata.global.numlights, 1); // avoid zero-length array
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &r_framedata, size, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, size);
 }
 
 /*
@@ -583,6 +638,8 @@ R_SetupView -- johnfitz -- this is the stuff that needs to be done once per fram
 */
 void R_SetupView (void)
 {
+	memset (&r_framedata, 0, sizeof(r_framedata));
+
 	R_AnimateLight ();
 	R_UpdateLightmaps ();
 	r_framecount++;
@@ -635,6 +692,8 @@ void R_SetupView (void)
 
 	R_PushDlights ();
 
+	R_UploadFrameData ();
+
 	//johnfitz -- cheat-protect some draw modes
 	r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;
 	r_drawworld_cheatsafe = true;
@@ -654,54 +713,34 @@ void R_SetupView (void)
 //
 //==============================================================================
 
-static int model_instance_type = -1;
-
 /*
 =============
-R_ClearModelInstances
+R_GetVisEntities
 =============
 */
-void R_ClearModelInstances (void)
+entity_t **R_GetVisEntities (modtype_t type, qboolean translucent, int *outcount)
 {
-	model_instance_type = -1;
-	R_ClearAliasInstances ();
-	R_ClearSpriteInstances ();
+	entity_t **entlist = cl_sorted_visedicts;
+	int *ofs = cl_modtype_ofs + type * 2 + (translucent ? 1 : 0);
+	*outcount = ofs[1] - ofs[0];
+	return entlist + ofs[0];
 }
 
 /*
 =============
-R_FlushModelInstances
+R_DrawWater
 =============
 */
-void R_FlushModelInstances (void)
+static void R_DrawWater (void)
 {
-	switch (model_instance_type)
-	{
-		case mod_alias:
-			R_FlushAliasInstances ();
-			break;
-		case mod_sprite:
-			R_FlushSpriteInstances ();
-			break;
-		default:
-			break;
-	}
+	entity_t **entlist = cl_sorted_visedicts;
+	int *ofs = cl_modtype_ofs + 2 * mod_brush;
 
-	model_instance_type = -1;
-}
+	// only opaque entities can have opaque water
+	R_DrawBrushModels_Water (entlist + ofs[0], ofs[1] - ofs[0], false);
 
-/*
-=============
-R_NewModelInstance
-=============
-*/
-void R_NewModelInstance (modtype_t type)
-{
-	if (model_instance_type == type)
-		return;
-	if (model_instance_type != -1)
-		R_FlushModelInstances ();
-	model_instance_type = type;
+	// all entities can have translucent water
+	R_DrawBrushModels_Water (entlist + ofs[0], ofs[2] - ofs[0], true);
 }
 
 /*
@@ -711,45 +750,15 @@ R_DrawEntitiesOnList
 */
 void R_DrawEntitiesOnList (qboolean alphapass) //johnfitz -- added parameter
 {
-	int		i;
-	entity_t **entlist = r_sort_entities.value ? cl_sorted_visedicts : cl_visedicts;
-
-	if (!r_drawentities.value)
-		return;
+	int		*ofs;
+	entity_t **entlist = cl_sorted_visedicts;
 
 	GL_BeginGroup (alphapass ? "Translucent entities" : "Opaque entities");
 
-	//johnfitz -- sprites are not a special case
-	for (i=0 ; i<cl_numvisedicts ; i++)
-	{
-		currententity = entlist[i];
-
-		//johnfitz -- if alphapass is true, draw only alpha entites this time
-		//if alphapass is false, draw only nonalpha entities this time
-		if ((ENTALPHA_DECODE(currententity->alpha) < 1 && !alphapass) ||
-			(ENTALPHA_DECODE(currententity->alpha) == 1 && alphapass))
-			continue;
-
-		//johnfitz -- chasecam
-		if (currententity == &cl_entities[cl.viewentity])
-			currententity->angles[0] *= 0.3;
-		//johnfitz
-
-		switch (currententity->model->type)
-		{
-			case mod_alias:
-				R_DrawAliasModel (currententity);
-				break;
-			case mod_brush:
-				R_DrawBrushModel (currententity);
-				break;
-			case mod_sprite:
-				R_DrawSpriteModel (currententity);
-				break;
-		}
-	}
-
-	R_FlushModelInstances ();
+	ofs = cl_modtype_ofs + (alphapass ? 1 : 0);
+	R_DrawBrushModels  (entlist + ofs[2*mod_brush ], ofs[2*mod_brush +1] - ofs[2*mod_brush ]);
+	R_DrawAliasModels  (entlist + ofs[2*mod_alias ], ofs[2*mod_alias +1] - ofs[2*mod_alias ]);
+	R_DrawSpriteModels (entlist + ofs[2*mod_sprite], ofs[2*mod_sprite+1] - ofs[2*mod_sprite]);
 
 	GL_EndGroup ();
 }
@@ -761,18 +770,18 @@ R_DrawViewModel -- johnfitz -- gutted
 */
 void R_DrawViewModel (void)
 {
+	entity_t *e = &cl.viewent;
 	if (!r_drawviewmodel.value || !r_drawentities.value || chase_active.value)
 		return;
 
 	if (cl.items & IT_INVISIBILITY || cl.stats[STAT_HEALTH] <= 0)
 		return;
 
-	currententity = &cl.viewent;
-	if (!currententity->model)
+	if (!e->model)
 		return;
 
 	//johnfitz -- this fixes a crash
-	if (currententity->model->type != mod_alias)
+	if (e->model->type != mod_alias)
 		return;
 	//johnfitz
 
@@ -780,8 +789,7 @@ void R_DrawViewModel (void)
 
 	// hack the depth range to prevent view model from poking into walls
 	glDepthRange (0, 0.3);
-	R_DrawAliasModel (currententity);
-	R_FlushModelInstances ();
+	R_DrawAliasModels (&e, 1);
 	glDepthRange (0, 1);
 
 	GL_EndGroup ();
@@ -795,7 +803,9 @@ R_ShowTris -- johnfitz
 void R_ShowTris (void)
 {
 	extern cvar_t r_particles;
-	int i;
+	int		*ofs;
+	entity_t **entlist = cl_sorted_visedicts;
+	entity_t *e;
 
 	if (r_showtris.value < 1 || r_showtris.value > 2 || cl.maxclients > 1)
 		return;
@@ -807,53 +817,27 @@ void R_ShowTris (void)
 	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
 	GL_PolygonOffset (OFFSET_SHOWTRIS);
 
-	R_DrawWorld_ShowTris ();
+	ofs = cl_modtype_ofs;
+	R_DrawBrushModels_ShowTris  (entlist + ofs[2*mod_brush ], ofs[2*mod_brush +2] - ofs[2*mod_brush ]);
+	R_DrawAliasModels_ShowTris  (entlist + ofs[2*mod_alias ], ofs[2*mod_alias +2] - ofs[2*mod_alias ]);
+	R_DrawSpriteModels_ShowTris (entlist + ofs[2*mod_sprite], ofs[2*mod_sprite+2] - ofs[2*mod_sprite]);
 
-	if (r_drawentities.value)
+	// viewmodel
+	e = &cl.viewent;
+	if (r_drawviewmodel.value
+		&& !chase_active.value
+		&& cl.stats[STAT_HEALTH] > 0
+		&& !(cl.items & IT_INVISIBILITY)
+		&& e->model
+		&& e->model->type == mod_alias)
 	{
-		for (i=0 ; i<cl_numvisedicts ; i++)
-		{
-			currententity = cl_visedicts[i];
+		if (r_showtris.value != 1.f)
+			glDepthRange (0, 0.3);
 
-			if (currententity == &cl_entities[cl.viewentity]) // chasecam
-				currententity->angles[0] *= 0.3;
+		R_DrawAliasModels_ShowTris (&e, 1);
 
-			switch (currententity->model->type)
-			{
-			case mod_brush:
-				R_DrawBrushModel_ShowTris (currententity);
-				break;
-			case mod_alias:
-				R_DrawAliasModel_ShowTris (currententity);
-				break;
-			case mod_sprite:
-				R_DrawSpriteModel_ShowTris (currententity);
-				break;
-			default:
-				break;
-			}
-		}
-
-		// viewmodel
-		currententity = &cl.viewent;
-		if (r_drawviewmodel.value
-			&& !chase_active.value
-			&& cl.stats[STAT_HEALTH] > 0
-			&& !(cl.items & IT_INVISIBILITY)
-			&& currententity->model
-			&& currententity->model->type == mod_alias)
-		{
-			R_FlushModelInstances ();
-
-			if (r_showtris.value != 1.f)
-				glDepthRange (0, 0.3);
-
-			R_DrawAliasModel_ShowTris (currententity);
-			R_FlushModelInstances ();
-
-			if (r_showtris.value != 1.f)
-				glDepthRange (0.f, 1.f);
-		}
+		if (r_showtris.value != 1.f)
+			glDepthRange (0.f, 1.f);
 	}
 
 	R_DrawParticles_ShowTris ();
@@ -881,15 +865,13 @@ void R_RenderScene (void)
 
 	R_DrawViewModel (); //johnfitz -- moved here from R_RenderView
 
-	R_DrawWorld ();
-
 	S_ExtraUpdate (); // don't let sound get messed up if going slow
 
 	R_DrawEntitiesOnList (false); //johnfitz -- false means this is the pass for nonalpha entities
 
 	Sky_DrawSky (); //johnfitz
 
-	R_DrawWorld_Water (); //johnfitz -- drawn here since they might have transparency
+	R_DrawWater ();
 
 	R_DrawEntitiesOnList (true); //johnfitz -- true means this is the pass for alpha entities
 

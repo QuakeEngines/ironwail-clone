@@ -580,25 +580,21 @@ void Mod_LoadTextures (lump_t *l)
 				{
 					q_strlcpy (texturename, filename, sizeof(texturename));
 					tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, fwidth, fheight,
-						SRC_RGBA, data, filename, 0, TEXPREF_MIPMAP);
+						SRC_RGBA, data, filename, 0, TEXPREF_MIPMAP | TEXPREF_BINDLESS);
 				}
 				else //use the texture from the bsp file
 				{
 					q_snprintf (texturename, sizeof(texturename), "%s:%s", loadmodel->name, tx->name);
 					offset = (src_offset_t)(mt+1) - (src_offset_t)mod_base;
 					tx->gltexture = TexMgr_LoadImage (loadmodel, texturename, tx->width, tx->height,
-						SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP);
+						SRC_INDEXED, (byte *)(tx+1), loadmodel->name, offset, TEXPREF_MIPMAP | TEXPREF_BINDLESS);
 				}
 			}
 			else //regular texture
 			{
-				// ericw -- fence textures
-				int	extraflags;
-
-				extraflags = 0;
+				int	extraflags = TEXPREF_BINDLESS;
 				if (tx->type == TEXTYPE_CUTOUT)
 					extraflags |= TEXPREF_ALPHA;
-				// ericw
 
 				//external textures -- first look in "textures/mapname/" then look in "textures/"
 				mark = Hunk_LowMark ();
@@ -1794,11 +1790,11 @@ void Mod_FindUsedTextures (qmodel_t *mod)
 	for (i = 0; i < TEXTYPE_COUNT; i++)
 	{
 		int tmp = ofs[i];
-		ofs[i] = count;
+		mod->texofs[i] = ofs[i] = count;
 		count += tmp;
 	}
 
-	mod->numusedtextures = count;
+	mod->texofs [TEXTYPE_COUNT] = count;
 	mod->usedtextures = (int *) Hunk_Alloc (sizeof(mod->usedtextures[0]) * count);
 	for (i = 0; i < mod->numtextures; i++)
 	{
@@ -2424,7 +2420,7 @@ visdone:
 		mod->nummodelsurfaces = mod->submodels[1].firstface;
 	else
 		mod->nummodelsurfaces = mod->numsurfaces;
-	mod->sortkey = MOD_SORT_BRUSH | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
+	mod->sortkey = CRC_Block (mod->name, strlen(mod->name)) & ~MODSORT_FRAMEMASK;
 	Mod_FindUsedTextures (mod);
 
 	// johnfitz -- okay, so that i stop getting confused every time i look at this loop, here's how it works:
@@ -2468,7 +2464,7 @@ visdone:
 		//johnfitz
 
 		mod->numleafs = bm->visleafs;
-		mod->sortkey = MOD_SORT_BRUSH | ((atoi (mod->name + 1) & 1023) << 4);
+		mod->sortkey = (atoi (mod->name + 1) & MODSORT_MODELMASK) << MODSORT_FRAMEBITS;
 		Mod_FindUsedTextures (mod);
 
 		if (i < mod->numsubmodels-1)
@@ -3051,7 +3047,7 @@ void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 		return;
 	memcpy (mod->cache.data, pheader, total);
 
-	mod->sortkey = MOD_SORT_ALIAS | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
+	mod->sortkey = CRC_Block (mod->name, strlen(mod->name)) & ~MODSORT_FRAMEMASK;
 
 	Hunk_FreeToLowMark (start);
 }
@@ -3231,7 +3227,7 @@ void Mod_LoadSpriteModel (qmodel_t *mod, void *buffer)
 	}
 
 	mod->type = mod_sprite;
-	mod->sortkey = MOD_SORT_SPRITE | (CRC_Block (mod->name, strlen(mod->name)) >> 6 << 4);
+	mod->sortkey = CRC_Block (mod->name, strlen(mod->name)) & ~MODSORT_FRAMEMASK;
 }
 
 //=============================================================================

@@ -28,14 +28,16 @@ typedef struct spritevert_t {
 	float		uv[2];
 } spritevert_t;
 
+#define MAX_BATCH_SPRITES	1024
+
 static int numbatchquads = 0;
-static spritevert_t batchverts[4 * MAX_INSTANCES];
+static spritevert_t batchverts[4 * MAX_BATCH_SPRITES];
 static gltexture_t *batchtexture;
 static qmodel_t *batchmodel;
 static qboolean batchshowtris;
 
 static GLuint r_sprite_program;
-static GLushort batchindices[6 * MAX_INSTANCES];
+static GLushort batchindices[6 * MAX_BATCH_SPRITES];
 static qboolean batchindices_init = false;
 
 /*
@@ -45,10 +47,30 @@ GLSprite_CreateShaders
 */
 void GLSprite_CreateShaders (void)
 {
+	#define FRAMEDATA_BUFFER\
+		"struct Light\n"\
+		"{\n"\
+		"	vec3	origin;\n"\
+		"	float	radius;\n"\
+		"	vec3	color;\n"\
+		"	float	minlight;\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
+		"{\n"\
+		"	mat4	ViewProj;\n"\
+		"	vec3	FogColor;\n"\
+		"	float	FogDensity;\n"\
+		"	float	Time;\n"\
+		"	int		NumLights;\n"\
+		"	float	padding_framedatabuffer[2];\n"\
+		"	Light	lights[];\n"\
+		"};\n"\
+
 	const GLchar *vertSource = \
 		"#version 430\n"
 		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
+		FRAMEDATA_BUFFER
 		"\n"
 		"layout(location=0) in vec4 in_pos;\n"
 		"layout(location=1) in vec2 in_uv;\n"
@@ -58,7 +80,7 @@ void GLSprite_CreateShaders (void)
 		"\n"
 		"void main()\n"
 		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
+		"	gl_Position = ViewProj * in_pos;\n"
 		"	out_fogdist = gl_Position.w;\n"
 		"	out_uv = in_uv;\n"
 		"}\n";
@@ -66,8 +88,9 @@ void GLSprite_CreateShaders (void)
 	const GLchar *fragSource = \
 		"#version 430\n"
 		"\n"
+		FRAMEDATA_BUFFER
+		"\n"
 		"layout(binding=0) uniform sampler2D Tex;\n"
-		"layout(location=2) uniform vec4 Fog;\n"
 		"\n"
 		"layout(location=0) in vec2 in_uv;\n"
 		"layout(location=1) in float in_fogdist;\n"
@@ -79,9 +102,9 @@ void GLSprite_CreateShaders (void)
 		"	vec4 result = texture(Tex, in_uv);\n"
 		"	if (result.a < 0.666)\n"
 		"		discard;\n"
-		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
+		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
 		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
+		"	result.rgb = mix(FogColor, result.rgb, fog);\n"
 		"	out_fragcolor = result;\n"
 		"}\n";
 
@@ -99,7 +122,7 @@ static void R_InitSpriteIndices (void)
 	if (batchindices_init)
 		return;
 
-	for (i = 0; i < MAX_INSTANCES; i++)
+	for (i = 0; i < MAX_BATCH_SPRITES; i++)
 	{
 		batchindices[i*6 + 0] = i*4 + 0;
 		batchindices[i*6 + 1] = i*4 + 1;
@@ -165,7 +188,58 @@ mspriteframe_t *R_GetSpriteFrame (entity_t *currentent)
 
 /*
 =================
-R_DrawSpriteModel
+R_FlushSpriteInstances
+=================
+*/
+static void R_FlushSpriteInstances (void)
+{
+	qboolean		showtris = batchshowtris;
+	msprite_t		*psprite;
+	GLuint			buf;
+	GLbyte*			ofs;
+
+	if (!numbatchquads)
+		return;
+
+	R_InitSpriteIndices ();
+	psprite = (msprite_t *) batchmodel->cache.data;
+
+	GL_BeginGroup (batchtexture->name);
+
+	//johnfitz: offset decals
+	if (psprite->type == SPR_ORIENTED)
+		GL_PolygonOffset (OFFSET_DECAL);
+
+	GL_UseProgram (r_sprite_program);
+
+	if (showtris)
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
+	else
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
+
+	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : batchtexture);
+
+	GL_Upload (GL_ARRAY_BUFFER, batchverts, sizeof(batchverts[0]) * 4 * numbatchquads, &buf, &ofs);
+	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, pos));
+	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, uv));
+
+	GL_Upload (GL_ELEMENT_ARRAY_BUFFER, batchindices, sizeof(batchindices[0]) * 6 * numbatchquads, &buf, &ofs);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, buf);
+	glDrawElements (GL_TRIANGLES, 6 * numbatchquads, GL_UNSIGNED_SHORT, ofs);
+
+	//johnfitz: offset decals
+	if (psprite->type == SPR_ORIENTED)
+		GL_PolygonOffset (OFFSET_NONE);
+
+	GL_EndGroup ();
+
+	numbatchquads = 0;
+}
+
+/*
+=================
+R_DrawSpriteModel_Real
 =================
 */
 static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
@@ -230,8 +304,6 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 		return;
 	}
 
-	R_NewModelInstance (mod_sprite);
-
 	if (numbatchquads)
 		if (numbatchquads == countof(batchverts) / 4 || batchmodel != e->model || batchtexture != frame->gltexture)
 			R_FlushSpriteInstances ();
@@ -272,89 +344,26 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 
 /*
 =================
-R_FlushSpriteInstances
+R_DrawSpriteModels
 =================
 */
-static int lastfogframe = 0;
-void R_FlushSpriteInstances (void)
+void R_DrawSpriteModels (entity_t **ents, int count)
 {
-	qboolean		showtris = batchshowtris;
-	msprite_t		*psprite;
-	GLuint			buf;
-	GLbyte*			ofs;
-
-	if (!numbatchquads)
-		return;
-
-	R_InitSpriteIndices ();
-	psprite = (msprite_t *) batchmodel->cache.data;
-
-	GL_BeginGroup (batchtexture->name);
-
-	//johnfitz: offset decals
-	if (psprite->type == SPR_ORIENTED)
-		GL_PolygonOffset (OFFSET_DECAL);
-
-	GL_UseProgram (r_sprite_program);
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-
-	if (lastfogframe != r_framecount)
-	{
-		lastfogframe = r_framecount;
-		GL_Uniform4fvFunc (2, 1, fog_data);
-	}
-
-	if (showtris)
-		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-	else
-		GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_NONE | GLS_ATTRIBS(2));
-
-	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : batchtexture);
-
-	GL_Upload (GL_ARRAY_BUFFER, batchverts, sizeof(batchverts[0]) * 4 * numbatchquads, &buf, &ofs);
-	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, pos));
-	GL_VertexAttribPointerFunc (1, 2, GL_FLOAT, GL_FALSE, sizeof(batchverts[0]), ofs + offsetof(spritevert_t, uv));
-
-	GL_Upload (GL_ELEMENT_ARRAY_BUFFER, batchindices, sizeof(batchindices[0]) * 6 * numbatchquads, &buf, &ofs);
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, buf);
-	glDrawElements (GL_TRIANGLES, 6 * numbatchquads, GL_UNSIGNED_SHORT, ofs);
-
-	//johnfitz: offset decals
-	if (psprite->type == SPR_ORIENTED)
-		GL_PolygonOffset (OFFSET_NONE);
-
-	GL_EndGroup ();
-
-	numbatchquads = 0;
+	int i;
+	for (i = 0; i < count; i++)
+		R_DrawSpriteModel_Real (ents[i], false);
+	R_FlushSpriteInstances ();
 }
 
 /*
 =================
-R_ClearSpriteInstances
+R_DrawSpriteModels_ShowTris
 =================
 */
-void R_ClearSpriteInstances (void)
+void R_DrawSpriteModels_ShowTris (entity_t **ents, int count)
 {
-	numbatchquads = 0;
-}
-
-/*
-=================
-R_DrawSpriteModel
-=================
-*/
-void R_DrawSpriteModel (entity_t *e)
-{
-	R_DrawSpriteModel_Real (e, false);
-}
-
-/*
-=================
-R_DrawSpriteModel_ShowTris
-=================
-*/
-void R_DrawSpriteModel_ShowTris (entity_t *e)
-{
-	R_DrawSpriteModel_Real (e, true);
+	int i;
+	for (i = 0; i < count; i++)
+		R_DrawSpriteModel_Real (ents[i], true);
+	R_FlushSpriteInstances ();
 }

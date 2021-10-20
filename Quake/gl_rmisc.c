@@ -48,8 +48,6 @@ extern cvar_t r_simd;
 #endif
 qboolean use_simd;
 
-extern cvar_t r_sort_entities;
-
 extern gltexture_t *playertextures[MAX_SCOREBOARD]; //johnfitz
 
 
@@ -210,7 +208,6 @@ void R_Init (void)
 	Cvar_SetCallback (&r_simd, R_SIMD_f);
 	R_SIMD_f(&r_simd);
 #endif
-	Cvar_RegisterVariable (&r_sort_entities);
 	Cvar_RegisterVariable (&r_speeds);
 	Cvar_RegisterVariable (&r_pos);
 
@@ -289,17 +286,18 @@ void R_TranslateNewPlayerSkin (int playernum)
 	char		name[64];
 	byte		*pixels;
 	aliashdr_t	*paliashdr;
+	entity_t	*e;
 	int		skinnum;
 
 //get correct texture pixels
-	currententity = &cl_entities[1+playernum];
+	e = &cl_entities[1+playernum];
 
-	if (!currententity->model || currententity->model->type != mod_alias)
+	if (!e->model || e->model->type != mod_alias)
 		return;
 
-	paliashdr = (aliashdr_t *)Mod_Extradata (currententity->model);
+	paliashdr = (aliashdr_t *)Mod_Extradata (e->model);
 
-	skinnum = currententity->skinnum;
+	skinnum = e->skinnum;
 
 	//TODO: move these tests to the place where skinnum gets received from the server
 	if (skinnum < 0 || skinnum >= paliashdr->numskins)
@@ -312,7 +310,7 @@ void R_TranslateNewPlayerSkin (int playernum)
 
 //upload new image
 	q_snprintf(name, sizeof(name), "player_%i", playernum);
-	playertextures[playernum] = TexMgr_LoadImage (currententity->model, name, paliashdr->skinwidth, paliashdr->skinheight,
+	playertextures[playernum] = TexMgr_LoadImage (e->model, name, paliashdr->skinwidth, paliashdr->skinheight,
 		SRC_INDEXED, pixels, paliashdr->gltextures[skinnum][0]->source_file, paliashdr->gltextures[skinnum][0]->source_offset, TEXPREF_PAD | TEXPREF_OVERWRITE);
 
 //now recolor it

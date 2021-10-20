@@ -68,7 +68,6 @@ typedef struct particle_s
 
 extern	qboolean	r_cache_thrash;		// compatability
 extern	vec3_t		modelorg, r_entorigin;
-extern	entity_t	*currententity;
 extern	int		r_visframecount;	// ??? what difs?
 extern	int		r_framecount;
 extern	mplane_t	frustum[4];
@@ -115,12 +114,14 @@ extern	cvar_t	gl_nocolors;
 extern	cvar_t	gl_playermip;
 
 extern int		gl_stencilbits;
+extern	qboolean	gl_bindless_able;
 
 //==============================================================================
 
-#define QGL_FUNCTIONS(x)\
+#define QGL_CORE_FUNCTIONS(x)\
 	x(void,			DrawElementsInstanced, (GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount))\
 	x(void,			DrawElementsIndirect, (GLenum mode, GLenum type, const void *indirect))\
+	x(void,			MultiDrawElementsIndirect, (GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride))\
 	x(void,			GenBuffers, (GLsizei n, GLuint *buffers))\
 	x(void,			DeleteBuffers, (GLsizei n, const GLuint *buffers))\
 	x(void,			BindBuffer, (GLenum target, GLuint buffer))\
@@ -183,8 +184,17 @@ extern int		gl_stencilbits;
 	x(void,			MemoryBarrier, (GLbitfield barriers))\
 	x(void,			DispatchCompute, (GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z))\
 
+#define QGL_ARB_bindless_texture_FUNCTIONS(x)\
+	x(GLuint64,		GetTextureHandleARB, (GLuint texture))\
+	x(void,			MakeTextureHandleResidentARB, (GLuint64 handle))\
+	x(void,			MakeTextureHandleNonResidentARB, (GLuint64 handle))\
+
+#define QGL_ALL_FUNCTIONS(x)\
+	QGL_CORE_FUNCTIONS(x)\
+	QGL_ARB_bindless_texture_FUNCTIONS(x)\
+
 #define QGL_DECLARE_FUNC(ret, name, args) extern ret (APIENTRYP GL_##name##Func) args;
-QGL_FUNCTIONS(QGL_DECLARE_FUNC)
+QGL_ALL_FUNCTIONS(QGL_DECLARE_FUNC)
 #undef QGL_DECLARE_FUNC
 
 void GL_BeginGroup (const char *name);
@@ -292,7 +302,6 @@ extern float	map_wateralpha, map_lavaalpha, map_telealpha, map_slimealpha; //eri
 extern float	map_fallbackalpha; //spike -- because we might want r_wateralpha to apply to teleporters while water itself wasn't watervised
 
 //johnfitz -- fog functions called from outside gl_fog.c
-extern vec4_t fog_data;
 void Fog_ParseServerMessage (void);
 float *Fog_GetColor (void);
 float Fog_GetDensity (void);
@@ -315,6 +324,19 @@ typedef struct gpulight_s {
 	float	minlight;
 } gpulight_t;
 
+typedef struct gpuframedata_s {
+	struct {
+		float	viewproj[16];
+		float	fogdata[4];
+		float	time;
+		int		numlights;
+		int		padding[2];
+	} global;
+	gpulight_t	lights[MAX_DLIGHTS];
+} gpuframedata_t;
+
+extern gpuframedata_t r_framedata;
+
 void R_AnimateLight (void);
 void R_MarkSurfaces (void);
 qboolean R_CullBox (vec3_t emins, vec3_t emaxs);
@@ -324,27 +346,25 @@ void R_EntityMatrix (float matrix[16], vec3_t origin, vec3_t angles);
 
 void R_InitParticles (void);
 void R_DrawParticles (void);
+void R_DrawParticles_ShowTris (void);
 void CL_RunParticles (void);
 void R_ClearParticles (void);
 
 void R_TranslatePlayerSkin (int playernum);
 void R_TranslateNewPlayerSkin (int playernum); //johnfitz -- this handles cases when the actual texture changes
 
-void R_DrawWorld (void);
-void R_DrawAliasModel (entity_t *e);
-void R_DrawBrushModel (entity_t *e);
-void R_DrawSpriteModel (entity_t *e);
+void R_UploadFrameData (void);
 
-#define MAX_INSTANCES		256
+void R_DrawBrushModels (entity_t **ents, int count);
+void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent);
+void R_DrawBrushModels_Sky (entity_t **ents, int count);
+void R_DrawAliasModels (entity_t **ents, int count);
+void R_DrawSpriteModels (entity_t **ents, int count);
+void R_DrawBrushModels_ShowTris (entity_t **ents, int count);
+void R_DrawAliasModels_ShowTris (entity_t **ents, int count);
+void R_DrawSpriteModels_ShowTris (entity_t **ents, int count);
 
-void R_ClearModelInstances (void);
-void R_FlushModelInstances (void);
-void R_NewModelInstance (modtype_t type); // flushes if previous instance was of a different type
-
-void R_ClearAliasInstances (void);
-void R_ClearSpriteInstances (void);
-void R_FlushAliasInstances (void);
-void R_FlushSpriteInstances (void);
+entity_t **R_GetVisEntities (modtype_t type, qboolean translucent, int *outcount);
 
 typedef struct bmodel_draw_indirect_s {
 	GLuint		count;
@@ -381,12 +401,6 @@ int R_LightPoint (vec3_t p);
 void R_InvalidateLightmaps (void);
 void R_UpdateLightmaps (void);
 
-void R_DrawWorld_ShowTris (void);
-void R_DrawBrushModel_ShowTris (entity_t *e);
-void R_DrawAliasModel_ShowTris (entity_t *e);
-void R_DrawSpriteModel_ShowTris (entity_t *e);
-void R_DrawParticles_ShowTris (void);
-
 GLint GL_GetUniformLocation (GLuint *programPtr, const char *name);
 GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name);
 GLuint GL_CreateComputeProgram (const GLchar *source, const char *name);
@@ -398,7 +412,7 @@ void GLDraw_CreateShaders (void);
 void GLView_CreateShaders (void);
 void R_WarpScaleView_CreateResources (void);
 void GLSLGamma_CreateResources (void);
-void GLWorld_CreateShaders (void);
+void GLWorld_CreateResources (void);
 void GLAlias_CreateShaders (void);
 void GLSky_CreateShaders (void);
 void GLParticle_CreateShaders (void);
@@ -414,11 +428,6 @@ void Sky_NewMap (void);
 void Sky_LoadTexture (texture_t *mt);
 void Sky_LoadTextureQ64 (texture_t *mt);
 void Sky_LoadSkyBox (const char *name);
-
-void R_DrawBrushFaces (qmodel_t *model, entity_t *ent);
-void R_DrawBrushFaces_Water (qmodel_t *model, entity_t *ent);
-void R_DrawBrushFaces_ShowTris (qmodel_t *model);
-void R_DrawWorld_Water (void);
 
 void GL_BindBuffer (GLenum target, GLuint buffer);
 void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);

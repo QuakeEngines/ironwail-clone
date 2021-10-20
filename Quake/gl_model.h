@@ -84,7 +84,10 @@ typedef enum {
 	TEXTYPE_TELE,
 	TEXTYPE_WATER,
 
-	TEXTYPE_COUNT
+	TEXTYPE_COUNT,
+
+	TEXTYPE_FIRSTLIQUID = TEXTYPE_LAVA,
+	TEXTYPE_LASTLIQUID = TEXTYPE_WATER,
 } textype_t;
 
 #define TEXTYPE_ISLIQUID(x) ((unsigned)((x)-TEXTYPE_LAVA)<=(unsigned)(TEXTYPE_WATER-TEXTYPE_LAVA))
@@ -391,7 +394,7 @@ extern	trivertx_t	*poseverts[MAXALIASFRAMES];
 // Whole model
 //
 
-typedef enum {mod_brush, mod_sprite, mod_alias} modtype_t;
+typedef enum {mod_brush, mod_alias, mod_sprite, mod_numtypes} modtype_t;
 
 #define	EF_ROCKET	1			// leave a trail
 #define	EF_GRENADE	2			// leave a trail
@@ -411,14 +414,15 @@ typedef enum {mod_brush, mod_sprite, mod_alias} modtype_t;
 
 //
 // Entity sort keys (16 bits)
-// 15..14 | 13.....4 | 3....0
-// type:2 | model:10 | anim:4
+// 15.....4 | 3....0
+// model:12 | anim:4
 //
 enum
 {
-	MOD_SORT_BRUSH		= 0 << 14,
-	MOD_SORT_ALIAS		= 1 << 14,
-	MOD_SORT_SPRITE		= 2 << 14,
+	MODSORT_FRAMEBITS	= 4,
+	MODSORT_MODELBITS	= 12,
+	MODSORT_FRAMEMASK	= (1 << MODSORT_FRAMEBITS) - 1,
+	MODSORT_MODELMASK	= (1 << MODSORT_MODELBITS) - 1,
 };
 
 typedef struct qmodel_s
@@ -494,7 +498,7 @@ typedef struct qmodel_s
 	int			numtextures;
 	texture_t	**textures;
 	int			firstcmd; // index of first indirect draw command
-	int			numusedtextures;
+	int			texofs[TEXTYPE_COUNT + 1]; // index of first texture of the given type in the usedtextures array
 	int			*usedtextures;
 
 	byte		*visdata;

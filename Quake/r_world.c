@@ -33,14 +33,24 @@ extern size_t gl_bmodel_vbo_size;
 extern GLuint gl_bmodel_ibo;
 extern size_t gl_bmodel_ibo_size;
 extern GLuint gl_bmodel_indirect_buffer;
+extern size_t gl_bmodel_indirect_buffer_size;
 extern GLuint gl_bmodel_leaf_buffer;
 extern GLuint gl_bmodel_surf_buffer;
 extern GLuint gl_bmodel_marksurf_buffer;
 
 static GLuint r_world_program;
+static GLuint r_world_program_bindless;
 static GLuint r_water_program;
+static GLuint r_water_program_bindless;
+static GLuint r_skystencil_program;
+static GLuint r_skystencil_program_bindless;
 static GLuint r_reset_indirect_draw_params_program;
 static GLuint r_cull_leaves_program;
+static GLuint r_gather_indirect_draw_params_program;
+
+#define MAX_BMODEL_DRAWS		4096
+#define MAX_BMODEL_INSTANCES	1024
+static GLuint gl_bmodel_compacted_indirect_buffer;
 
 typedef struct gpumark_frame_s {
 	vec4_t		frustum[4];
@@ -51,26 +61,6 @@ typedef struct gpumark_frame_s {
 } gpumark_frame_t;
 
 byte *SV_FatPVS (vec3_t org, qmodel_t *worldmodel);
-
-/*
-================
-R_BackFaceCull -- johnfitz -- returns true if the surface is facing away from vieworg
-================
-*/
-qboolean R_BackFaceCull (msurface_t *surf)
-{
-	double dot;
-
-	if (surf->plane->type < 3)
-		dot = r_refdef.vieworg[surf->plane->type] - surf->plane->dist;
-	else
-		dot = DotProduct (r_refdef.vieworg, surf->plane->normal) - surf->plane->dist;
-
-	if ((dot < 0) ^ !!(surf->flags & SURF_PLANEBACK))
-		return true;
-
-	return false;
-}
 
 #ifdef USE_SSE2
 /*
@@ -151,22 +141,22 @@ static void R_MarkVisSurfaces (byte* vis)
 	vissize = (vissize + 3) & ~3; // round up to uint
 
 	GL_UseProgram (r_reset_indirect_draw_params_program);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_bmodel_indirect_buffer, 0, cl.worldmodel->numusedtextures * sizeof(bmodel_draw_indirect_t));
-	GL_DispatchComputeFunc ((cl.worldmodel->numusedtextures + 63) / 64, 1, 1);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_indirect_buffer, 0, cl.worldmodel->texofs[TEXTYPE_COUNT] * sizeof(bmodel_draw_indirect_t));
+	GL_DispatchComputeFunc ((cl.worldmodel->texofs[TEXTYPE_COUNT] + 63) / 64, 1, 1);
 	GL_MemoryBarrierFunc (GL_SHADER_STORAGE_BARRIER_BIT);
 
 	GL_UseProgram (r_cull_leaves_program);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_bmodel_ibo, 0, gl_bmodel_ibo_size);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_ibo, 0, gl_bmodel_ibo_size);
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, vis, vissize, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, vissize);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_leaf_buffer, 0, cl.worldmodel->numleafs * sizeof(bmodel_gpu_leaf_t));
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 4, gl_bmodel_marksurf_buffer, 0, cl.worldmodel->nummarksurfaces * sizeof(cl.worldmodel->marksurfaces[0]));
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 5, gl_bmodel_surf_buffer, 0, cl.worldmodel->numsurfaces * sizeof(bmodel_gpu_surf_t));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, buf, (GLintptr)ofs, vissize);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 4, gl_bmodel_leaf_buffer, 0, cl.worldmodel->numleafs * sizeof(bmodel_gpu_leaf_t));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 5, gl_bmodel_marksurf_buffer, 0, cl.worldmodel->nummarksurfaces * sizeof(cl.worldmodel->marksurfaces[0]));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 6, gl_bmodel_surf_buffer, 0, cl.worldmodel->numsurfaces * sizeof(bmodel_gpu_surf_t));
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &frame, sizeof(frame), &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 6, buf, (GLintptr)ofs, sizeof(frame));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 7, buf, (GLintptr)ofs, sizeof(frame));
 
 	GL_DispatchComputeFunc ((cl.worldmodel->numleafs + 63) / 64, 1, 1);
-	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
+	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
 
 	GL_EndGroup ();
 }
@@ -256,47 +246,84 @@ void R_MarkSurfaces (void)
 
 /*
 ================
-GL_WaterAlphaForEntityTexture
+GL_WaterAlphaForEntityTextureType
  
-Returns the water alpha to use for the entity and texture combination.
+Returns the water alpha to use for the entity and texture type combination.
 ================
 */
-float GL_WaterAlphaForEntityTexture (entity_t *ent, texture_t *t)
+float GL_WaterAlphaForEntityTextureType (entity_t *ent, textype_t type)
 {
 	float entalpha;
 	if (ent == NULL || ent->alpha == ENTALPHA_DEFAULT)
-		entalpha = GL_WaterAlphaForTextureType(t->type);
+		entalpha = GL_WaterAlphaForTextureType(type);
 	else
 		entalpha = ENTALPHA_DECODE(ent->alpha);
 	return entalpha;
 }
 
-typedef struct {
-	float	mvp[16];
-	vec4_t	fog;
-	int		use_alpha_test;
-	float	alpha;
-	float	time;
-	int		padding;
-} worlduniforms_t;
-
 /*
 =============
-GLWorld_CreateShaders
+GLWorld_CreateResources
 =============
 */
-void GLWorld_CreateShaders (void)
+void GLWorld_CreateResources (void)
 {
-	#define WORLD_PARAM_BUFFER\
-		"layout(std430, binding=1) restrict readonly buffer ParamBuffer\n"\
+	GL_GenBuffersFunc (1, &gl_bmodel_compacted_indirect_buffer);
+	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_compacted_indirect_buffer);
+	GL_BufferDataFunc (GL_DRAW_INDIRECT_BUFFER, sizeof(bmodel_draw_indirect_t) * MAX_BMODEL_DRAWS, NULL, GL_DYNAMIC_DRAW);
+	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, 0);
+
+	#define FRAMEDATA_BUFFER\
+		"struct Light\n"\
 		"{\n"\
-		"	mat4	MVP;\n"\
-		"	vec4	Fog;\n"\
-		"	bool	UseAlphaTest;\n"\
-		"	float	Alpha;\n"\
-		"	float	Time;\n"\
-		"	int		padding;\n"\
+		"	vec3	origin;\n"\
+		"	float	radius;\n"\
+		"	vec3	color;\n"\
+		"	float	minlight;\n"\
 		"};\n"\
+		"\n"\
+		"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
+		"{\n"\
+		"	mat4	ViewProj;\n"\
+		"	vec3	FogColor;\n"\
+		"	float	FogDensity;\n"\
+		"	float	Time;\n"\
+		"	int		NumLights;\n"\
+		"	float	padding_framedatabuffer[2];\n"\
+		"	Light	lights[];\n"\
+		"};\n"\
+
+	#define WORLD_CALLDATA_BUFFER\
+		"struct Call\n"\
+		"{\n"\
+		"	uvec2	txhandle;\n"\
+		"	uvec2	fbhandle;\n"\
+		"	int		flags;\n"\
+		"	float	wateralpha;\n"\
+		"};\n"\
+		"const int\n"\
+		"	CF_USE_ALPHA_TEST = 1,\n"\
+		"	CF_USE_POLYGON_OFFSET = 2\n"\
+		";\n"\
+		"\n"\
+		"layout(std430, binding=1) restrict readonly buffer CallBuffer\n"\
+		"{\n"\
+		"	Call call_data[];\n"\
+		"};\n"\
+
+	#define WORLD_INSTANCEDATA_BUFFER\
+		"struct Instance\n"\
+		"{\n"\
+		"	vec4	mat[3];\n"\
+		"	float	alpha;\n"\
+		"	float	padding;\n"\
+		"};\n"\
+		"\n"\
+		"layout(std430, binding=2) restrict readonly buffer InstanceBuffer\n"\
+		"{\n"\
+		"	Instance instance_data[];\n"\
+		"};\n"\
+		"\n"\
 
 	#define WORLD_VERTEX_BUFFER\
 		"struct PackedVertex\n"\
@@ -304,144 +331,231 @@ void GLWorld_CreateShaders (void)
 		"	float data[7];\n"\
 		"};\n"\
 		"\n"\
-		"layout(std430, binding=2) restrict readonly buffer VertexBuffer\n"\
+		"layout(std430, binding=3) restrict readonly buffer VertexBuffer\n"\
 		"{\n"\
 		"	PackedVertex vertices[];\n"\
 		"};\n"\
 		"\n"\
 
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		WORLD_PARAM_BUFFER
-		"\n"
-		WORLD_VERTEX_BUFFER
-		"\n"
-		"layout(location=0) out vec3 out_pos;\n"
-		"layout(location=1) out vec4 out_uv;\n"
-		"layout(location=2) out float out_fogdist;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	PackedVertex vert = vertices[gl_VertexID];\n"
-		"	out_pos = vec3(vert.data[0], vert.data[1], vert.data[2]);\n"
-		"	gl_Position = MVP * vec4(out_pos, 1.0);\n"
-		"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
-		"	out_fogdist = gl_Position.w;\n"
-		"}\n";
-	
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"layout(binding=1) uniform sampler2D FullbrightTex;\n"
-		"layout(binding=2) uniform sampler2D LMTex;\n"
-		"\n"
-		WORLD_PARAM_BUFFER
-		"\n"
-		"struct Light\n"
-		"{\n"
-		"	vec3	origin;\n"
-		"	float	radius;\n"
-		"	vec3	color;\n"
-		"	float	minlight;\n"
-		"};\n"
-		"\n"
-		"layout(std430, binding=0) restrict readonly buffer LightBuffer\n"
-		"{\n"
-		"	Light lights[];\n"
-		"};\n"
-		"\n"
-		"layout(location=0) in vec3 in_pos;\n"
-		"layout(location=1) in vec4 in_uv;\n"
-		"layout(location=2) in float in_fogdist;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec4 result = texture(Tex, in_uv.xy);\n"
-		"	if (UseAlphaTest && result.a < 0.666)\n"
-		"		discard;\n"
-		"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"
-		"	int numlights = lights.length() - 1;\n"
-		"	if (numlights > 0)\n"
-		"	{\n"
-		"		int i;\n"
-		"		vec3 nor = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"
-		"		float planedist = dot(in_pos, nor);\n"
-		"		for (i = 0; i < numlights; i++)\n"
-		"		{\n"
-		"			Light l = lights[i];\n"
-		"			// mimics R_AddDynamicLights, up to a point\n"
-		"			float rad = l.radius;\n"
-		"			float dist = dot(l.origin, nor) - planedist;\n"
-		"			rad -= abs(dist);\n"
-		"			float minlight = l.minlight;\n"
-		"			if (rad < minlight)\n"
-		"				continue;\n"
-		"			vec3 local_pos = l.origin - nor * dist;\n"
-		"			minlight = rad - minlight;\n"
-		"			dist = length(in_pos - local_pos);\n"
-		"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * (rad - dist) * l.color;\n"
-		"		}\n"
-		"	}\n"
-		"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"
-		"	result.rgb += texture(FullbrightTex, in_uv.xy).rgb;\n"
-		"	result = clamp(result, 0.0, 1.0);\n"
-		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
-		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
-		"	result.a = Alpha;\n" // FIXME: This will make almost transparent things cut holes though heavy fog
-		"	out_fragcolor = result;\n"
-		"}\n";
+	#define WORLD_VERTEX_SHADER(bindless)\
+		"#version 430\n"\
+		"\n"\
+		FRAMEDATA_BUFFER\
+		WORLD_INSTANCEDATA_BUFFER\
+		WORLD_VERTEX_BUFFER\
+		"\n"\
+		"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+		"#if USE_BINDLESS\n"\
+		"	#extension GL_ARB_shader_draw_parameters : require\n"\
+		"	#define DRAW_ID			gl_DrawIDARB\n"\
+		"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
+		"#else\n"\
+		"	#define DRAW_ID			0\n"\
+		"	#define INSTANCE_ID		gl_InstanceID\n"\
+		"#endif\n"\
+		"\n"\
+		"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
+		"layout(location=1) out vec3 out_pos;\n"\
+		"layout(location=2) out vec4 out_uv;\n"\
+		"layout(location=3) out float out_fogdist;\n"\
+		"\n"\
+		"void main()\n"\
+		"{\n"\
+		"	PackedVertex vert = vertices[gl_VertexID];\n"\
+		"	Instance instance = instance_data[INSTANCE_ID];\n"\
+		"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
+		"	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
+		"	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"\
+		"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"\
+		"	out_fogdist = gl_Position.w;\n"\
+		"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
+		"}\n"\
 
-	r_world_program = GL_CreateProgram (vertSource, fragSource, "world");
-	
-	vertSource = \
-		"#version 430\n"
-		"\n"
-		WORLD_PARAM_BUFFER
-		"\n"
-		WORLD_VERTEX_BUFFER
-		"\n"
-		"layout(location=0) out vec2 out_uv;\n"
-		"layout(location=1) out float out_fogdist;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	PackedVertex vert = vertices[gl_VertexID];\n"
-		"	gl_Position = MVP * vec4(vert.data[0], vert.data[1], vert.data[2], 1.0);\n"
-		"	out_uv = vec2(vert.data[3], vert.data[4]);\n"
-		"	out_fogdist = gl_Position.w;\n"
-		"}\n";
-	
-	fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		WORLD_PARAM_BUFFER
-		"\n"
-		"layout(location=0) in vec2 in_uv;\n"
-		"layout(location=1) in float in_fogdist;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"
-		"	vec4 result = texture(Tex, uv);\n"
-		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
-		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
-		"	result.a *= Alpha;\n"
-		"	out_fragcolor = result;\n"
-		"}\n";
+	#define WORLD_FRAGMENT_SHADER(bindless)\
+		"#version 430\n"\
+		"\n"\
+		"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+		"#if USE_BINDLESS\n"\
+		"	#extension GL_ARB_bindless_texture : require\n"\
+		"	sampler2D Tex;\n"\
+		"	sampler2D FullbrightTex;\n"\
+		"#else\n"\
+		"	layout(binding=0) uniform sampler2D Tex;\n"\
+		"	layout(binding=1) uniform sampler2D FullbrightTex;\n"\
+		"#endif\n"\
+		"layout(binding=2) uniform sampler2D LMTex;\n"\
+		"\n"\
+		FRAMEDATA_BUFFER\
+		WORLD_CALLDATA_BUFFER\
+		WORLD_INSTANCEDATA_BUFFER\
+		"\n"\
+		"layout(location=0) flat in ivec2 in_drawinstance;\n"\
+		"layout(location=1) in vec3 in_pos;\n"\
+		"layout(location=2) in vec4 in_uv;\n"\
+		"layout(location=3) in float in_fogdist;\n"\
+		"\n"\
+		"layout(location=0) out vec4 out_fragcolor;\n"\
+		"\n"\
+		"void main()\n"\
+		"{\n"\
+		"	Call call = call_data[in_drawinstance.x];\n"\
+		"	Instance instance = instance_data[in_drawinstance.y];\n"\
+		"#if USE_BINDLESS\n"\
+		"	Tex = sampler2D(call.txhandle);\n"\
+		"	FullbrightTex = sampler2D(call.fbhandle);\n"\
+		"#endif\n"\
+		"	vec4 result = texture(Tex, in_uv.xy);\n"\
+		"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"\
+		"	if ((call.flags & CF_USE_ALPHA_TEST) != 0 && result.a < 0.666)\n"\
+		"		discard;\n"\
+		"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"\
+		"	int numlights = NumLights;\n"\
+		"	if (numlights > 0)\n"\
+		"	{\n"\
+		"		int i;\n"\
+		"		vec3 nor = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"\
+		"		float planedist = dot(in_pos, nor);\n"\
+		"		for (i = 0; i < numlights; i++)\n"\
+		"		{\n"\
+		"			Light l = lights[i];\n"\
+		"			// mimics R_AddDynamicLights, up to a point\n"\
+		"			float rad = l.radius;\n"\
+		"			float dist = dot(l.origin, nor) - planedist;\n"\
+		"			rad -= abs(dist);\n"\
+		"			float minlight = l.minlight;\n"\
+		"			if (rad < minlight)\n"\
+		"				continue;\n"\
+		"			vec3 local_pos = l.origin - nor * dist;\n"\
+		"			minlight = rad - minlight;\n"\
+		"			dist = length(in_pos - local_pos);\n"\
+		"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) * l.color;\n"\
+		"		}\n"\
+		"	}\n"\
+		"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"\
+		"	result.rgb += fullbright;\n"\
+		"	result = clamp(result, 0.0, 1.0);\n"\
+		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"\
+		"	fog = clamp(fog, 0.0, 1.0);\n"\
+		"	result.rgb = mix(FogColor, result.rgb, fog);\n"\
+		"	float alpha = instance.alpha;\n"\
+		"	if (alpha < 0.0)\n"\
+		"		alpha = 1.0;\n"\
+		"	result.a = alpha; // FIXME: This will make almost transparent things cut holes though heavy fog\n"\
+		"	out_fragcolor = vec4(1,0,1,1);\n"\
+		"	out_fragcolor = result;\n"\
+		"}\n"\
 
-	r_water_program = GL_CreateProgram (vertSource, fragSource, "water");
+	r_world_program = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0), "world");
+	r_world_program_bindless = gl_bindless_able ? GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1), "world [bindless]") : 0;
+	
+	#define WATER_VERTEX_SHADER(bindless)\
+		"#version 430\n"\
+		"\n"\
+		FRAMEDATA_BUFFER\
+		WORLD_INSTANCEDATA_BUFFER\
+		WORLD_VERTEX_BUFFER\
+		"\n"\
+		"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+		"#if USE_BINDLESS\n"\
+		"#extension GL_ARB_shader_draw_parameters : require\n"\
+		"	#define DRAW_ID			gl_DrawIDARB\n"\
+		"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
+		"#else\n"\
+		"	#define DRAW_ID			0\n"\
+		"	#define INSTANCE_ID		gl_InstanceID\n"\
+		"#endif\n"\
+		"\n"\
+		"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
+		"layout(location=1) out vec2 out_uv;\n"\
+		"layout(location=2) out float out_fogdist;\n"\
+		"\n"\
+		"void main()\n"\
+		"{\n"\
+		"	PackedVertex vert = vertices[gl_VertexID];\n"\
+		"	Instance instance = instance_data[INSTANCE_ID];\n"\
+		"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
+		"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
+		"	gl_Position = ViewProj * vec4(pos, 1.0);\n"\
+		"	out_uv = vec2(vert.data[3], vert.data[4]);\n"\
+		"	out_fogdist = gl_Position.w;\n"\
+		"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
+		"}\n"\
+	
+	#define WATER_FRAGMENT_SHADER(bindless)\
+		"#version 430\n"\
+		"\n"\
+		"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+		"#if USE_BINDLESS\n"\
+		"#extension GL_ARB_bindless_texture : require\n"\
+		"sampler2D Tex;\n"\
+		"#else\n"\
+		"layout(binding=0) uniform sampler2D Tex;\n"\
+		"#endif\n"\
+		"\n"\
+		FRAMEDATA_BUFFER\
+		WORLD_CALLDATA_BUFFER\
+		WORLD_INSTANCEDATA_BUFFER\
+		"\n"\
+		"layout(location=0) flat in ivec2 in_drawinstance;\n"\
+		"layout(location=1) in vec2 in_uv;\n"\
+		"layout(location=2) in float in_fogdist;\n"\
+		"\n"\
+		"layout(location=0) out vec4 out_fragcolor;\n"\
+		"\n"\
+		"void main()\n"\
+		"{\n"\
+		"	Call call = call_data[in_drawinstance.x];\n"\
+		"	Instance instance = instance_data[in_drawinstance.y];\n"\
+		"#if USE_BINDLESS\n"\
+		"	Tex = sampler2D(call.txhandle);\n"\
+		"#endif\n"\
+		"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"\
+		"	vec4 result = texture(Tex, uv);\n"\
+		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"\
+		"	fog = clamp(fog, 0.0, 1.0);\n"\
+		"	result.rgb = mix(FogColor, result.rgb, fog);\n"\
+		"	float alpha = instance.alpha;\n"\
+		"	if (alpha < 0.0)\n"\
+		"		alpha = call.wateralpha;\n"\
+		"	result.a *= alpha;\n"\
+		"	out_fragcolor = result;\n"\
+		"}\n"\
 
-	#undef WORLD_PARAM_BUFFER
+	r_water_program = GL_CreateProgram (WATER_VERTEX_SHADER(0), WATER_FRAGMENT_SHADER(0), "water");
+	r_water_program_bindless = gl_bindless_able ? GL_CreateProgram (WATER_VERTEX_SHADER(1), WATER_FRAGMENT_SHADER(1), "water [bindless]") : 0;
+
+	#define SKYSTENCIL_VERTEX_SHADER(bindless)\
+		"#version 430\n"\
+		"\n"\
+		FRAMEDATA_BUFFER\
+		WORLD_INSTANCEDATA_BUFFER\
+		WORLD_VERTEX_BUFFER\
+		"\n"\
+		"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+		"#if USE_BINDLESS\n"\
+		"#extension GL_ARB_shader_draw_parameters : require\n"\
+		"	#define DRAW_ID			gl_DrawIDARB\n"\
+		"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
+		"#else\n"\
+		"	#define DRAW_ID			0\n"\
+		"	#define INSTANCE_ID		gl_InstanceID\n"\
+		"#endif\n"\
+		"\n"\
+		"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
+		"\n"\
+		"void main()\n"\
+		"{\n"\
+		"	PackedVertex vert = vertices[gl_VertexID];\n"\
+		"	Instance instance = instance_data[INSTANCE_ID];\n"\
+		"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
+		"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
+		"	gl_Position = ViewProj * vec4(pos, 1.0);\n"\
+		"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
+		"}\n"\
+	
+	r_skystencil_program = GL_CreateProgram (SKYSTENCIL_VERTEX_SHADER(0), NULL, "skystencil");
+	r_skystencil_program_bindless = gl_bindless_able ? GL_CreateProgram (SKYSTENCIL_VERTEX_SHADER(1), NULL, "skystencil [bindless]") : 0;
+
 	#undef WORLD_VERTEX_BUFFER
 
 	#define WORLD_DRAW_BUFFER\
@@ -454,7 +568,7 @@ void GLWorld_CreateShaders (void)
 		"	uint	baseInstance;\n"\
 		"};\n"\
 		"\n"\
-		"layout(std430, binding=0) buffer DrawIndirectBuffer\n"\
+		"layout(std430, binding=1) buffer DrawIndirectBuffer\n"\
 		"{\n"\
 		"	DrawElementsIndirectCommand cmds[];\n"\
 		"};\n"\
@@ -482,12 +596,12 @@ void GLWorld_CreateShaders (void)
 		"\n"
 		WORLD_DRAW_BUFFER
 		"\n"
-		"layout(std430, binding=1) restrict writeonly buffer IndexBuffer\n"
+		"layout(std430, binding=2) restrict writeonly buffer IndexBuffer\n"
 		"{\n"
 		"	uint indices[];\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=2) restrict readonly buffer VisBuffer\n"
+		"layout(std430, binding=3) restrict readonly buffer VisBuffer\n"
 		"{\n"
 		"	uint vis[];\n"
 		"};\n"
@@ -500,12 +614,12 @@ void GLWorld_CreateShaders (void)
 		"	uint	surfcountsky; // bit 0=sky; bits 1..31=surfcount\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=3) restrict readonly buffer LeafBuffer\n"
+		"layout(std430, binding=4) restrict readonly buffer LeafBuffer\n"
 		"{\n"
 		"	Leaf leaves[];\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=4) restrict readonly buffer MarkSurfBuffer\n"
+		"layout(std430, binding=5) restrict readonly buffer MarkSurfBuffer\n"
 		"{\n"
 		"	int marksurf[];\n"
 		"};\n"
@@ -519,12 +633,12 @@ void GLWorld_CreateShaders (void)
 		"	uint	firstvert;\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=5) restrict buffer SurfaceBuffer\n"
+		"layout(std430, binding=6) restrict buffer SurfaceBuffer\n"
 		"{\n"
 		"	Surface surfaces[];\n"
 		"};\n"
 		"\n"
-		"layout(std430, binding=6) restrict readonly buffer FrameBuffer\n"
+		"layout(std430, binding=7) restrict readonly buffer FrameBuffer\n"
 		"{\n"
 		"	vec4	frustum[4];\n"
 		"	uint	oldskyleaf;\n"
@@ -583,251 +697,422 @@ void GLWorld_CreateShaders (void)
 	#undef WORLD_DRAW_BUFFER
 
 	r_cull_leaves_program = GL_CreateComputeProgram (computeSource, "mark");
+
+	computeSource = \
+		"#version 430\n"
+		"\n"
+		"layout(local_size_x=64) in;\n"
+		"\n"
+		"struct DrawElementsIndirectCommand\n"
+		"{\n"
+		"	uint	count;\n"
+		"	uint	instanceCount;\n"
+		"	uint	firstIndex;\n"
+		"	uint	baseVertex;\n"
+		"	uint	baseInstance;\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=5) restrict readonly buffer DrawIndirectSrcBuffer\n"
+		"{\n"
+		"	DrawElementsIndirectCommand src_cmds[];\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=6) restrict writeonly buffer DrawIndirectDstBuffer\n"
+		"{\n"
+		"	DrawElementsIndirectCommand dst_cmds[];\n"
+		"};\n"
+		"\n"
+		"struct DrawRemap\n"
+		"{\n"
+		"	uint src_call;\n"
+		"	uint instance_data;\n"
+		"};\n"
+		"\n"
+		"layout(std430, binding=7) restrict readonly buffer DrawRemapBuffer\n"
+		"{\n"
+		"	DrawRemap remap_data[];\n"
+		"};\n"
+		"\n"
+		"#define MAX_INSTANCES " QS_STRINGIFY (MAX_BMODEL_INSTANCES) "u\n"
+		"\n"
+		"void main()\n"
+		"{\n"
+		"	uint thread_id = gl_GlobalInvocationID.x;\n"
+		"	uint num_calls = remap_data.length();\n"
+		"	if (thread_id >= num_calls)\n"
+		"		return;\n"
+		"	DrawRemap remap = remap_data[thread_id];\n"
+		"	DrawElementsIndirectCommand cmd = src_cmds[remap.src_call];\n"
+		"	cmd.baseInstance = remap.instance_data / MAX_INSTANCES;\n"
+		"	cmd.instanceCount = (remap.instance_data % MAX_INSTANCES) + 1u;\n"
+		"	if (cmd.count == 0u)\n"
+		"		cmd.instanceCount = 0u;\n"
+		"	dst_cmds[thread_id] = cmd;\n"
+		"}\n";
+
+	r_gather_indirect_draw_params_program = GL_CreateComputeProgram (computeSource, "indirect draw gather");
+}
+
+typedef struct bmodel_gpu_instance_s {
+	float		world[12];	// world matrix (transposed mat4x3)
+	float		alpha;
+	float		padding[3];
+} bmodel_gpu_instance_t;
+
+typedef struct bmodel_gpu_call_s {
+	GLuint64	texture;
+	GLuint64	fullbright;
+	GLuint		flags;
+	GLfloat		alpha;
+} bmodel_gpu_call_t;
+
+typedef struct bmodel_gpu_call_remap_s {
+	GLuint		src;
+	GLuint		inst;
+} bmodel_gpu_call_remap_t;
+
+static bmodel_gpu_instance_t	bmodel_instances[MAX_VISEDICTS + 1]; // +1 for worldspawn
+static bmodel_gpu_call_t		bmodel_calls[MAX_BMODEL_DRAWS];
+static bmodel_gpu_call_remap_t	bmodel_call_remap[MAX_BMODEL_DRAWS];
+static int						num_bmodel_calls;
+static GLuint					bmodel_batch_program;
+
+/*
+=============
+R_InitBModelInstance
+=============
+*/
+static void R_InitBModelInstance (bmodel_gpu_instance_t *inst, entity_t *ent)
+{
+	vec3_t angles;
+	float mat[16];
+
+	angles[0] = -ent->angles[0];
+	angles[1] =  ent->angles[1];
+	angles[2] =  ent->angles[2];
+	R_EntityMatrix (mat, ent->origin, angles);
+
+	#define COPY_ROW(row)					\
+		inst->world[row*4+0] = mat[row+0],	\
+		inst->world[row*4+1] = mat[row+4],	\
+		inst->world[row*4+2] = mat[row+8],	\
+		inst->world[row*4+3] = mat[row+12]
+
+	COPY_ROW (0);
+	COPY_ROW (1);
+	COPY_ROW (2);
+
+	#undef COPY_ROW
+
+	inst->alpha = ent->alpha == ENTALPHA_DEFAULT ? -1.f : ENTALPHA_DECODE (ent->alpha);
+	memset (&inst->padding, 0, sizeof(inst->padding));
 }
 
 /*
-================
-R_DrawBrushFaces
-================
+=============
+R_ResetBModelCalls
+=============
 */
-void R_DrawBrushFaces (qmodel_t *model, entity_t *ent)
+static void R_ResetBModelCalls (GLuint program)
 {
-	texture_t	*t;
-	int			i;
-	float		entalpha;
-	unsigned	state;
-	qboolean	setup = false;
-	worlduniforms_t uniforms;
+	bmodel_batch_program = program;
+	num_bmodel_calls = 0;
+}
 
-	entalpha = (ent != NULL) ? ENTALPHA_DECODE(ent->alpha) : 1.0f;
+/*
+=============
+R_FlushBModelCalls
+=============
+*/
+static void R_FlushBModelCalls (void)
+{
+	GLuint	buf;
+	GLbyte	*ofs;
 
-	for (i = 0; i < model->numusedtextures; i++)
+	if (!num_bmodel_calls)
+		return;
+
+	GL_UseProgram (r_gather_indirect_draw_params_program);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 5, gl_bmodel_indirect_buffer, 0, gl_bmodel_indirect_buffer_size);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 6, gl_bmodel_compacted_indirect_buffer, 0, sizeof(bmodel_draw_indirect_t) * num_bmodel_calls);
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_call_remap, sizeof(bmodel_call_remap[0]) * num_bmodel_calls, &buf, &ofs);
+	GL_BindBufferRange  (GL_SHADER_STORAGE_BUFFER, 7, buf, (GLintptr)ofs, sizeof(bmodel_call_remap[0]) * num_bmodel_calls);
+	GL_DispatchComputeFunc ((num_bmodel_calls + 63) / 64, 1, 1);
+	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT);
+
+	GL_UseProgram (bmodel_batch_program);
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_calls, sizeof(bmodel_calls[0]) * num_bmodel_calls, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(bmodel_calls[0]) * num_bmodel_calls);
+	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_compacted_indirect_buffer);
+	GL_MultiDrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, 0, num_bmodel_calls, sizeof (bmodel_draw_indirect_t));
+
+	num_bmodel_calls = 0;
+}
+
+/*
+=============
+R_AddBModelCall
+=============
+*/
+static void R_AddBModelCall (int index, int first_instance, int num_instances, texture_t *t)
+{
+	bmodel_gpu_call_t *call;
+	bmodel_gpu_call_remap_t *remap;
+	gltexture_t *tx, *fb;
+
+	if (num_bmodel_calls == MAX_BMODEL_DRAWS)
+		R_FlushBModelCalls ();
+
+	call = num_bmodel_calls + bmodel_calls;
+	remap = num_bmodel_calls + bmodel_call_remap;
+	num_bmodel_calls++;
+
+	if (t)
 	{
-		gltexture_t	*fullbright = NULL;
-		int			use_alpha_test;
+		tx = t->gltexture;
+		fb = t->fullbright;
+		if (r_lightmap_cheatsafe)
+			tx = fb = NULL;
+		if (!gl_fullbrights.value)
+			fb = NULL;
+	}
+	else
+	{
+		tx = fb = whitetexture;
+	}
 
-		t = model->textures[model->usedtextures[i]];
-		if (!t || !t->gltexture || t->type > TEXTYPE_CUTOUT)
-			continue;
+	call->texture = tx ? tx->bindless_handle : greytexture->bindless_handle;
+	call->fullbright = fb ? fb->bindless_handle : blacktexture->bindless_handle;
+	call->flags = (t != NULL && t->type == TEXTYPE_CUTOUT);
+	call->alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
 
-		use_alpha_test = (t->type == TEXTYPE_CUTOUT);
+	SDL_assert (num_instances > 0);
+	SDL_assert (num_instances <= MAX_BMODEL_INSTANCES);
+	remap->src = index;
+	remap->inst = first_instance * MAX_BMODEL_INSTANCES + (num_instances - 1);
+}
 
-		t = R_TextureAnimation(t, ent != NULL ? ent->frame : 0);
+typedef enum {
+	BP_NORMAL,
+	BP_SKY,
+	BP_SHOWTRIS,
+} brushpass_t;
 
-		if (!gl_fullbrights.value || !(fullbright = t->fullbright))
-			fullbright = blacktexture;
+/*
+=============
+R_DrawBrushModels_Real
+=============
+*/
+static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass)
+{
+	int i, j;
+	int totalinst, baseinst;
+	unsigned state;
+	GLuint program;
+	GLuint buf;
+	GLbyte *ofs;
+	textype_t texbegin, texend;
 
-		if (!setup || uniforms.use_alpha_test != use_alpha_test)
-		{
-			GLuint buf;
-			GLbyte *ofs;
+	if (!count)
+		return;
 
-			if (!setup)
-			{
-				state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-				if (entalpha < 1)
-					state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-				else
-					state |= GLS_BLEND_OPAQUE;
+	if (count > countof(bmodel_instances))
+	{
+		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, countof(bmodel_instances));
+		count = countof(bmodel_instances);
+	}
+
+	switch (pass)
+	{
+	case BP_NORMAL:
+	default:
+		texbegin = 0;
+		texend = TEXTYPE_CUTOUT + 1;
+		program = gl_bindless_able ? r_world_program_bindless : r_world_program;
+		break;
+	case BP_SKY:
+		texbegin = TEXTYPE_SKY;
+		texend = TEXTYPE_SKY + 1;
+		program = gl_bindless_able ? r_skystencil_program_bindless : r_skystencil_program;
+		break;
+	case BP_SHOWTRIS:
+		texbegin = 0;
+		texend = TEXTYPE_COUNT;
+		program = gl_bindless_able ? r_world_program_bindless : r_world_program;
+		break;
+	}
+
+	// fill instance data
+	for (i = 0, totalinst = 0; i < count; i++)
+		if (ents[i]->model->texofs[texend] - ents[i]->model->texofs[texbegin] > 0)
+			R_InitBModelInstance (&bmodel_instances[totalinst++], ents[i]);
+
+	if (!totalinst)
+		return;
+
+	// setup state
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	if (ents[0] == cl_entities || ENTALPHA_OPAQUE (ents[0]->alpha))
+		state |= GLS_BLEND_OPAQUE;
+	else
+		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 	
-				GL_UseProgram (r_world_program);
-				GL_SetState (state);
-				GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+	R_ResetBModelCalls (program);
+	GL_SetState (state);
+	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
-				GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
 
-				memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
-				memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
-				uniforms.alpha = entalpha;
-				uniforms.time = cl.time;
-				uniforms.padding = 0;
-				uniforms.use_alpha_test = use_alpha_test;
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * count, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
-				GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-				GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
-
-				setup = true;
-			}
-			else
-			{
-				uniforms.use_alpha_test = use_alpha_test;
-			}
-
-			GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
-		}
-
-		GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? greytexture : t->gltexture);
-		GL_Bind (GL_TEXTURE1, r_lightmap_cheatsafe ? blacktexture : fullbright);
-		GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
-	}
-}
-
-/*
-================
-R_DrawBrushFaces_Water -- johnfitz
-================
-*/
-void R_DrawBrushFaces_Water (qmodel_t *model, entity_t *ent)
-{
-	int			i;
-	qboolean	setup = false;
-	float		old_alpha;
-	worlduniforms_t uniforms;
-
-	for (i = 0; i < model->numusedtextures; i++)
+	// generate drawcalls
+	for (i = 0, baseinst = 0; i < count; /**/)
 	{
-		float alpha;
-		texture_t *t = model->textures[model->usedtextures[i]];
-		if (!t || !t->gltexture || !TEXTYPE_ISLIQUID(t->type))
+		int numinst;
+		entity_t *e = ents[i++];
+		qmodel_t *model = e->model;
+		qboolean isworld = (e == &cl_entities[0]);
+		int frame = isworld ? 0 : e->frame;
+		int numtex = model->texofs[texend] - model->texofs[texbegin];
+
+		if (!numtex)
 			continue;
 
-		alpha = GL_WaterAlphaForEntityTexture (ent, t);
+		for (numinst = 1; i < count && ents[i]->model == model && numinst < MAX_BMODEL_INSTANCES; i++)
+			numinst += (ents[i]->model->texofs[texend] - ents[i]->model->texofs[texbegin]) > 0;
 
-		if (!setup || alpha != old_alpha) // only perform setup once we are sure we need to
+		for (j = model->texofs[texbegin]; j < model->texofs[texend]; j++)
 		{
-			GLuint		buf;
-			GLbyte		*ofs;
-			unsigned	state;
-
-			state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-			if (alpha < 1.f)
-				state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-			else
-				state |= GLS_BLEND_OPAQUE;
-			old_alpha = alpha;
-
-			if (!setup)
-			{
-				GL_UseProgram (r_water_program);
-				GL_SetState (state);
-				GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-				GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
-
-				memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
-				memcpy(uniforms.fog, fog_data, 4 * sizeof(float));
-				uniforms.use_alpha_test = 0;
-				uniforms.alpha = alpha;
-				uniforms.time = cl.time;
-				uniforms.padding = 0;
-			}
-			else
-			{
-				GL_SetState (state);
-				uniforms.alpha = alpha;
-			}
-
-			GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
-
-			setup = true;
+			texture_t *t = model->textures[model->usedtextures[j]];
+			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, pass != BP_SHOWTRIS ? R_TextureAnimation (t, frame) : 0);
 		}
 
-		GL_Bind (GL_TEXTURE0, r_lightmap_cheatsafe ? whitetexture : t->gltexture);
-		GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
+		baseinst += numinst;
 	}
+
+	R_FlushBModelCalls ();
 }
 
 /*
-================
-R_DrawBrushFaces_ShowTris -- johnfitz
-================
+=============
+R_EntHasWater
+=============
 */
-void R_DrawBrushFaces_ShowTris (qmodel_t *model)
+static qboolean R_EntHasWater (entity_t *ent, qboolean translucent)
 {
-	int			i;
-	texture_t	*t;
-	qboolean	setup = false;
-
-	for (i=0 ; i<model->numusedtextures ; i++)
+	int i;
+	for (i = TEXTYPE_FIRSTLIQUID; i < TEXTYPE_LASTLIQUID+1; i++)
 	{
-		t = model->textures[model->usedtextures[i]];
-		if (!t)
+		int numtex = ent->model->texofs[i+1] - ent->model->texofs[i];
+		if (numtex && (GL_WaterAlphaForEntityTextureType (ent, (textype_t)i) < 1.f) == translucent)
+			return true;
+	}
+	return false;
+}
+
+/*
+=============
+R_DrawBrushModels_Water
+=============
+*/
+void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
+{
+	int i, j;
+	int totalinst, baseinst;
+	unsigned state;
+	GLuint buf;
+	GLbyte *ofs;
+
+	if (count > countof(bmodel_instances))
+	{
+		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, countof(bmodel_instances));
+		count = countof(bmodel_instances);
+	}
+
+	// fill instance data
+	for (i = 0, totalinst = 0; i < count; i++)
+		if (R_EntHasWater (ents[i], translucent))
+			R_InitBModelInstance (&bmodel_instances[totalinst++], ents[i]);
+
+	if (!totalinst)
+		return;
+
+	GL_BeginGroup (translucent ? "Water (translucent)" : "Water (opaque)");
+
+	// setup state
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	if (translucent)
+		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+	else
+		state |= GLS_BLEND_OPAQUE;
+	
+	R_ResetBModelCalls (gl_bindless_able ? r_water_program_bindless : r_water_program);
+	GL_SetState (state);
+	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * totalinst, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
+
+	// generate drawcalls
+	for (i = 0, baseinst = 0; i < count; /**/)
+	{
+		int numinst;
+		entity_t *e = ents[i++];
+		qmodel_t *model = e->model;
+		qboolean isworld = (e == &cl_entities[0]);
+		int frame = isworld ? 0 : e->frame;
+
+		if (!R_EntHasWater (e, translucent))
 			continue;
 
-		if (!setup)
+		for (numinst = 1; i < count && ents[i]->model == model && numinst < MAX_BMODEL_INSTANCES; i++)
+			numinst += R_EntHasWater (ents[i], translucent);
+
+		for (j = model->texofs[TEXTYPE_FIRSTLIQUID]; j < model->texofs[TEXTYPE_LASTLIQUID+1]; j++)
 		{
-			worlduniforms_t uniforms;
-			GLuint		buf;
-			GLbyte		*ofs;
-			unsigned	state = GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_BACK | GLS_ATTRIBS(0);
-
-			GL_UseProgram (r_world_program);
-			GL_SetState (state);
-
-			memcpy(uniforms.mvp, r_matviewproj, 16 * sizeof(float));
-			memset(uniforms.fog, 0, 4 * sizeof(float));
-			uniforms.use_alpha_test = 0;
-			uniforms.alpha = 1.f;
-			uniforms.time = cl.time;
-			uniforms.padding = 0;
-
-			GL_Upload (GL_SHADER_STORAGE_BUFFER, &uniforms, sizeof(uniforms), &buf, &ofs);
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(uniforms));
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
-
-			GL_Bind (GL_TEXTURE0, whitetexture);
-			GL_Bind (GL_TEXTURE1, whitetexture);
-			GL_Bind (GL_TEXTURE2, whitetexture);
-		
-			GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-			GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
-
-			setup = true;
+			texture_t *t = model->textures[model->usedtextures[j]];
+			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, R_TextureAnimation (t, frame));
 		}
 
-		GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + i)));
+		baseinst += numinst;
 	}
-}
 
-/*
-=============
-R_DrawWorld
-=============
-*/
-void R_DrawWorld (void)
-{
-	if (!r_drawworld_cheatsafe)
-		return;
-
-	GL_BeginGroup ("World");
-
-	R_DrawBrushFaces (cl.worldmodel, NULL);
+	R_FlushBModelCalls ();
 
 	GL_EndGroup ();
 }
 
 /*
 =============
-R_DrawWorld_Water
+R_DrawBrushModels
 =============
 */
-void R_DrawWorld_Water (void)
+void R_DrawBrushModels (entity_t **ents, int count)
 {
-	if (!r_drawworld_cheatsafe)
-		return;
-
-	GL_BeginGroup ("World water");
-
-	R_DrawBrushFaces_Water (cl.worldmodel, NULL);
-
-	GL_EndGroup ();
+	R_DrawBrushModels_Real (ents, count, BP_NORMAL);
 }
 
 /*
 =============
-R_DrawWorld_ShowTris
+R_DrawBrushModels_Sky
 =============
 */
-void R_DrawWorld_ShowTris (void)
+void R_DrawBrushModels_Sky (entity_t **ents, int count)
 {
-	if (!r_drawworld_cheatsafe)
-		return;
+	R_DrawBrushModels_Real (ents, count, BP_SKY);
+}
 
-	GL_BeginGroup ("World tris");
-
-	R_DrawBrushFaces_ShowTris (cl.worldmodel);
-
-	GL_EndGroup ();
+/*
+=============
+R_DrawBrushModels_ShowTris
+=============
+*/
+void R_DrawBrushModels_ShowTris (entity_t **ents, int count)
+{
+	R_DrawBrushModels_Real (ents, count, BP_SHOWTRIS);
 }

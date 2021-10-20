@@ -58,6 +58,8 @@ typedef struct {
 } lerpdata_t;
 //johnfitz
 
+#define MAX_ALIAS_INSTANCES 256
+
 typedef struct aliasinstance_s {
 	float		mvp[16];
 	vec3_t		lightcolor;
@@ -79,38 +81,10 @@ struct ibuf_s {
 		int		use_alpha_test;
 		int		padding[3];
 	} global;
-	aliasinstance_t inst[MAX_INSTANCES];
+	aliasinstance_t inst[MAX_ALIAS_INSTANCES];
 } ibuf;
 
 static GLuint r_alias_program;
-
-/*
-=============
-GLARB_GetXYZOffset
-
-Returns the offset of the first vertex's meshxyz_t.xyz in the vbo for the given
-model and pose.
-=============
-*/
-static void *GLARB_GetXYZOffset (aliashdr_t *hdr, int pose)
-{
-	const int xyzoffs = offsetof (meshxyz_t, xyz);
-	return (void *) (currententity->model->vboxyzofs + (hdr->numverts_vbo * pose * sizeof (meshxyz_t)) + xyzoffs);
-}
-
-/*
-=============
-GLARB_GetNormalOffset
-
-Returns the offset of the first vertex's meshxyz_t.normal in the vbo for the
-given model and pose.
-=============
-*/
-static void *GLARB_GetNormalOffset (aliashdr_t *hdr, int pose)
-{
-	const int normaloffs = offsetof (meshxyz_t, normal);
-	return (void *)(currententity->model->vboxyzofs + (hdr->numverts_vbo * pose * sizeof (meshxyz_t)) + normaloffs);
-}
 
 /*
 =============
@@ -235,10 +209,10 @@ void GLAlias_CreateShaders (void)
 R_SetupAliasFrame -- johnfitz -- rewritten to support lerping
 =================
 */
-void R_SetupAliasFrame (aliashdr_t *paliashdr, int frame, lerpdata_t *lerpdata)
+void R_SetupAliasFrame (entity_t *e, aliashdr_t *paliashdr, lerpdata_t *lerpdata)
 {
-	entity_t		*e = currententity;
-	int				posenum, numposes;
+	int posenum, numposes;
+	int frame = e->frame;
 
 	if ((frame >= paliashdr->numframes) || (frame < 0))
 	{
@@ -359,6 +333,10 @@ void R_SetupEntityTransform (entity_t *e, lerpdata_t *lerpdata)
 		VectorCopy (e->origin, lerpdata->origin);
 		VectorCopy (e->angles, lerpdata->angles);
 	}
+
+	// chasecam
+	if (chase_active.value && e == &cl_entities[cl.viewentity])
+		lerpdata->angles[PITCH] *= 0.3f;
 }
 
 /*
@@ -438,10 +416,62 @@ void R_SetupAliasLighting (entity_t	*e)
 
 /*
 =================
+R_FlushAliasInstances
+=================
+*/
+void R_FlushAliasInstances (void)
+{
+	qmodel_t	*model;
+	aliashdr_t	*paliashdr;
+	unsigned	state;
+	GLuint		buf;
+	GLbyte		*ofs;
+	size_t		ibuf_size;
+
+	if (!ibuf.count)
+		return;
+
+	model = ibuf.ent->model;
+	paliashdr = (aliashdr_t *)Mod_Extradata (model);
+
+	GL_BeginGroup (model->name);
+
+	GL_UseProgram (r_alias_program);
+
+	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)
+		state |= GLS_BLEND_OPAQUE;
+	else
+		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
+	GL_SetState (state);
+
+	memcpy(ibuf.global.fog, r_framedata.global.fogdata, 4 * sizeof(float));
+	ibuf.global.use_alpha_test = (model->flags & MF_HOLEY) ? 1 : 0;
+
+	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, ibuf_size);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
+
+	GL_Bind (GL_TEXTURE0, ibuf.texture);
+	GL_Bind (GL_TEXTURE1, ibuf.fullbright);
+
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
+	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, ibuf.count);
+
+	rs_aliaspasses += paliashdr->numtris * ibuf.count;
+	ibuf.count = 0;
+
+	GL_EndGroup();
+}
+
+/*
+=================
 R_DrawAliasModel_Real
 =================
 */
-void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
+static void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 {
 	aliashdr_t	*paliashdr;
 	int			i, anim, skinnum;
@@ -459,7 +489,7 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	// setup pose/lerp data -- do it first so we don't miss updates due to culling
 	//
 	paliashdr = (aliashdr_t *)Mod_Extradata (e->model);
-	R_SetupAliasFrame (paliashdr, e->frame, &lerpdata);
+	R_SetupAliasFrame (e, paliashdr, &lerpdata);
 	R_SetupEntityTransform (e, &lerpdata);
 
 	if (lerpdata.pose1 == lerpdata.pose2)
@@ -546,8 +576,6 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 		entalpha = 1.f;
 	}
 
-	R_NewModelInstance (mod_alias);
-
 	if (ibuf.count)
 	{
 		if (ibuf.count == countof(ibuf.inst) ||
@@ -586,82 +614,26 @@ void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 
 /*
 =================
-R_FlushAliasInstances
+R_DrawAliasModels
 =================
 */
-void R_FlushAliasInstances (void)
+void R_DrawAliasModels (entity_t **ents, int count)
 {
-	qmodel_t	*model;
-	aliashdr_t	*paliashdr;
-	unsigned	state;
-	GLuint		buf;
-	GLbyte		*ofs;
-	size_t		ibuf_size;
-
-	if (!ibuf.count)
-		return;
-
-	model = ibuf.ent->model;
-	paliashdr = (aliashdr_t *)Mod_Extradata (model);
-
-	GL_BeginGroup (model->name);
-
-	GL_UseProgram (r_alias_program);
-
-	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
-	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)
-		state |= GLS_BLEND_OPAQUE;
-	else
-		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
-	GL_SetState (state);
-
-	memcpy(ibuf.global.fog, fog_data, 4 * sizeof(float));
-	ibuf.global.use_alpha_test = (model->flags & MF_HOLEY) ? 1 : 0;
-
-	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, ibuf_size);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
-
-	GL_Bind (GL_TEXTURE0, ibuf.texture);
-	GL_Bind (GL_TEXTURE1, ibuf.fullbright);
-
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
-	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, ibuf.count);
-
-	rs_aliaspasses += paliashdr->numtris * ibuf.count;
-	ibuf.count = 0;
-
-	GL_EndGroup();
+	int i;
+	for (i = 0; i < count; i++)
+		R_DrawAliasModel_Real (ents[i], false);
+	R_FlushAliasInstances ();
 }
 
 /*
 =================
-R_ClearAliasInstances
+R_DrawAliasModels_ShowTris
 =================
 */
-void R_ClearAliasInstances (void)
+void R_DrawAliasModels_ShowTris (entity_t **ents, int count)
 {
-	ibuf.count = 0;
-}
-
-/*
-=================
-R_DrawAliasModel
-=================
-*/
-void R_DrawAliasModel (entity_t *e)
-{
-	R_DrawAliasModel_Real (e, false);
-}
-
-/*
-=================
-R_DrawAliasModel_ShowTris -- johnfitz
-=================
-*/
-void R_DrawAliasModel_ShowTris (entity_t *e)
-{
-	R_DrawAliasModel_Real (e, true);
+	int i;
+	for (i = 0; i < count; i++)
+		R_DrawAliasModel_Real (ents[i], true);
+	R_FlushAliasInstances ();
 }

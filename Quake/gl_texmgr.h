@@ -38,6 +38,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define TEXPREF_NOBRIGHT		0x0200	// use nobright mask palette
 #define TEXPREF_CONCHARS		0x0400	// use conchars palette
 #define TEXPREF_ARRAY			0x0800	// array texture
+#define TEXPREF_BINDLESS		0x1000	// enable bindless usage
 
 enum srcformat {SRC_INDEXED, SRC_LIGHTMAP, SRC_RGBA};
 
@@ -47,6 +48,7 @@ typedef struct gltexture_s {
 //managed by texture manager
 	GLenum			target;
 	GLuint			texnum;
+	GLuint64		bindless_handle;
 	struct gltexture_s	*next;
 	qmodel_t		*owner;
 //managed by image loading

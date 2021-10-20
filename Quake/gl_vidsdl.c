@@ -104,6 +104,7 @@ qboolean	scr_skipupdate;
 
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
+qboolean gl_bindless_able = false;
 float gl_max_anisotropy; //johnfitz
 int gl_stencilbits;
 
@@ -112,7 +113,7 @@ GLint ssbo_align;
 static GLuint globalvao;
 
 #define QGL_DEFINE_FUNC(ret, name, args) ret (APIENTRYP GL_##name##Func) args = NULL;
-QGL_FUNCTIONS(QGL_DEFINE_FUNC)
+QGL_ALL_FUNCTIONS(QGL_DEFINE_FUNC)
 #undef QGL_DEFINE_FUNC
 
 typedef struct glfunc_t {
@@ -120,12 +121,19 @@ typedef struct glfunc_t {
 	const char*		name;
 } glfunc_t;
 
-static const glfunc_t glfunctions[] =
+#define QGL_REGISTER_NAMED_FUNC(ret, name, args) { (void**)&GL_##name##Func, "gl" #name },
+static const glfunc_t gl_core_functions[] =
 {
-	#define QGL_REGISTER_NAMED_FUNC(ret, name, args) { (void**)&GL_##name##Func, "gl" #name },
-	QGL_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
-	#undef QGL_REGISTER_NAMED_FUNC
+	QGL_CORE_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	{NULL, NULL}
 };
+
+static const glfunc_t gl_arb_bindless_texture_functions[] =
+{
+	QGL_ARB_bindless_texture_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	{NULL, NULL}
+};
+#undef QGL_REGISTER_NAMED_FUNC
 
 //====================================
 
@@ -600,8 +608,10 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 VID_Changed_f -- kristian -- notify us that a value has changed that requires a vid_restart
 ===================
 */
-static void VID_Changed_f (cvar_t *var)
+void VID_Changed_f (cvar_t *var)
 {
+	if (vid_initialized)
+		Con_SafePrintf ("%s will be applied after a vid_restart\n", var->name);
 	vid_changed = true;
 }
 
@@ -782,6 +792,21 @@ static qboolean GL_FindExtension (const char *name)
 }
 
 /*
+===============
+GL_FindRequiredExtension
+
+Returns boolean instead of void to make it easier to replace with GL_FindExtension
+if the functionality becomes optional
+===============
+*/
+static qboolean GL_FindRequiredExtension (const char *name)
+{
+	if (!GL_FindExtension (name))
+		Sys_Error ("Required extension %s not found.", name);
+	return true;
+}
+
+/*
 =============
 GL_BeginGroup
 =============
@@ -859,21 +884,43 @@ static void APIENTRY GL_DebugCallback (GLenum source, GLenum type, GLuint id, GL
 
 /*
 ===============
+GL_InitFunctions
+===============
+*/
+qboolean GL_InitFunctions (const glfunc_t *funcs, qboolean required)
+{
+	qboolean ret = true;
+
+	while (funcs->name)
+	{
+		if ((*funcs->ptr = SDL_GL_GetProcAddress (funcs->name)) == NULL)
+		{
+			if (required)
+			{
+				Sys_Error ("OpenGL function %s not found\n", funcs->name);
+			}
+			else
+			{
+				Con_Warning ("OpenGL function %s not found\n", funcs->name);
+				ret = false;
+			}
+		}
+		funcs++;
+	}
+
+	return ret;
+}
+
+/*
+===============
 GL_CheckExtensions
 ===============
 */
 static void GL_CheckExtensions (void)
 {
 	int swap_control;
-	int i;
 
-	for (i = 0; i < countof(glfunctions); i++)
-	{
-		const glfunc_t *func = &glfunctions[i];
-		*func->ptr = SDL_GL_GetProcAddress (func->name);
-		if (!*func->ptr)
-			Sys_Error ("OpenGL function %s not found\n", func->name);
-	}
+	GL_InitFunctions (gl_core_functions, true);
 
 #ifdef NDEBUG
 	if (COM_CheckParm("-gldebug"))
@@ -962,6 +1009,18 @@ static void GL_CheckExtensions (void)
 	{
 		gl_max_anisotropy = 1;
 		Con_Warning ("texture_filter_anisotropic not supported\n");
+	}
+
+	if (GL_FindRequiredExtension ("GL_ARB_shader_draw_parameters") &&
+		GL_FindRequiredExtension ("GL_ARB_bindless_texture") &&
+		GL_InitFunctions (gl_arb_bindless_texture_functions, true))
+	{
+		Con_SafePrintf ("FOUND: bindless textures\n");
+		gl_bindless_able = true;
+	}
+	else
+	{
+		gl_bindless_able = false;
 	}
 }
 
@@ -1138,7 +1197,7 @@ static void GL_Init (void)
 	GLView_CreateShaders ();
 	R_WarpScaleView_CreateResources ();
 	GLSLGamma_CreateResources ();
-	GLWorld_CreateShaders ();
+	GLWorld_CreateResources ();
 	GLAlias_CreateShaders ();
 	GLSky_CreateShaders ();
 	GLParticle_CreateShaders ();

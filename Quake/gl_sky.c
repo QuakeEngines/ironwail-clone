@@ -63,7 +63,6 @@ static float skyfog; // ericw
 
 static GLuint r_skylayers_program;
 static GLuint r_skybox_program;
-static GLuint r_skystencil_program;
 
 //==============================================================================
 //
@@ -158,30 +157,6 @@ void GLSky_CreateShaders (void)
 		"}\n";
 
 	r_skybox_program = GL_CreateProgram (vertSource, fragSource, "skybox");
-
-	vertSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
-		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	gl_Position = MVP * in_pos;\n"
-		"}\n";
-	
-	fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	out_fragcolor = vec4(1, 0, 1, 1);\n"
-		"}\n";
-
-	r_skystencil_program = GL_CreateProgram (vertSource, NULL, "skystencil");
 }
 
 /*
@@ -490,101 +465,6 @@ void Sky_Init (void)
 
 //==============================================================================
 //
-//  PROCESS SKY SURFS
-//
-//==============================================================================
-
-extern GLuint gl_bmodel_ibo;
-extern GLuint gl_bmodel_indirect_buffer;
-
-/*
-================
-Sky_ProcessWorld -- handles sky polys in world model
-================
-*/
-void Sky_ProcessWorld (void)
-{
-	int			i;
-	texture_t	*t;
-
-	if (!r_drawworld_cheatsafe)
-		return;
-
-	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
-
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
-
-	for (i=0 ; i<cl.worldmodel->numusedtextures; i++)
-	{
-		t = cl.worldmodel->textures[cl.worldmodel->usedtextures[i]];
-		if (!t || t->type != TEXTYPE_SKY)
-			continue;
-		GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * i));
-	}
-}
-
-/*
-================
-Sky_ProcessEntities -- handles sky polys on brush models
-================
-*/
-void Sky_ProcessEntities (void)
-{
-	entity_t	*e;
-	int			i, j;
-
-	if (!r_drawentities.value)
-		return;
-
-	for (i=0 ; i<cl_numvisedicts ; i++)
-	{
-		qmodel_t *model;
-		qboolean setup = false;
-
-		e = cl_visedicts[i];
-		model = e->model;
-
-		if (model->type != mod_brush)
-			continue;
-		if (e->alpha == ENTALPHA_ZERO)
-			continue;
-		if (R_CullModelForEntity(e))
-			continue;
-
-		for (j = 0; j < model->numusedtextures; j++)
-		{
-			texture_t *t = model->textures[model->usedtextures[j]];
-			if (!t || t->type != TEXTYPE_SKY)
-				continue;
-
-			if (!setup)
-			{
-				float mvp[16], model_matrix[16];
-				vec3_t angles;
-
-				setup = true;
-
-				angles[0] = -e->angles[0];
-				angles[1] =  e->angles[1];
-				angles[2] =  e->angles[2];
-
-				memcpy(&mvp, &r_matviewproj, 16 * sizeof(float));
-				R_EntityMatrix (model_matrix, e->origin, angles);
-				MatrixMultiply (mvp, model_matrix);
-				GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, mvp);
-
-				GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-				GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_indirect_buffer);
-			}
-			
-			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(sizeof(bmodel_draw_indirect_t) * (model->firstcmd + j)));
-		}
-	}
-}
-
-//==============================================================================
-//
 //  RENDER SKYBOX
 //
 //==============================================================================
@@ -639,10 +519,10 @@ void Sky_DrawSkyBox (void)
 	int i, j;
 
 	vec4_t fog;
-	fog[0] = fog_data[0];
-	fog[1] = fog_data[1];
-	fog[2] = fog_data[2];
-	fog[3] = fog_data[3] > 0.f ? skyfog : 0.f;
+	fog[0] = r_framedata.global.fogdata[0];
+	fog[1] = r_framedata.global.fogdata[1];
+	fog[2] = r_framedata.global.fogdata[2];
+	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
 
 	GL_UseProgram (r_skybox_program);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
@@ -698,10 +578,10 @@ void Sky_DrawSkyLayers (void)
 	vec3_t dirs[4];
 	vec4_t fog;
 
-	fog[0] = fog_data[0];
-	fog[1] = fog_data[1];
-	fog[2] = fog_data[2];
-	fog[3] = fog_data[3] > 0.f ? skyfog : 0.f;
+	fog[0] = r_framedata.global.fogdata[0];
+	fog[1] = r_framedata.global.fogdata[1];
+	fog[2] = r_framedata.global.fogdata[2];
+	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
 
 	CrossProduct(frustum[2].normal, frustum[1].normal, dirs[0]); // bottom left
 	CrossProduct(frustum[0].normal, frustum[2].normal, dirs[1]); // bottom right
@@ -730,6 +610,9 @@ Sky_DrawSky
 */
 void Sky_DrawSky (void)
 {
+	entity_t **ents;
+	int count;
+
 	GL_BeginGroup ("Sky");
 
 	glEnable (GL_STENCIL_TEST);
@@ -737,14 +620,8 @@ void Sky_DrawSky (void)
 	glStencilOp (GL_KEEP, GL_KEEP, GL_REPLACE);
 	glColorMask (GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	GL_UseProgram (r_skystencil_program);
-	GL_SetState (GLS_BLEND_OPAQUE | GLS_CULL_BACK | GLS_ATTRIBS(1));
-
-	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof(float), ((float *)0));
-
-	Sky_ProcessWorld ();
-	Sky_ProcessEntities ();
+	ents = R_GetVisEntities (mod_brush, false, &count);
+	R_DrawBrushModels_Sky (ents, count);
 
 	glStencilFunc (GL_EQUAL, 1, 1);
 	glStencilOp (GL_KEEP, GL_KEEP, GL_KEEP);

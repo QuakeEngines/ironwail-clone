@@ -48,6 +48,8 @@ unsigned int d_8to24table_conchars[256];
 unsigned int d_8to24table_shirt[256];
 unsigned int d_8to24table_pants[256];
 
+extern void VID_Changed_f (cvar_t *var);
+
 /*
 ================================================================================
 
@@ -95,6 +97,9 @@ TexMgr_SetFilterModes
 */
 static void TexMgr_SetFilterModes (gltexture_t *glt)
 {
+	if (glt->bindless_handle)
+		return;
+
 	GL_Bind (GL_TEXTURE0, glt);
 
 	if (glt->flags & TEXPREF_NEAREST)
@@ -137,10 +142,16 @@ static void TexMgr_TextureMode_f (cvar_t *var)
 			if (glmode_idx != i)
 			{
 				glmode_idx = i;
-				for (glt = active_gltextures; glt; glt = glt->next)
-					TexMgr_SetFilterModes (glt);
-				Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
-				//FIXME: warpimages need to be redrawn, too.
+				if (gl_bindless_able)
+				{
+					VID_Changed_f (var);
+				}
+				else
+				{
+					for (glt = active_gltextures; glt; glt = glt->next)
+						TexMgr_SetFilterModes (glt);
+					Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
+				}
 			}
 			return;
 		}
@@ -183,16 +194,23 @@ static void TexMgr_Anisotropy_f (cvar_t *var)
 	}
 	else
 	{
-		gltexture_t	*glt;
-		for (glt = active_gltextures; glt; glt = glt->next)
+		if (gl_bindless_able)
 		{
-		/*  TexMgr_SetFilterModes (glt);*/
-		    if (glt->flags & TEXPREF_MIPMAP) {
-			GL_Bind (GL_TEXTURE0, glt);
-			glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
-			glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
-			glTexParameterf(glt->target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
-		    }
+			VID_Changed_f (var);
+		}
+		else
+		{
+			gltexture_t	*glt;
+			for (glt = active_gltextures; glt; glt = glt->next)
+			{
+			/*  TexMgr_SetFilterModes (glt);*/
+				if (glt->flags & TEXPREF_MIPMAP) {
+				GL_Bind (GL_TEXTURE0, glt);
+				glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
+				glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
+				glTexParameterf(glt->target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
+				}
+			}
 		}
 	}
 }
@@ -590,11 +608,11 @@ void TexMgr_Init (void)
 	glGetIntegerv (GL_MAX_TEXTURE_SIZE, &gl_max_texture_size);
 
 	// load notexture images
-	notexture = TexMgr_LoadImage (NULL, "notexture", 2, 2, SRC_RGBA, notexture_data, "", (src_offset_t)notexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
-	nulltexture = TexMgr_LoadImage (NULL, "nulltexture", 2, 2, SRC_RGBA, nulltexture_data, "", (src_offset_t)nulltexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
-	whitetexture = TexMgr_LoadImage (NULL, "whitetexture", 2, 2, SRC_RGBA, whitetexture_data, "", (src_offset_t)whitetexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
-	greytexture = TexMgr_LoadImage (NULL, "greytexture", 2, 2, SRC_RGBA, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
-	blacktexture = TexMgr_LoadImage (NULL, "blacktexture", 2, 2, SRC_RGBA, blacktexture_data, "", (src_offset_t)blacktexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
+	notexture = TexMgr_LoadImage (NULL, "notexture", 2, 2, SRC_RGBA, notexture_data, "", (src_offset_t)notexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
+	nulltexture = TexMgr_LoadImage (NULL, "nulltexture", 2, 2, SRC_RGBA, nulltexture_data, "", (src_offset_t)nulltexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
+	whitetexture = TexMgr_LoadImage (NULL, "whitetexture", 2, 2, SRC_RGBA, whitetexture_data, "", (src_offset_t)whitetexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
+	greytexture = TexMgr_LoadImage (NULL, "greytexture", 2, 2, SRC_RGBA, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
+	blacktexture = TexMgr_LoadImage (NULL, "blacktexture", 2, 2, SRC_RGBA, blacktexture_data, "", (src_offset_t)blacktexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
 
 	//have to assign these here becuase Mod_Init is called before TexMgr_Init
 	r_notexture_mip->gltexture = r_notexture_mip2->gltexture = notexture;
@@ -1233,6 +1251,11 @@ gltexture_t *TexMgr_LoadImageEx (qmodel_t *owner, const char *name, int width, i
 	}
 
 	GL_ObjectLabelFunc (GL_TEXTURE, glt->texnum, -1, glt->name);
+	if (flags & TEXPREF_BINDLESS && gl_bindless_able)
+	{
+		glt->bindless_handle = GL_GetTextureHandleARBFunc (glt->texnum);
+		GL_MakeTextureHandleResidentARBFunc (glt->bindless_handle);
+	}
 
 	Hunk_FreeToLowMark(mark);
 
@@ -1377,6 +1400,13 @@ invalid:	Con_Printf ("TexMgr_ReloadImage: invalid source for %s\n", glt->name);
 		break;
 	}
 
+	GL_ObjectLabelFunc (GL_TEXTURE, glt->texnum, -1, glt->name);
+	if (glt->flags & TEXPREF_BINDLESS && gl_bindless_able)
+	{
+		glt->bindless_handle = GL_GetTextureHandleARBFunc (glt->texnum);
+		GL_MakeTextureHandleResidentARBFunc (glt->bindless_handle);
+	}
+
 	Hunk_FreeToLowMark(mark);
 }
 
@@ -1494,6 +1524,11 @@ static void GL_DeleteTexture (gltexture_t *texture)
 {
 	int i;
 
+	if (texture->bindless_handle)
+	{
+		GL_MakeTextureHandleNonResidentARBFunc (texture->bindless_handle);
+		texture->bindless_handle = 0;
+	}
 	glDeleteTextures (1, &texture->texnum);
 
 	for (i = 0; i < countof(currenttexture); i++)

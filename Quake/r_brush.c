@@ -46,7 +46,7 @@ unsigned			*lightmap_offsets;
 
 /*
 ===============
-R_TextureAnimation -- johnfitz -- added "frame" param to eliminate use of "currententity" global
+R_TextureAnimation
 
 Returns the proper texture for a given time and base texture
 ===============
@@ -76,131 +76,6 @@ texture_t *R_TextureAnimation (texture_t *base, int frame)
 	}
 
 	return base;
-}
-
-/*
-=============================================================
-
-	BRUSH MODELS
-
-=============================================================
-*/
-
-/*
-=================
-R_DrawBrushModel
-=================
-*/
-void R_DrawBrushModel (entity_t *e)
-{
-	qmodel_t	*clmodel;
-	float		oldmvp[16], model_matrix[16];
-
-	if (R_CullModelForEntity(e))
-		return;
-	R_NewModelInstance (mod_brush);
-
-	GL_BeginGroup (e->model->name);
-
-	currententity = e;
-	clmodel = e->model;
-
-	VectorSubtract (r_refdef.vieworg, e->origin, modelorg);
-	if (e->angles[0] || e->angles[1] || e->angles[2])
-	{
-		vec3_t	temp;
-		vec3_t	forward, right, up;
-
-		VectorCopy (modelorg, temp);
-		AngleVectors (e->angles, forward, right, up);
-		modelorg[0] = DotProduct (temp, forward);
-		modelorg[1] = -DotProduct (temp, right);
-		modelorg[2] = DotProduct (temp, up);
-	}
-
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-	if (gl_zfix.value)
-	{
-		e->origin[0] -= DIST_EPSILON;
-		e->origin[1] -= DIST_EPSILON;
-		e->origin[2] -= DIST_EPSILON;
-	}
-
-	memcpy(oldmvp, r_matviewproj, 16 * sizeof(float));
-
-	R_EntityMatrix (model_matrix, e->origin, e->angles);
-	MatrixMultiply (r_matviewproj, model_matrix);
-
-	if (gl_zfix.value)
-	{
-		e->origin[0] += DIST_EPSILON;
-		e->origin[1] += DIST_EPSILON;
-		e->origin[2] += DIST_EPSILON;
-	}
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-
-	R_DrawBrushFaces (clmodel, e);
-	R_DrawBrushFaces_Water (clmodel, e);
-
-	memcpy(r_matviewproj, oldmvp, 16 * sizeof(float));
-
-	GL_EndGroup ();
-}
-
-/*
-=================
-R_DrawBrushModel_ShowTris -- johnfitz
-=================
-*/
-void R_DrawBrushModel_ShowTris (entity_t *e)
-{
-	qmodel_t	*clmodel;
-
-	if (R_CullModelForEntity(e))
-		return;
-	R_NewModelInstance (mod_brush);
-
-	currententity = e;
-	clmodel = e->model;
-
-	VectorSubtract (r_refdef.vieworg, e->origin, modelorg);
-	if (e->angles[0] || e->angles[1] || e->angles[2])
-	{
-		vec3_t	temp;
-		vec3_t	forward, right, up;
-
-		VectorCopy (modelorg, temp);
-		AngleVectors (e->angles, forward, right, up);
-		modelorg[0] = DotProduct (temp, forward);
-		modelorg[1] = -DotProduct (temp, right);
-		modelorg[2] = DotProduct (temp, up);
-	}
-
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-	if (gl_zfix.value)
-	{
-		e->origin[0] -= DIST_EPSILON;
-		e->origin[1] -= DIST_EPSILON;
-		e->origin[2] -= DIST_EPSILON;
-	}
-
-	float oldmvp[16], model_matrix[16];
-	memcpy(oldmvp, r_matviewproj, 16 * sizeof(float));
-
-	R_EntityMatrix (model_matrix, e->origin, e->angles);
-	MatrixMultiply (r_matviewproj, model_matrix);
-
-	if (gl_zfix.value)
-	{
-		e->origin[0] += DIST_EPSILON;
-		e->origin[1] += DIST_EPSILON;
-		e->origin[2] += DIST_EPSILON;
-	}
-	e->angles[0] = -e->angles[0];	// stupid quake bug
-
-	R_DrawBrushFaces_ShowTris (clmodel);
-
-	memcpy(r_matviewproj, oldmvp, 16 * sizeof(float));
 }
 
 /*
@@ -701,6 +576,7 @@ size_t gl_bmodel_vbo_size = 0;
 GLuint gl_bmodel_ibo = 0;
 size_t gl_bmodel_ibo_size = 0;
 GLuint gl_bmodel_indirect_buffer = 0;
+size_t gl_bmodel_indirect_buffer_size = 0;
 GLuint gl_bmodel_leaf_buffer = 0;
 GLuint gl_bmodel_surf_buffer = 0;
 GLuint gl_bmodel_marksurf_buffer = 0;
@@ -723,6 +599,7 @@ void GL_DeleteBModelBuffers (void)
 	gl_bmodel_ibo = 0;
 	gl_bmodel_ibo_size = 0;
 	gl_bmodel_indirect_buffer = 0;
+	gl_bmodel_indirect_buffer_size = 0;
 	gl_bmodel_leaf_buffer = 0;
 	gl_bmodel_surf_buffer = 0;
 	gl_bmodel_marksurf_buffer = 0;
@@ -814,7 +691,7 @@ void GL_BuildBModelMarkBuffers (void)
 		if (!m || m->type != mod_brush)
 			continue;
 		m->firstcmd = numtex;
-		numtex += m->numusedtextures;
+		numtex += m->texofs[TEXTYPE_COUNT];
 		maxnumtex = q_max (maxnumtex, m->numtextures);
 		for (i = 0; i < m->nummodelsurfaces; i++)
 			numtris += m->surfaces[i + m->firstmodelsurface].numedges - 2;
@@ -822,6 +699,7 @@ void GL_BuildBModelMarkBuffers (void)
 
 	// allocate cpu-side buffers
 	gl_bmodel_ibo_size = numtris * 3 * sizeof(idx[0]);
+	gl_bmodel_indirect_buffer_size = numtex * sizeof(cmds[0]);
 	cmds = (bmodel_draw_indirect_t *) calloc (numtex, sizeof(cmds[0]));
 	idx = (GLuint *) calloc (numtris * 3, sizeof(idx[0]));
 	leafs = (bmodel_gpu_leaf_t *) calloc (cl.worldmodel->numleafs, sizeof(leafs[0]));
@@ -840,7 +718,7 @@ void GL_BuildBModelMarkBuffers (void)
 		dst->surfcountsky = (src->nummarksurfaces << 1) | (src->contents == CONTENTS_SKY);
 	}
 
-	for (i = 0; i < cl.worldmodel->numusedtextures; i++)
+	for (i = 0; i < cl.worldmodel->texofs[TEXTYPE_COUNT]; i++)
 		texidx[cl.worldmodel->usedtextures[i]] = i;
 
 	// fill worldmodel surface data
@@ -871,7 +749,7 @@ void GL_BuildBModelMarkBuffers (void)
 			continue;
 
 		memset (texidx, 0, sizeof(texidx[0]) * m->numtextures);
-		for (i = 0; i < m->numusedtextures; i++)
+		for (i = 0; i < m->texofs[TEXTYPE_COUNT]; i++)
 			texidx[m->usedtextures[i]] = i;
 
 		for (i = 0, s = m->surfaces + m->firstmodelsurface; i < m->nummodelsurfaces; i++, s++)
@@ -896,7 +774,7 @@ void GL_BuildBModelMarkBuffers (void)
 			continue;
 
 		memset (texidx, 0, sizeof(texidx[0]) * m->numtextures);
-		for (i = 0; i < m->numusedtextures; i++)
+		for (i = 0; i < m->texofs[TEXTYPE_COUNT]; i++)
 			texidx[m->usedtextures[i]] = i;
 
 		for (i = 0, s = m->surfaces + m->firstmodelsurface; i < m->nummodelsurfaces; i++, s++)

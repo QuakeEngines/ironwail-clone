@@ -45,8 +45,6 @@ float old_blue;
 float fade_time; //duration of fade
 float fade_done; //time when fade will be done
 
-vec4_t fog_data;
-
 /*
 =============
 Fog_Update
@@ -290,8 +288,8 @@ called at the beginning of each frame
 void Fog_SetupFrame (void)
 {
 	const float ExpAdjustment = 1.20112241f; // sqrt(log2(e))
-	memcpy(fog_data, Fog_GetColor(), 3 * sizeof(float));
-	fog_data[3] = Fog_GetDensity() * (ExpAdjustment / 64.0f);
+	memcpy(r_framedata.global.fogdata, Fog_GetColor(), 3 * sizeof(float));
+	r_framedata.global.fogdata[3] = Fog_GetDensity() * (ExpAdjustment / 64.0f);
 }
 
 /*
@@ -315,7 +313,8 @@ called after drawing stuff that should be fogged
 */
 void Fog_DisableGFog (void)
 {
-	memset(fog_data, 0, sizeof(fog_data));
+	memset(r_framedata.global.fogdata, 0, sizeof(r_framedata.global.fogdata));
+	R_UploadFrameData ();
 }
 
 //==============================================================================
