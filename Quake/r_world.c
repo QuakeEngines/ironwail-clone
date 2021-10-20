@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 
 extern cvar_t gl_fullbrights, gl_overbright, r_oldskyleaf, r_showtris; //johnfitz
+extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
 
 extern gltexture_t *lightmap_texture;
 
@@ -341,6 +342,7 @@ void GLWorld_CreateResources (void)
 		"#version 430\n"\
 		"\n"\
 		FRAMEDATA_BUFFER\
+		WORLD_CALLDATA_BUFFER\
 		WORLD_INSTANCEDATA_BUFFER\
 		WORLD_VERTEX_BUFFER\
 		"\n"\
@@ -362,10 +364,13 @@ void GLWorld_CreateResources (void)
 		"void main()\n"\
 		"{\n"\
 		"	PackedVertex vert = vertices[gl_VertexID];\n"\
+		"	Call call = call_data[DRAW_ID];\n"\
 		"	Instance instance = instance_data[INSTANCE_ID];\n"\
 		"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
 		"	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
 		"	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"\
+		"	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0)\n"\
+		"		gl_Position.z += 1./1024.;\n"\
 		"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"\
 		"	out_fogdist = gl_Position.w;\n"\
 		"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
@@ -854,7 +859,7 @@ static void R_FlushBModelCalls (void)
 R_AddBModelCall
 =============
 */
-static void R_AddBModelCall (int index, int first_instance, int num_instances, texture_t *t)
+static void R_AddBModelCall (int index, int first_instance, int num_instances, texture_t *t, qboolean zfix)
 {
 	bmodel_gpu_call_t *call;
 	bmodel_gpu_call_remap_t *remap;
@@ -881,9 +886,12 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 		tx = fb = whitetexture;
 	}
 
+	if (!gl_zfix.value)
+		zfix = 0;
+
 	call->texture = tx ? tx->bindless_handle : greytexture->bindless_handle;
 	call->fullbright = fb ? fb->bindless_handle : blacktexture->bindless_handle;
-	call->flags = (t != NULL && t->type == TEXTYPE_CUTOUT);
+	call->flags = (t != NULL && t->type == TEXTYPE_CUTOUT) | (zfix << 1);
 	call->alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
 
 	SDL_assert (num_instances > 0);
@@ -986,7 +994,7 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 		for (j = model->texofs[texbegin]; j < model->texofs[texend]; j++)
 		{
 			texture_t *t = model->textures[model->usedtextures[j]];
-			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, pass != BP_SHOWTRIS ? R_TextureAnimation (t, frame) : 0);
+			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, pass != BP_SHOWTRIS ? R_TextureAnimation (t, frame) : 0, !isworld);
 		}
 
 		baseinst += numinst;
@@ -1076,7 +1084,7 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 		for (j = model->texofs[TEXTYPE_FIRSTLIQUID]; j < model->texofs[TEXTYPE_LASTLIQUID+1]; j++)
 		{
 			texture_t *t = model->textures[model->usedtextures[j]];
-			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, R_TextureAnimation (t, frame));
+			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, R_TextureAnimation (t, frame), !isworld);
 		}
 
 		baseinst += numinst;
