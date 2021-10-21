@@ -83,6 +83,106 @@ cvar_t	saved2 = {"saved2", "0", CVAR_ARCHIVE};
 cvar_t	saved3 = {"saved3", "0", CVAR_ARCHIVE};
 cvar_t	saved4 = {"saved4", "0", CVAR_ARCHIVE};
 
+typedef struct prhashtable_s {
+	int			capacity;
+	const char	**strings;
+	int			*indices;
+} prhashtable_t;
+
+static prhashtable_t ht_fields;
+static prhashtable_t ht_functions;
+static prhashtable_t ht_globals;
+
+/*
+=================
+PR_HashInit
+=================
+*/
+static void PR_HashInit (prhashtable_t *table, int capacity, const char *name)
+{
+	capacity *= 2; // 50% load factor
+	table->capacity = capacity;
+	table->strings = (const char **) Hunk_AllocName (sizeof(*table->strings) * capacity, name);
+	table->indices = (int         *) Hunk_AllocName (sizeof(*table->indices) * capacity, name);
+}
+
+/*
+=================
+PR_HashGet
+=================
+*/
+static int PR_HashGet (prhashtable_t *table, const char *key)
+{
+	unsigned pos = COM_HashString (key) % table->capacity, end = pos;
+
+	do
+	{
+		const char *s = table->strings[pos];
+		if (!s)
+			return -1;
+		if (0 == strcmp(s, key))
+			return table->indices[pos];
+
+		++pos;
+		if (pos == table->capacity)
+			pos = 0;
+	}
+	while (pos != end);
+
+	return -1;
+}
+
+/*
+=================
+PR_HashAdd
+=================
+*/
+static void PR_HashAdd (prhashtable_t *table, int skey, int value)
+{
+	const char *name = PR_GetString (skey);
+	unsigned pos = COM_HashString (name) % table->capacity, end = pos;
+
+	do
+	{
+		if (!table->strings[pos])
+		{
+			table->strings[pos] = name;
+			table->indices[pos] = value;
+			return;
+		}
+
+		++pos;
+		if (pos == table->capacity)
+			pos = 0;
+	}
+	while (pos != end);
+
+	Sys_Error ("PR_HashAdd failed");
+}
+
+/*
+===============
+PR_InitHashTables
+===============
+*/
+static void PR_InitHashTables (void)
+{
+	int i;
+
+	PR_HashInit (&ht_fields, progs->numfielddefs, "ht_fields");
+	for (i = 0; i < progs->numfielddefs; i++)
+		PR_HashAdd (&ht_fields, pr_fielddefs[i].s_name, i);
+
+	PR_HashInit (&ht_functions, progs->numfunctions, "ht_functions");
+	for (i = 0; i < progs->numfunctions; i++)
+		PR_HashAdd (&ht_functions, pr_functions[i].s_name, i);
+
+	PR_HashInit (&ht_globals, progs->numglobaldefs, "ht_globals");
+	for (i = 0; i < progs->numglobaldefs; i++)
+		PR_HashAdd (&ht_globals, pr_globaldefs[i].s_name, i);
+}
+
+
 /*
 =================
 ED_ClearEdict
@@ -212,6 +312,14 @@ static ddef_t *ED_FindField (const char *name)
 	ddef_t		*def;
 	int			i;
 
+	if (ht_fields.capacity > 0)
+	{
+		int index = PR_HashGet (&ht_fields, name);
+		if (index < 0)
+			return NULL;
+		return pr_fielddefs + index;
+	}
+
 	for (i = 0; i < progs->numfielddefs; i++)
 	{
 		def = &pr_fielddefs[i];
@@ -232,6 +340,14 @@ static ddef_t *ED_FindGlobal (const char *name)
 	ddef_t		*def;
 	int			i;
 
+	if (ht_globals.capacity > 0)
+	{
+		int index = PR_HashGet (&ht_globals, name);
+		if (index < 0)
+			return NULL;
+		return pr_globaldefs + index;
+	}
+
 	for (i = 0; i < progs->numglobaldefs; i++)
 	{
 		def = &pr_globaldefs[i];
@@ -251,6 +367,14 @@ static dfunction_t *ED_FindFunction (const char *fn_name)
 {
 	dfunction_t		*func;
 	int				i;
+
+	if (ht_functions.capacity > 0)
+	{
+		int index = PR_HashGet (&ht_functions, fn_name);
+		if (index < 0)
+			return NULL;
+		return pr_functions + index;
+	}
 
 	for (i = 0; i < progs->numfunctions; i++)
 	{
@@ -1145,6 +1269,8 @@ void PR_LoadProgs (void)
 	// properly aligned
 	pr_edict_size += sizeof(void *) - 1;
 	pr_edict_size &= ~(sizeof(void *) - 1);
+
+	PR_InitHashTables ();
 }
 
 
