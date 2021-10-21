@@ -31,6 +31,7 @@ static	int		pr_stringssize;
 static	const char	**pr_knownstrings;
 static	int		pr_maxknownstrings;
 static	int		pr_numknownstrings;
+static	const char **pr_firstfreeknownstring; // free list (singly linked)
 static	ddef_t		*pr_fielddefs;
 static	ddef_t		*pr_globaldefs;
 
@@ -1209,6 +1210,7 @@ void PR_LoadProgs (void)
 	if (pr_knownstrings)
 		Z_Free ((void *)pr_knownstrings);
 	pr_knownstrings = NULL;
+	pr_firstfreeknownstring = NULL;
 	PR_SetEngineString("");
 
 	pr_globaldefs = (ddef_t *)((byte *)progs + progs->ofs_globaldefs);
@@ -1323,11 +1325,39 @@ int NUM_FOR_EDICT(edict_t *e)
 
 #define	PR_STRING_ALLOCSLOTS	256
 
-static void PR_AllocStringSlots (void)
+static int PR_AllocStringSlot (void)
 {
-	pr_maxknownstrings += PR_STRING_ALLOCSLOTS;
-	Con_DPrintf2("PR_AllocStringSlots: realloc'ing for %d slots\n", pr_maxknownstrings);
-	pr_knownstrings = (const char **) Z_Realloc ((void *)pr_knownstrings, pr_maxknownstrings * sizeof(char *));
+	ptrdiff_t i;
+
+	if (pr_firstfreeknownstring)
+	{
+		i = pr_firstfreeknownstring - pr_knownstrings;
+		if (i < 0 || i >= pr_maxknownstrings)
+			Sys_Error ("PR_AllocStringSlot failed: invalid free list index %ti/%i\n", i, pr_maxknownstrings);
+		pr_firstfreeknownstring = (const char **) *pr_firstfreeknownstring;
+	}
+	else
+	{
+		i = pr_numknownstrings++;
+		if (i >= pr_maxknownstrings)
+		{
+			pr_maxknownstrings += PR_STRING_ALLOCSLOTS;
+			Con_DPrintf2 ("PR_AllocStringSlot: realloc'ing for %d slots\n", pr_maxknownstrings);
+			pr_knownstrings = (const char **) Z_Realloc ((void *)pr_knownstrings, pr_maxknownstrings * sizeof(char *));
+		}
+	}
+
+	return (int)i;
+}
+
+static qboolean PR_IsValidString (const char *p)
+{
+	if (!p)
+		return false;
+	// pointers inside the knownstrings array make up the free list and shouldn't be treated as actual strings
+	if (p >= (const char *) pr_knownstrings && p < (const char *) (pr_knownstrings + pr_maxknownstrings))
+		return false;
+	return true;
 }
 
 const char *PR_GetString (int num)
@@ -1370,19 +1400,7 @@ int PR_SetEngineString (const char *s)
 	}
 	// new unknown engine string
 	//Con_DPrintf ("PR_SetEngineString: new engine string %p\n", s);
-#if 0
-	for (i = 0; i < pr_numknownstrings; i++)
-	{
-		if (!pr_knownstrings[i])
-			break;
-	}
-#endif
-//	if (i >= pr_numknownstrings)
-//	{
-		if (i >= pr_maxknownstrings)
-			PR_AllocStringSlots();
-		pr_numknownstrings++;
-//	}
+	i = PR_AllocStringSlot ();
 	pr_knownstrings[i] = s;
 	return -1 - i;
 }
@@ -1393,17 +1411,7 @@ int PR_AllocString (int size, char **ptr)
 
 	if (!size)
 		return 0;
-	for (i = 0; i < pr_numknownstrings; i++)
-	{
-		if (!pr_knownstrings[i])
-			break;
-	}
-//	if (i >= pr_numknownstrings)
-//	{
-		if (i >= pr_maxknownstrings)
-			PR_AllocStringSlots();
-		pr_numknownstrings++;
-//	}
+	i = PR_AllocStringSlot ();
 	pr_knownstrings[i] = (char *)Hunk_AllocName(size, "string");
 	if (ptr)
 		*ptr = (char *) pr_knownstrings[i];
