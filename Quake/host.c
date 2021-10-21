@@ -582,12 +582,16 @@ Returns false if the time is too short to run a frame
 */
 qboolean Host_FilterTime (float time)
 {
+	float maxfps; // johnfitz
+	float min_frame_time;
+	float delta_since_last_frame;
+
 	realtime += time;
+	delta_since_last_frame = realtime - oldrealtime;
 
 	//johnfitz -- max fps cvar
 	if ((host_maxfps.value || cls.state == ca_disconnected) && !cls.timedemo)
 	{
-		float maxfps;
 		if (cls.state == ca_disconnected)
 		{
 			maxfps = vid.refreshrate ? vid.refreshrate : 60.f;
@@ -600,12 +604,18 @@ qboolean Host_FilterTime (float time)
 			maxfps = CLAMP (10.0, host_maxfps.value, 1000.0);
 		}
 
-		if (realtime - oldrealtime < 1.0/maxfps)
+		// Check if we still have more than 2ms till next frame and if so wait for "1ms"
+		// E.g. Windows is not a real time OS and the sleeps can vary in length even with timeBeginPeriod(1)
+		min_frame_time = 1.0f / maxfps;
+		if((min_frame_time - delta_since_last_frame) > (2.0f/1000.0f))
+			SDL_Delay(1);
+
+		if (delta_since_last_frame < min_frame_time)
 			return false; // framerate is too high
 	}
 	//johnfitz
 
-	host_frametime = realtime - oldrealtime;
+	host_frametime = delta_since_last_frame;
 	oldrealtime = realtime;
 
 	//johnfitz -- host_timescale is more intuitive than host_framerate
