@@ -38,6 +38,13 @@ typedef struct efrag_s
 	struct entity_s		*entity;
 } efrag_t;
 
+typedef struct lightcache_s {
+	int					surfidx; // < 0: black surface; == 0: no cache; > 0: 1+index of surface
+	vec3_t				pos;
+	short				ds;
+	short				dt;
+} lightcache_t;
+
 //johnfitz -- for lerping
 #define LERP_MOVESTEP	(1<<0) //this is a MOVETYPE_STEP entity, enable movement lerp
 #define LERP_RESETANIM	(1<<1) //disable anim lerping until next anim frame
@@ -91,6 +98,8 @@ typedef struct entity_s
 	vec3_t					currentorigin;	//johnfitz -- transform lerping
 	vec3_t					previousangles;	//johnfitz -- transform lerping
 	vec3_t					currentangles;	//johnfitz -- transform lerping
+
+	lightcache_t			lightcache;		// alias light trace cache
 } entity_t;
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!

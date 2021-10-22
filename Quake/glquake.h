@@ -402,7 +402,7 @@ void GL_BuildBModelMarkBuffers (void);
 void GLMesh_LoadVertexBuffers (void);
 void GLMesh_DeleteVertexBuffers (void);
 
-int R_LightPoint (vec3_t p);
+int R_LightPoint (vec3_t p, lightcache_t *cache);
 
 void R_InvalidateLightmaps (void);
 void R_UpdateLightmaps (void);
