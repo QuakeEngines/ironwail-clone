@@ -509,19 +509,51 @@ MatrixMultiply
 */
 void MatrixMultiply(float left[16], float right[16])
 {
-	float temp[16];
-	int column, row, i;
-
-	memcpy(temp, left, 16 * sizeof(float));
-	for(row = 0; row < 4; ++row)
+#ifdef USE_SSE2
+	if (use_simd)
 	{
-		for(column = 0; column < 4; ++column)
-		{
-			float value = 0.0f;
-			for (i = 0; i < 4; ++i)
-				value += temp[i*4 + row] * right[column*4 + i];
+		int i;
+		__m128 leftcol0 = _mm_loadu_ps (left + 0);
+		__m128 leftcol1 = _mm_loadu_ps (left + 4);
+		__m128 leftcol2 = _mm_loadu_ps (left + 8);
+		__m128 leftcol3 = _mm_loadu_ps (left + 12);
 
-			left[column * 4 + row] = value;
+		#define VBROADCAST(vec,col)		_mm_shuffle_ps (vec, vec, _MM_SHUFFLE (col, col, col, col))
+
+		for (i = 0; i < 4; ++i, left+=4, right+=4)
+		{
+			__m128 rightcol = _mm_loadu_ps (right);
+
+			__m128 c0 = _mm_mul_ps (leftcol0, VBROADCAST (rightcol, 0));
+			__m128 c1 = _mm_mul_ps (leftcol1, VBROADCAST (rightcol, 1));
+			__m128 c2 = _mm_mul_ps (leftcol2, VBROADCAST (rightcol, 2));
+			__m128 c3 = _mm_mul_ps (leftcol3, VBROADCAST (rightcol, 3));
+			c0 = _mm_add_ps (c0, c1);
+			c2 = _mm_add_ps (c2, c3);
+			c0 = _mm_add_ps (c0, c2);
+
+			_mm_storeu_ps (left, c0);
+		}
+
+		#undef VBROADCAST
+	}
+	else
+#endif
+	{
+		float temp[16];
+		int column, row, i;
+
+		memcpy(temp, left, 16 * sizeof(float));
+		for(row = 0; row < 4; ++row)
+		{
+			for(column = 0; column < 4; ++column)
+			{
+				float value = 0.0f;
+				for (i = 0; i < 4; ++i)
+					value += temp[i*4 + row] * right[column*4 + i];
+
+				left[column * 4 + row] = value;
+			}
 		}
 	}
 }
