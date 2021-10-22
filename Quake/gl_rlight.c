@@ -111,9 +111,9 @@ void R_PushDlights (void)
 			out->pos[1]   = l->origin[1];
 			out->pos[2]   = l->origin[2];
 			out->radius   = l->radius;
-			out->color[0] = l->color[0] * (1.f/256.f);
-			out->color[1] = l->color[1] * (1.f/256.f);
-			out->color[2] = l->color[2] * (1.f/256.f);
+			out->color[0] = l->color[0];
+			out->color[1] = l->color[1];
+			out->color[2] = l->color[2];
 			out->minlight = l->minlight;
 		}
 	}

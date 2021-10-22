@@ -433,7 +433,7 @@ void GLWorld_CreateResources (void)
 		"			vec3 local_pos = l.origin - nor * dist;\n"\
 		"			minlight = rad - minlight;\n"\
 		"			dist = length(in_pos - local_pos);\n"\
-		"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) * l.color;\n"\
+		"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) / 256. * l.color;\n"\
 		"		}\n"\
 		"	}\n"\
 		"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"\

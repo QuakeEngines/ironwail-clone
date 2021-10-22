@@ -359,15 +359,13 @@ void R_SetupAliasLighting (entity_t	*e)
 	R_LightPoint (lpos, &e->lightcache);
 
 	//add dlights
-	for (i=0 ; i<MAX_DLIGHTS ; i++)
+	for (i=0; i<r_framedata.global.numlights; i++)
 	{
-		if (cl_dlights[i].die >= cl.time)
-		{
-			VectorSubtract (e->origin, cl_dlights[i].origin, dist);
-			add = cl_dlights[i].radius - VectorLength(dist);
-			if (add > 0)
-				VectorMA (lightcolor, add, cl_dlights[i].color, lightcolor);
-		}
+		gpulight_t *l = &r_framedata.lights[i];
+		VectorSubtract (e->origin, l->pos, dist);
+		add = l->radius - VectorLength(dist);
+		if (add > 0)
+			VectorMA (lightcolor, add, l->color, lightcolor);
 	}
 
 	// minimum light value on gun (24)
