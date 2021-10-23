@@ -200,7 +200,8 @@ loc0:
 		return true;	// hit something
 	else
 	{
-		int i, ds, dt;
+		unsigned int i;
+		int ds, dt;
 		msurface_t *surf;
 	// check for impact on this node
 		VectorCopy (mid, lightspot);
