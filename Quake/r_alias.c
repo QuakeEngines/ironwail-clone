@@ -363,9 +363,9 @@ void R_SetupAliasLighting (entity_t	*e)
 	{
 		gpulight_t *l = &r_framedata.lights[i];
 		VectorSubtract (e->origin, l->pos, dist);
-		add = l->radius - VectorLength(dist);
-		if (add > 0)
-			VectorMA (lightcolor, add, l->color, lightcolor);
+		add = DotProduct (dist, dist);
+		if (l->radius * l->radius > add)
+			VectorMA (lightcolor, l->radius - sqrtf (add), l->color, lightcolor);
 	}
 
 	// minimum light value on gun (24)
@@ -374,9 +374,10 @@ void R_SetupAliasLighting (entity_t	*e)
 		add = 72.0f - (lightcolor[0] + lightcolor[1] + lightcolor[2]);
 		if (add > 0.0f)
 		{
-			lightcolor[0] += add / 3.0f;
-			lightcolor[1] += add / 3.0f;
-			lightcolor[2] += add / 3.0f;
+			add *= 1.0f / 3.0f;
+			lightcolor[0] += add;
+			lightcolor[1] += add;
+			lightcolor[2] += add;
 		}
 	}
 
@@ -386,28 +387,27 @@ void R_SetupAliasLighting (entity_t	*e)
 		add = 24.0f - (lightcolor[0] + lightcolor[1] + lightcolor[2]);
 		if (add > 0.0f)
 		{
-			lightcolor[0] += add / 3.0f;
-			lightcolor[1] += add / 3.0f;
-			lightcolor[2] += add / 3.0f;
+			add *= 1.0f / 3.0f;
+			lightcolor[0] += add;
+			lightcolor[1] += add;
+			lightcolor[2] += add;
 		}
 	}
 
 	// clamp lighting so it doesn't overbright as much (96)
 	if (gl_overbright_models.value)
 	{
-		add = 288.0f / (lightcolor[0] + lightcolor[1] + lightcolor[2]);
-		if (add < 1.0f)
-			VectorScale(lightcolor, add, lightcolor);
+		add = lightcolor[0] + lightcolor[1] + lightcolor[2];
+		if (add > 288.0f)
+			VectorScale(lightcolor, 288.0f / add, lightcolor);
 	}
-
 	//hack up the brightness when fullbrights but no overbrights (256)
-	if (gl_fullbrights.value && !gl_overbright_models.value)
-		if (e->model->flags & MOD_FBRIGHTHACK)
-		{
-			lightcolor[0] = 256.0f;
-			lightcolor[1] = 256.0f;
-			lightcolor[2] = 256.0f;
-		}
+	else if (e->model->flags & MOD_FBRIGHTHACK && gl_fullbrights.value)
+	{
+		lightcolor[0] = 256.0f;
+		lightcolor[1] = 256.0f;
+		lightcolor[2] = 256.0f;
+	}
 
 	VectorScale (lightcolor, 1.0f / 200.0f, lightcolor);
 }
