@@ -144,6 +144,10 @@
 		<Unit filename="..\..\Quake\gl_screen.c">
 			<Option compilerVar="CC" />
 		</Unit>
+		<Unit filename="..\..\Quake\gl_shaders.c">
+			<Option compilerVar="CC" />
+		</Unit>
+		<Unit filename="..\..\Quake\gl_shaders.h" />
 		<Unit filename="..\..\Quake\gl_sky.c">
 			<Option compilerVar="CC" />
 		</Unit>

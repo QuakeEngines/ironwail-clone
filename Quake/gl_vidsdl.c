@@ -655,7 +655,7 @@ static void VID_Restart (void)
 	TexMgr_DeleteTextureObjects ();
 	GLSLGamma_DeleteTexture ();
 	R_WarpScaleView_DeleteTexture ();
-	R_DeleteShaders ();
+	GL_DeleteShaders ();
 	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
 	R_InvalidateLightmaps ();
@@ -1194,16 +1194,10 @@ static void GL_Init (void)
 	}
 	//johnfitz
 
-	GLDraw_CreateShaders ();
-	GLView_CreateShaders ();
+	GL_CreateShaders ();
 	R_WarpScaleView_CreateResources ();
 	GLSLGamma_CreateResources ();
 	GLWorld_CreateResources ();
-	GLAlias_CreateShaders ();
-	GLSky_CreateShaders ();
-	GLParticle_CreateShaders ();
-	GLSprite_CreateShaders ();
-	GLLightmap_CreateShaders ();
 
 	GL_ClearBufferBindings ();
 	GL_InitDynamicBuffers ();

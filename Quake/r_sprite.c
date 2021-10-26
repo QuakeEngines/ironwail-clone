@@ -36,80 +36,8 @@ static gltexture_t *batchtexture;
 static qmodel_t *batchmodel;
 static qboolean batchshowtris;
 
-static GLuint r_sprite_program;
 static GLushort batchindices[6 * MAX_BATCH_SPRITES];
 static qboolean batchindices_init = false;
-
-/*
-=============
-GLSprite_CreateShaders
-=============
-*/
-void GLSprite_CreateShaders (void)
-{
-	#define FRAMEDATA_BUFFER\
-		"struct Light\n"\
-		"{\n"\
-		"	vec3	origin;\n"\
-		"	float	radius;\n"\
-		"	vec3	color;\n"\
-		"	float	minlight;\n"\
-		"};\n"\
-		"\n"\
-		"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
-		"{\n"\
-		"	mat4	ViewProj;\n"\
-		"	vec3	FogColor;\n"\
-		"	float	FogDensity;\n"\
-		"	float	Time;\n"\
-		"	int		NumLights;\n"\
-		"	float	padding_framedatabuffer[2];\n"\
-		"	Light	lights[];\n"\
-		"};\n"\
-
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		FRAMEDATA_BUFFER
-		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
-		"layout(location=1) in vec2 in_uv;\n"
-		"\n"
-		"layout(location=0) out vec2 out_uv;\n"
-		"layout(location=1) out float out_fogdist;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	gl_Position = ViewProj * in_pos;\n"
-		"	out_fogdist = gl_Position.w;\n"
-		"	out_uv = in_uv;\n"
-		"}\n";
-
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		FRAMEDATA_BUFFER
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		"layout(location=0) in vec2 in_uv;\n"
-		"layout(location=1) in float in_fogdist;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec4 result = texture(Tex, in_uv);\n"
-		"	if (result.a < 0.666)\n"
-		"		discard;\n"
-		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
-		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(FogColor, result.rgb, fog);\n"
-		"	out_fragcolor = result;\n"
-		"}\n";
-
-	r_sprite_program = GL_CreateProgram (vertSource, fragSource, "sprite");
-}
 
 /*
 ================
@@ -210,7 +138,7 @@ static void R_FlushSpriteInstances (void)
 	if (psprite->type == SPR_ORIENTED)
 		GL_PolygonOffset (OFFSET_DECAL);
 
-	GL_UseProgram (r_sprite_program);
+	GL_UseProgram (glprogs.sprites);
 
 	if (showtris)
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));

@@ -61,103 +61,11 @@ static const char st_to_vec[6][3] =
 
 static float skyfog; // ericw
 
-static GLuint r_skylayers_program;
-static GLuint r_skybox_program;
-
 //==============================================================================
 //
 //  INIT
 //
 //==============================================================================
-
-/*
-=============
-GLSky_CreateShaders
-=============
-*/
-void GLSky_CreateShaders (void)
-{
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) in vec3 in_dir;\n"
-		"\n"
-		"layout(location=0) out vec3 out_dir;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-		"	v.x ^= v.y; // fix winding order\n"
-		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 1.0, 1.0);\n"
-		"	out_dir = in_dir;\n"
-		"	out_dir.z *= 3.0; // flatten the sphere\n"
-		"}\n";
-	
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D SolidLayer;\n"
-		"layout(binding=1) uniform sampler2D AlphaLayer;\n"
-		"\n"
-		"layout(location=2) uniform float Time;\n"
-		"layout(location=3) uniform vec4 Fog;\n"
-		"\n"
-		"layout(location=0) in vec3 in_dir;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec2 uv = normalize(in_dir).xy * (189.0 / 64.0);\n"
-		"	vec4 result = texture(SolidLayer, uv + Time / 16.0);\n"
-		"	vec4 layer = texture(AlphaLayer, uv + Time / 8.0);\n"
-		"	result.rgb = mix(result.rgb, layer.rgb, layer.a);\n"
-		"	result.rgb = mix(result.rgb, Fog.rgb, Fog.w);\n"
-		"	out_fragcolor = result;\n"
-		"}\n";
-
-	r_skylayers_program = GL_CreateProgram (vertSource, fragSource, "skylayers");
-
-	vertSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) uniform mat4 MVP;\n"
-		"layout(location=1) uniform vec3 EyePos;\n"
-		"\n"
-		"layout(location=0) in vec3 in_dir;\n"
-		"layout(location=1) in vec2 in_uv;\n"
-		"\n"
-		"layout(location=0) out vec3 out_dir;\n"
-		"layout(location=1) out vec2 out_uv;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	gl_Position = MVP * vec4(EyePos + in_dir, 1.0);\n"
-		"	gl_Position.z = gl_Position.w; // map to far plane\n"
-		"	out_dir = in_dir;\n"
-		"	out_uv = in_uv;\n"
-		"}\n";
-	
-	fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		"layout(location=2) uniform vec4 Fog;\n"
-		"\n"
-		"layout(location=0) in vec3 in_dir;\n"
-		"layout(location=1) in vec2 in_uv;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	out_fragcolor = texture(Tex, in_uv);\n"
-		"	out_fragcolor.rgb = mix(out_fragcolor.rgb, Fog.rgb, Fog.w);\n"
-		"}\n";
-
-	r_skybox_program = GL_CreateProgram (vertSource, fragSource, "skybox");
-}
 
 /*
 =============
@@ -524,7 +432,7 @@ void Sky_DrawSkyBox (void)
 	fog[2] = r_framedata.global.fogdata[2];
 	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
 
-	GL_UseProgram (r_skybox_program);
+	GL_UseProgram (glprogs.skybox);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
 	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
@@ -588,7 +496,7 @@ void Sky_DrawSkyLayers (void)
 	CrossProduct(frustum[3].normal, frustum[0].normal, dirs[2]); // top right
 	CrossProduct(frustum[1].normal, frustum[3].normal, dirs[3]); // top left
 
-	GL_UseProgram (r_skylayers_program);
+	GL_UseProgram (glprogs.skylayers);
 
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(1));
 	GL_Upload (GL_ARRAY_BUFFER, dirs, sizeof(dirs), &buf, &ofs);

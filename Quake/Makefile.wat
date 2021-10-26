@@ -171,6 +171,7 @@ GLOBJS = &
 	r_part.obj &
 	r_world.obj &
 	gl_screen.obj &
+	gl_shaders.obj &
 	gl_sky.obj &
 	gl_warp.obj &
 	$(SYSOBJ_GL_VID) &

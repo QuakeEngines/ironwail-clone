@@ -84,126 +84,6 @@ struct ibuf_s {
 	aliasinstance_t inst[MAX_ALIAS_INSTANCES];
 } ibuf;
 
-static GLuint r_alias_program;
-
-/*
-=============
-GLAlias_CreateShaders
-=============
-*/
-void GLAlias_CreateShaders (void)
-{
-	#define ALIAS_INSTANCE_BUFFER\
-		"struct InstanceData\n"\
-		"{\n"\
-		"	mat4	MVP;\n"\
-		"	vec4	LightColor; // xyz=LightColor w=Alpha\n"\
-		"	float	ShadeAngle;\n"\
-		"	float	Blend;\n"\
-		"	int		Pose1;\n"\
-		"	int		Pose2;\n"\
-		"};\n"\
-		"\n"\
-		"layout(std430, binding=1) restrict readonly buffer InstanceBuffer\n"\
-		"{\n"\
-		"	vec4	Fog;\n"\
-		"	int		UseAlphaTest;\n"\
-		"	int		padding[3];\n"\
-		"	InstanceData instances[];\n"\
-		"};\n"\
-
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		ALIAS_INSTANCE_BUFFER
-		"\n"
-		"layout(std430, binding=2) restrict readonly buffer PoseBuffer\n"
-		"{\n"
-		"	uvec2 PackedPosNor[];\n"
-		"};\n"
-		"\n"
-		"layout(std430, binding=3) restrict readonly buffer UVBuffer\n"
-		"{\n"
-		"	vec2 TexCoords[];\n"
-		"};\n"
-		"\n"
-		"struct Pose\n"
-		"{\n"
-		"	vec3 pos;\n"
-		"	vec3 nor;\n"
-		"};\n"
-		"\n"
-		"Pose GetPose(uint index)\n"
-		"{\n"
-		"	uvec2 data = PackedPosNor[index + gl_VertexID];\n"
-		"	return Pose(vec3((data.xxx >> uvec3(0, 8, 16)) & 255), unpackSnorm4x8(data.y).xyz);\n"
-		"}\n"
-		"\n"
-		"float r_avertexnormal_dot(vec3 vertexnormal, vec3 dir) // from MH \n"
-		"{\n"
-		"	float dot = dot(vertexnormal, dir);\n"
-		"	// wtf - this reproduces anorm_dots within as reasonable a degree of tolerance as the >= 0 case\n"
-		"	if (dot < 0.0)\n"
-		"		return 1.0 + dot * (13.0 / 44.0);\n"
-		"	else\n"
-		"		return 1.0 + dot;\n"
-		"}\n"
-		"\n"
-		"layout(location=0) out vec2 out_texcoord;\n"
-		"layout(location=1) out vec4 out_color;\n"
-		"layout(location=2) out float out_fogdist;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	InstanceData inst = instances[gl_InstanceID];\n"
-		"	out_texcoord = TexCoords[gl_VertexID];\n"
-		"	Pose pose1 = GetPose(inst.Pose1);\n"
-		"	Pose pose2 = GetPose(inst.Pose2);\n"
-		"	vec3 lerpedVert = mix(pose1.pos, pose2.pos, inst.Blend);\n"
-		"	gl_Position = inst.MVP * vec4(lerpedVert, 1.0);\n"
-		"	out_fogdist = gl_Position.w;\n"
-		"	vec3 shadevector;\n"
-		"	shadevector[0] = cos(inst.ShadeAngle);\n"
-		"	shadevector[1] = sin(inst.ShadeAngle);\n"
-		"	shadevector[2] = 1.0;\n"
-		"	shadevector = normalize(shadevector);\n"
-		"	float dot1 = r_avertexnormal_dot(pose1.nor, shadevector);\n"
-		"	float dot2 = r_avertexnormal_dot(pose2.nor, shadevector);\n"
-		"	out_color = inst.LightColor * vec4(vec3(mix(dot1, dot2, inst.Blend)), 1.0);\n"
-		"}\n";
-
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		ALIAS_INSTANCE_BUFFER
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"layout(binding=1) uniform sampler2D FullbrightTex;\n"
-		"\n"
-		"layout(location=0) in vec2 in_texcoord;\n"
-		"layout(location=1) in vec4 in_color;\n"
-		"layout(location=2) in float in_fogdist;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec4 result = texture(Tex, in_texcoord);\n"
-		"	if (UseAlphaTest != 0 && result.a < 0.666)\n"
-		"		discard;\n"
-		"	result *= in_color * 2.0;\n"
-		"	result += texture(FullbrightTex, in_texcoord);\n"
-		"	result = clamp(result, 0.0, 1.0);\n"
-		"	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
-		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
-		"	result.a = in_color.a;\n" // FIXME: This will make almost transparent things cut holes though heavy fog
-		"	out_fragcolor = result;\n"
-		"}\n";
-
-	r_alias_program = GL_CreateProgram (vertSource, fragSource, "alias");
-}
-
 /*
 =================
 R_SetupAliasFrame -- johnfitz -- rewritten to support lerping
@@ -434,7 +314,7 @@ void R_FlushAliasInstances (void)
 
 	GL_BeginGroup (model->name);
 
-	GL_UseProgram (r_alias_program);
+	GL_UseProgram (glprogs.alias);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
 	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)

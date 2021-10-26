@@ -123,7 +123,6 @@ cvar_t	r_scale = {"r_scale", "1", CVAR_ARCHIVE};
 //==============================================================================
 
 static GLuint r_gamma_texture;
-static GLuint r_gamma_program;
 static int r_gamma_texture_width, r_gamma_texture_height;
 
 /*
@@ -135,7 +134,6 @@ void GLSLGamma_DeleteTexture (void)
 {
 	glDeleteTextures (1, &r_gamma_texture);
 	r_gamma_texture = 0;
-	r_gamma_program = 0; // deleted in R_DeleteShaders
 }
 
 /*
@@ -145,34 +143,6 @@ GLSLGamma_CreateResources
 */
 void GLSLGamma_CreateResources (void)
 {
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-		"	v.x ^= v.y; // fix winding order\n"
-		"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
-		"}\n";
-
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D GammaTexture;\n"
-		"\n"
-		"layout(location=0) uniform vec2 GammaContrast;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	out_fragcolor = texelFetch(GammaTexture, ivec2(gl_FragCoord), 0);\n"
-		"	out_fragcolor.rgb *= GammaContrast.y;\n"
-		"	out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(GammaContrast.x)), 1.0);\n"
-		"}\n";
-
-	r_gamma_program = GL_CreateProgram (vertSource, fragSource, "postprocess");
-
 	glGenTextures (1, &r_gamma_texture);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_gamma_texture);
 
@@ -202,7 +172,7 @@ void GLSLGamma_GammaCorrect (void)
 	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, glx, gly, glwidth, glheight);
 
 // draw the texture back to the framebuffer with a fragment shader
-	GL_UseProgram (r_gamma_program);
+	GL_UseProgram (glprogs.postprocess);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
 
@@ -882,7 +852,6 @@ void R_RenderScene (void)
 	R_ShowTris (); //johnfitz
 }
 
-static GLuint r_warpscale_program;
 static GLuint r_warpscale_texture;
 static int r_warpscale_texture_width, r_warpscale_texture_height;
 
@@ -895,7 +864,6 @@ void R_WarpScaleView_DeleteTexture (void)
 {
 	glDeleteTextures (1, &r_warpscale_texture);
 	r_warpscale_texture = 0;
-	r_warpscale_program = 0; // deleted in R_DeleteShaders
 }
 
 /*
@@ -905,48 +873,6 @@ R_WarpScaleView_CreateResources
 */
 void R_WarpScaleView_CreateResources (void)
 {
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) out vec2 out_uv;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-		"	v.x ^= v.y; // fix winding order\n"
-		"	out_uv = vec2(v);\n"
-		"	gl_Position = vec4(out_uv * 2.0 - 1.0, 0.0, 1.0);\n"
-		"}\n";
-
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		"layout(location=0) uniform vec4 UVScaleWarpTime; // xy=Scale z=Warp w=Time\n"
-		"\n"
-		"layout(location=0) in vec2 in_uv;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec2 uv = in_uv;\n"
-		"	vec2 uv_scale = UVScaleWarpTime.xy;\n"
-		"	if (UVScaleWarpTime.z > 0.0)\n"
-		"	{\n"
-		"		float time = UVScaleWarpTime.w;\n"
-		"		float aspect = dFdy(uv.y) / dFdx(uv.x);\n"
-		"		vec2 warp_amp = UVScaleWarpTime.zz;\n"
-		"		warp_amp.y *= aspect;\n"
-		"		uv = warp_amp + uv * (1.0 - 2.0 * warp_amp); // remap to safe area\n"
-		"		uv += warp_amp * sin(vec2(uv.y / aspect, uv.x) * (3.14159265 * 8.0) + time);\n"
-		"	}\n"
-		"	out_fragcolor = texture(Tex, uv * uv_scale);\n"
-		"}\n";
-
-	r_warpscale_program = GL_CreateProgram (vertSource, fragSource, "view warp/scale");
-
 	glGenTextures (1, &r_warpscale_texture);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_warpscale_texture);
 
@@ -998,7 +924,7 @@ void R_WarpScaleView (void)
 	smax = srcw/(float)r_warpscale_texture_width;
 	tmax = srch/(float)r_warpscale_texture_height;
 
-	GL_UseProgram (r_warpscale_program);
+	GL_UseProgram (glprogs.warpscale);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 	GL_Uniform4fFunc(0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);

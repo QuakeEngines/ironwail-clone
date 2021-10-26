@@ -51,82 +51,6 @@ typedef struct particlevert_t {
 static particlevert_t partverts[3 * 1024];
 static int numpartverts = 0;
 
-static GLuint r_particle_program;
-
-/*
-=============
-GLParticle_CreateShaders
-=============
-*/
-void GLParticle_CreateShaders (void)
-{
-	#define FRAMEDATA_BUFFER\
-		"struct Light\n"\
-		"{\n"\
-		"	vec3	origin;\n"\
-		"	float	radius;\n"\
-		"	vec3	color;\n"\
-		"	float	minlight;\n"\
-		"};\n"\
-		"\n"\
-		"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
-		"{\n"\
-		"	mat4	ViewProj;\n"\
-		"	vec3	FogColor;\n"\
-		"	float	FogDensity;\n"\
-		"	float	Time;\n"\
-		"	int		NumLights;\n"\
-		"	float	padding_framedatabuffer[2];\n"\
-		"	Light	lights[];\n"\
-		"};\n"\
-
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		FRAMEDATA_BUFFER
-		"\n"
-		"layout(location=0) in vec4 in_pos;\n"
-		"layout(location=1) in vec4 in_color;\n"
-		"\n"
-		"layout(location=0) out vec2 out_uv;\n"
-		"layout(location=1) out vec4 out_color;\n"
-		"layout(location=2) out float out_fogdist;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	gl_Position = ViewProj * in_pos;\n"
-		"	out_fogdist = gl_Position.w;\n"
-		"	int vtx = gl_VertexID % 3;\n"
-		"	out_uv = vec2(vtx == 1, vtx == 2);\n"
-		"	out_color = in_color;\n"
-		"}\n";
-
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		FRAMEDATA_BUFFER
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		"layout(location=0) in vec2 in_uv;\n"
-		"layout(location=1) in vec4 in_color;\n"
-		"layout(location=2) in float in_fogdist;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	vec4 result = texture(Tex, in_uv);\n"
-		"	result *= in_color;\n"
-		"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
-		"	fog = clamp(fog, 0.0, 1.0);\n"
-		"	result.rgb = mix(FogColor, result.rgb, fog);\n"
-		"	out_fragcolor = result;\n"
-		"}\n";
-
-	r_particle_program = GL_CreateProgram (vertSource, fragSource, "particle");
-}
-
 /*
 ===============
 R_ParticleTextureLookup -- johnfitz -- generate nice antialiased 32x32 circle for particles
@@ -946,7 +870,7 @@ static void R_DrawParticles_Real (qboolean showtris)
 
 	GL_BeginGroup ("Particles");
 
-	GL_UseProgram (r_particle_program);
+	GL_UseProgram (glprogs.particles);
 	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));

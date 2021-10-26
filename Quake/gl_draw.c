@@ -99,51 +99,6 @@ byte pic_crosshair_data[8][8] =
 };
 //johnfitz
 
-static GLuint r_gui_program;
-
-/*
-=============
-GLDraw_CreateShaders
-=============
-*/
-
-void GLDraw_CreateShaders (void)
-{
-	const GLchar *vertSource = \
-		"#version 430\n"
-		"\n"
-		"layout(location=0) in vec2 in_pos;\n"
-		"layout(location=1) in vec2 in_uv;\n"
-		"layout(location=2) in vec4 in_color;\n"
-		"\n"
-		"layout(location=0) out vec2 out_uv;\n"
-		"layout(location=1) out vec4 out_color;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	gl_Position = vec4(in_pos, -1.0, 1.0);\n"
-		"	out_uv = in_uv;\n"
-		"	out_color = in_color;\n"
-		"}\n";
-	
-	const GLchar *fragSource = \
-		"#version 430\n"
-		"\n"
-		"layout(binding=0) uniform sampler2D Tex;\n"
-		"\n"
-		"layout(location=0) centroid in vec2 in_uv;\n"
-		"layout(location=1) centroid in vec4 in_color;\n"
-		"\n"
-		"layout(location=0) out vec4 out_fragcolor;\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	out_fragcolor = texture(Tex, in_uv) * in_color;\n"
-		"}\n";
-
-	r_gui_program = GL_CreateProgram (vertSource, fragSource, "gui");
-}
-
 typedef struct
 {
 	gltexture_t *gltexture;
@@ -510,7 +465,7 @@ void Draw_Flush (void)
 	if (!numbatchquads)
 		return;
 
-	GL_UseProgram (r_gui_program);
+	GL_UseProgram (glprogs.gui);
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
 	GL_Bind (GL_TEXTURE0, canvastexture);
 

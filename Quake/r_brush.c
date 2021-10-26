@@ -85,68 +85,6 @@ texture_t *R_TextureAnimation (texture_t *base, int frame)
 =============================================================
 */
 
-static GLuint r_lightmap_update_program;
-
-/*
-================
-GLLightmap_CreateShaders
-================
-*/
-void GLLightmap_CreateShaders (void)
-{
-	const char* computeSource = \
-		"#version 430\n"
-		"\n"
-		"layout(local_size_x=256) in;\n"
-		"\n"
-		"layout(rgba8ui, binding=0) readonly uniform uimage2DArray LightmapSamples;\n"
-		"layout(rgba8ui, binding=1) writeonly uniform uimage2D Lightmap;\n"
-		"\n"
-		"layout(std430, binding=0) restrict readonly buffer LightStyles\n"
-		"{\n"
-		"	uint lightstyles[];\n"
-		"};\n"
-		"\n"
-		"layout(std430, binding=1) restrict readonly buffer Blocks\n"
-		"{\n"
-		"	uint blockofs[]; // 16:16\n"
-		"};\n"
-		"\n"
-		"uint deinterleave_odd(uint x)\n"
-		"{\n"
-		"	x &= 0x55555555u;\n"
-		"	x = (x ^ (x >> 1u)) & 0x33333333u;\n"
-		"	x = (x ^ (x >> 2u)) & 0x0F0F0F0Fu;\n"
-		"	x = (x ^ (x >> 4u)) & 0x00FF00FFu;\n"
-		"	x = (x ^ (x >> 8u)) & 0x0000FFFFu;\n"
-		"	return x;\n"
-		"}\n"
-		"\n"
-		"void main()\n"
-		"{\n"
-		"	uvec3 thread_id = gl_GlobalInvocationID;\n"
-		"	uint xy = thread_id.x | (thread_id.y << 8u);\n"
-		"	xy |= (xy >> 1u) << 16u;\n"
-		"	xy = deinterleave_odd(xy); // morton order\n"
-		"	uvec2 coord = uvec2(xy & 0xffu, xy >> 8u);\n"
-		"	xy = blockofs[thread_id.z];\n"
-		"	coord += uvec2(xy & 0xffffu, xy >> 16u);\n"
-		"	uvec3 accum = uvec3(0u);\n"
-		"	int i;\n"
-		"	for (i = 0; i < " QS_STRINGIFY(MAXLIGHTMAPS) "; i++)\n"
-		"	{\n"
-		"		uvec4 s = imageLoad(LightmapSamples, ivec3(coord, i));\n"
-		"		if (s.w == 255u)\n"
-		"			break;\n"
-		"		accum += s.xyz * lightstyles[s.w];\n"
-		"	}\n"
-		"	accum = min(accum >> 8u, uvec3(255u));\n"
-		"	imageStore(Lightmap, ivec2(coord), uvec4(accum, 255u));\n"
-		"}\n";
-
-	r_lightmap_update_program = GL_CreateComputeProgram (computeSource, "lightmap update");
-}
-
 /*
 ========================
 AllocBlock -- returns a texture number and the position inside it
@@ -337,7 +275,7 @@ void R_UpdateLightmaps (void)
 
 	GL_BeginGroup ("Lightmap update");
 
-	GL_UseProgram (r_lightmap_update_program);
+	GL_UseProgram (glprogs.update_lightmap);
 	GL_BindImageTextureFunc (0, lightmap_samples_texture->texnum, 0, GL_TRUE, 0,  GL_READ_ONLY, GL_RGBA8UI);
 	GL_BindImageTextureFunc (1, lightmap_texture->texnum, 0, GL_FALSE, 0,  GL_WRITE_ONLY, GL_RGBA8UI);
 

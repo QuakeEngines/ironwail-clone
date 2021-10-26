@@ -372,6 +372,9 @@ void R_DrawSpriteModels_ShowTris (entity_t **ents, int count);
 
 entity_t **R_GetVisEntities (modtype_t type, qboolean translucent, int *outcount);
 
+#define MAX_BMODEL_DRAWS		4096
+#define MAX_BMODEL_INSTANCES	1024
+
 typedef struct bmodel_draw_indirect_s {
 	GLuint		count;
 	GLuint		instanceCount;
@@ -407,23 +410,42 @@ int R_LightPoint (vec3_t p, lightcache_t *cache);
 void R_InvalidateLightmaps (void);
 void R_UpdateLightmaps (void);
 
-GLint GL_GetUniformLocation (GLuint *programPtr, const char *name);
+typedef struct glprogs_s {
+	/* 2d */
+	GLuint		gui;
+	GLuint		viewblend;
+	GLuint		warpscale;
+	GLuint		postprocess;
+
+	/* 3d */
+	GLuint		world[2];
+	GLuint		water[2];
+	GLuint		skystencil[2];
+	GLuint		skylayers;
+	GLuint		skybox;
+	GLuint		alias;
+	GLuint		sprites;
+	GLuint		particles;
+
+	/* compute */
+	GLuint		clear_indirect;
+	GLuint		gather_indirect;
+	GLuint		cull_mark;
+	GLuint		update_lightmap;
+} glprogs_t;
+
+extern glprogs_t glprogs;
+
 GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name);
 GLuint GL_CreateComputeProgram (const GLchar *source, const char *name);
 void GL_UseProgram (GLuint program);
 void GL_ClearCachedProgram (void);
-void R_DeleteShaders (void);
+void GL_CreateShaders (void);
+void GL_DeleteShaders (void);
 
-void GLDraw_CreateShaders (void);
-void GLView_CreateShaders (void);
 void R_WarpScaleView_CreateResources (void);
 void GLSLGamma_CreateResources (void);
 void GLWorld_CreateResources (void);
-void GLAlias_CreateShaders (void);
-void GLSky_CreateShaders (void);
-void GLParticle_CreateShaders (void);
-void GLSprite_CreateShaders (void);
-void GLLightmap_CreateShaders (void);
 
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 

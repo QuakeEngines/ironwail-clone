@@ -226,6 +226,7 @@ GLOBJS = \
 	r_part.o \
 	r_world.o \
 	gl_screen.o \
+	gl_shaders.o \
 	gl_sky.o \
 	gl_warp.o \
 	$(SYSOBJ_GL_VID) \
