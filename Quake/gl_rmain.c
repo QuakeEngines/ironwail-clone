@@ -790,6 +790,9 @@ void R_ShowTris (void)
 
 	GL_BeginGroup ("Show tris");
 
+	Fog_DisableGFog (); //johnfitz
+	R_UploadFrameData ();
+
 	if (r_showtris.value == 1)
 		glDepthRange(0.f, 0.f);
 	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
@@ -854,8 +857,6 @@ void R_RenderScene (void)
 	R_DrawEntitiesOnList (true); //johnfitz -- true means this is the pass for alpha entities
 
 	R_DrawParticles ();
-
-	Fog_DisableGFog (); //johnfitz
 
 	R_ShowTris (); //johnfitz
 }

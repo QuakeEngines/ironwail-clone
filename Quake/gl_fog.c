@@ -314,7 +314,6 @@ called after drawing stuff that should be fogged
 void Fog_DisableGFog (void)
 {
 	memset(r_framedata.global.fogdata, 0, sizeof(r_framedata.global.fogdata));
-	R_UploadFrameData ();
 }
 
 //==============================================================================
