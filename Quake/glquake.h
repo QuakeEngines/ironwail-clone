@@ -323,6 +323,10 @@ extern float r_matviewproj[16];
 
 void R_NewGame (void);
 
+#define LIGHT_TILES_X			32
+#define LIGHT_TILES_Y			16
+#define LIGHT_TILES_Z			32
+
 typedef struct gpulight_s {
 	float	pos[3];
 	float	radius;
@@ -335,8 +339,9 @@ typedef struct gpuframedata_s {
 		float	viewproj[16];
 		float	fogdata[4];
 		float	time;
+		float	zlogscale;
+		float	zlogbias;
 		int		numlights;
-		int		padding[2];
 	} global;
 	gpulight_t	lights[MAX_DLIGHTS];
 } gpuframedata_t;
@@ -432,6 +437,7 @@ typedef struct glprogs_s {
 	GLuint		gather_indirect;
 	GLuint		cull_mark;
 	GLuint		update_lightmap;
+	GLuint		cluster_lights;
 } glprogs_t;
 
 extern glprogs_t glprogs;
@@ -446,6 +452,8 @@ void GL_DeleteShaders (void);
 void R_WarpScaleView_CreateResources (void);
 void GLSLGamma_CreateResources (void);
 void GLWorld_CreateResources (void);
+void GLLight_CreateResources (void);
+void GLLight_DeleteResources (void);
 
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 

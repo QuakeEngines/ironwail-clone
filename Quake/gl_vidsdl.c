@@ -653,6 +653,7 @@ static void VID_Restart (void)
 // which is later deleted.
 
 	TexMgr_DeleteTextureObjects ();
+	GLLight_DeleteResources ();
 	GLSLGamma_DeleteTexture ();
 	R_WarpScaleView_DeleteTexture ();
 	GL_DeleteShaders ();
@@ -1198,6 +1199,7 @@ static void GL_Init (void)
 	R_WarpScaleView_CreateResources ();
 	GLSLGamma_CreateResources ();
 	GLWorld_CreateResources ();
+	GLLight_CreateResources ();
 
 	GL_ClearBufferBindings ();
 	GL_InitDynamicBuffers ();

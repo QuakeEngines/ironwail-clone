@@ -494,11 +494,18 @@ that corresponds to a value of 'ndcval' on the 'axis' axis in NDC space.
 */
 void ExtractFrustumPlane (float mvp[16], int axis, float ndcval, qboolean flip, mplane_t *out)
 {
-	float sign = flip ? -1.f : 1.f;
-	out->normal[0] =  (mvp[0*4 + axis] - ndcval * mvp[0*4 + 3]) * sign;
-	out->normal[1] =  (mvp[1*4 + axis] - ndcval * mvp[1*4 + 3]) * sign;
-	out->normal[2] =  (mvp[2*4 + axis] - ndcval * mvp[2*4 + 3]) * sign;
-	out->dist      = -(mvp[3*4 + axis] - ndcval * mvp[3*4 + 3]) * sign / VectorNormalize(out->normal);
+	float scale;
+	out->normal[0] =  (mvp[0*4 + axis] - ndcval * mvp[0*4 + 3]);
+	out->normal[1] =  (mvp[1*4 + axis] - ndcval * mvp[1*4 + 3]);
+	out->normal[2] =  (mvp[2*4 + axis] - ndcval * mvp[2*4 + 3]);
+	out->dist      = -(mvp[3*4 + axis] - ndcval * mvp[3*4 + 3]);
+
+	scale = (flip ? -1.f : 1.f) / sqrtf (DotProduct (out->normal, out->normal));
+	out->normal[0] *= scale;
+	out->normal[1] *= scale;
+	out->normal[2] *= scale;
+	out->dist      *= scale;
+
 	out->type      = PLANE_ANYZ;
 	out->signbits  = SignbitsForPlane (out);
 }
@@ -510,6 +517,7 @@ R_SetFrustum
 */
 void R_SetFrustum (void)
 {
+	float logznear, logzfar;
 	float translation[16];
 	float rotation[16];
 	GL_FrustumMatrix(r_matproj, DEG2RAD(r_fovx), DEG2RAD(r_fovy));
@@ -532,6 +540,12 @@ void R_SetFrustum (void)
 	ExtractFrustumPlane (r_matviewproj, 0, -1.f, false, &frustum[1]); // left
 	ExtractFrustumPlane (r_matviewproj, 1, -1.f, false, &frustum[2]); // bottom
 	ExtractFrustumPlane (r_matviewproj, 1,  1.f, true,  &frustum[3]); // top
+
+	logznear = log2f (NEARCLIP);
+	logzfar = log2f (gl_farclip.value);
+	memcpy (r_framedata.global.viewproj, r_matviewproj, 16 * sizeof (float));
+	r_framedata.global.zlogscale = LIGHT_TILES_Z / (logzfar - logznear);
+	r_framedata.global.zlogbias = -r_framedata.global.zlogscale * logznear;
 }
 
 /*
@@ -593,9 +607,6 @@ void R_UploadFrameData (void)
 	GLbyte	*ofs;
 	size_t	size;
 
-	memcpy (r_framedata.global.viewproj, r_matviewproj, 16 * sizeof(float));
-	r_framedata.global.time = cl.time;
-
 	size = sizeof(r_framedata.global) + sizeof(r_framedata.lights[0]) * q_max (r_framedata.global.numlights, 1); // avoid zero-length array
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &r_framedata, size, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, size);
@@ -608,11 +619,10 @@ R_SetupView -- johnfitz -- this is the stuff that needs to be done once per fram
 */
 void R_SetupView (void)
 {
-	memset (&r_framedata, 0, sizeof(r_framedata));
-
 	R_AnimateLight ();
 	R_UpdateLightmaps ();
 	r_framecount++;
+	r_framedata.global.time = cl.time;
 
 	Fog_SetupFrame (); //johnfitz
 
@@ -661,8 +671,6 @@ void R_SetupView (void)
 	R_Clear ();
 
 	R_PushDlights ();
-
-	R_UploadFrameData ();
 
 	//johnfitz -- cheat-protect some draw modes
 	r_fullbright_cheatsafe = r_lightmap_cheatsafe = false;

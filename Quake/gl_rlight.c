@@ -23,8 +23,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-int	r_dlightframecount;
-
 extern cvar_t r_flatlightstyles; //johnfitz
 
 /*
@@ -70,6 +68,41 @@ DYNAMIC LIGHTS
 =============================================================================
 */
 
+static GLuint gl_lightclustertexture;
+
+typedef struct gpu_cluster_inputs_s {
+	float		transposed_proj[16];
+	float		view_matrix[16];
+} gpu_cluster_inputs_t;
+
+/*
+=============
+GLLight_CreateResources
+=============
+*/
+void GLLight_CreateResources (void)
+{
+	glGenTextures (1, &gl_lightclustertexture);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_3D, gl_lightclustertexture);
+	GL_ObjectLabelFunc (GL_TEXTURE, gl_lightclustertexture, -1, "light clusters");
+	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_RG32UI, LIGHT_TILES_X, LIGHT_TILES_Y, LIGHT_TILES_Z, 0, GL_RG_INTEGER, GL_UNSIGNED_INT, NULL);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+}
+
+/*
+=============
+GLLight_DeleteResources
+=============
+*/
+void GLLight_DeleteResources (void)
+{
+	glDeleteTextures (1, &gl_lightclustertexture);
+	gl_lightclustertexture = 0;
+}
+
 /*
 =============
 R_PushDlights
@@ -78,16 +111,16 @@ R_PushDlights
 void R_PushDlights (void)
 {
 	int				i, j;
-	dlight_t		*l;
+	GLuint			buf;
+	GLbyte			*ofs;
+	gpu_cluster_inputs_t cluster_inputs;
 
-	r_dlightframecount = r_framecount + 1;	// because the count hasn't
-											//  advanced yet for this frame
 	r_framedata.global.numlights = 0;
-	l = cl_dlights;
 
 	if (r_dynamic.value)
 	{
-		for (i = 0; i < MAX_DLIGHTS; i++, l++)
+		dlight_t *l;
+		for (i = 0, l = cl_dlights; i < MAX_DLIGHTS; i++, l++)
 		{
 			gpulight_t *out;
 			qboolean cull = false;
@@ -117,6 +150,25 @@ void R_PushDlights (void)
 			out->minlight = l->minlight;
 		}
 	}
+
+	GL_BeginGroup ("Light clustering");
+
+	R_UploadFrameData ();
+
+	for (i = 0; i < 16; i++)
+		cluster_inputs.transposed_proj[i] = r_matproj[((i & 3) << 2) | (i >> 2)];
+	memcpy (cluster_inputs.view_matrix, r_matview, 16 * sizeof (float));
+
+	GL_UseProgram (glprogs.cluster_lights);
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &cluster_inputs, sizeof (cluster_inputs), &buf, &ofs);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr) ofs, sizeof (cluster_inputs));
+	GL_BindImageTextureFunc (0, gl_lightclustertexture, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RG32UI);
+	GL_DispatchComputeFunc ((LIGHT_TILES_X+7)/8, (LIGHT_TILES_Y+7)/8, LIGHT_TILES_Z);
+	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
+
+	GL_BindImageTextureFunc (0, gl_lightclustertexture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RG32UI);
+
+	GL_EndGroup ();
 }
 
 

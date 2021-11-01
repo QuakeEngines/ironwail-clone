@@ -23,6 +23,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 ////////////////////////////////////////////////////////////////
 //
+// Debug options
+//
+////////////////////////////////////////////////////////////////
+
+#define SHOW_ACTIVE_LIGHT_CLUSTERS 0
+
+////////////////////////////////////////////////////////////////
+//
 // GUI
 //
 ////////////////////////////////////////////////////////////////
@@ -180,6 +188,11 @@ static const char postprocess_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 #define FRAMEDATA_BUFFER \
+"#define LIGHT_TILES_X " QS_STRINGIFY (LIGHT_TILES_X) "\n"\
+"#define LIGHT_TILES_Y " QS_STRINGIFY (LIGHT_TILES_Y) "\n"\
+"#define LIGHT_TILES_Z " QS_STRINGIFY (LIGHT_TILES_Z) "\n"\
+"#define MAX_LIGHTS    " QS_STRINGIFY (MAX_DLIGHTS)   "\n"\
+"\n"\
 "struct Light\n"\
 "{\n"\
 "	vec3	origin;\n"\
@@ -194,10 +207,16 @@ static const char postprocess_fragment_shader[] =
 "	vec3	FogColor;\n"\
 "	float	FogDensity;\n"\
 "	float	Time;\n"\
-"	int		NumLights;\n"\
-"	float	padding_framedatabuffer[2];\n"\
-"	Light	lights[];\n"\
+"	float	ZLogScale;\n"\
+"	float	ZLogBias;\n"\
+"	uint	NumLights;\n"\
+"	Light	Lights[];\n"\
 "};\n"\
+
+////////////////////////////////////////////////////////////////
+
+#define LIGHT_CLUSTER_IMAGE(mode) \
+"layout(rg32ui, binding=0) uniform " mode " uimage3D LightClusters;\n"\
 
 ////////////////////////////////////////////////////////////////
 
@@ -298,7 +317,8 @@ WORLD_VERTEX_BUFFER \
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
 "layout(location=1) out vec3 out_pos;\n"\
 "layout(location=2) out vec4 out_uv;\n"\
-"layout(location=3) out float out_fogdist;\n"\
+"layout(location=3) out float out_depth;\n"\
+"layout(location=4) noperspective out vec2 out_coord;\n"\
 "\n"\
 "void main()\n"\
 "{\n"\
@@ -311,7 +331,8 @@ WORLD_VERTEX_BUFFER \
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0)\n"\
 "		gl_Position.z += 1./1024.;\n"\
 "	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"\
-"	out_fogdist = gl_Position.w;\n"\
+"	out_depth = gl_Position.w;\n"\
+"	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"\
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
 "}\n"\
 
@@ -332,13 +353,15 @@ WORLD_VERTEX_BUFFER \
 "layout(binding=2) uniform sampler2D LMTex;\n"\
 "\n"\
 FRAMEDATA_BUFFER \
+LIGHT_CLUSTER_IMAGE("readonly") \
 WORLD_CALLDATA_BUFFER \
 WORLD_INSTANCEDATA_BUFFER \
 "\n"\
 "layout(location=0) flat in ivec2 in_drawinstance;\n"\
 "layout(location=1) in vec3 in_pos;\n"\
 "layout(location=2) in vec4 in_uv;\n"\
-"layout(location=3) in float in_fogdist;\n"\
+"layout(location=3) in float in_depth;\n"\
+"layout(location=4) noperspective in vec2 in_coord;\n"\
 "\n"\
 "layout(location=0) out vec4 out_fragcolor;\n"\
 "\n"\
@@ -355,39 +378,56 @@ WORLD_INSTANCEDATA_BUFFER \
 "	if ((call.flags & CF_USE_ALPHA_TEST) != 0 && result.a < 0.666)\n"\
 "		discard;\n"\
 "	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"\
-"	int numlights = NumLights;\n"\
-"	if (numlights > 0)\n"\
+"	if (NumLights > 0u)\n"\
 "	{\n"\
-"		int i;\n"\
-"		vec3 nor = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"\
-"		float planedist = dot(in_pos, nor);\n"\
-"		for (i = 0; i < numlights; i++)\n"\
+"		uint i, ofs;\n"\
+"		ivec3 cluster_coord;\n"\
+"		cluster_coord.x = int(floor(in_coord.x));\n"\
+"		cluster_coord.y = int(floor(in_coord.y));\n"\
+"		cluster_coord.z = int(floor(log2(in_depth) * ZLogScale + ZLogBias));\n"\
+"		uvec2 clusterdata = imageLoad(LightClusters, cluster_coord).xy;\n"\
+"		if ((clusterdata.x | clusterdata.y) != 0u)\n"\
 "		{\n"\
-"			Light l = lights[i];\n"\
-"			// mimics R_AddDynamicLights, up to a point\n"\
-"			float rad = l.radius;\n"\
-"			float dist = dot(l.origin, nor) - planedist;\n"\
-"			rad -= abs(dist);\n"\
-"			float minlight = l.minlight;\n"\
-"			if (rad < minlight)\n"\
-"				continue;\n"\
-"			vec3 local_pos = l.origin - nor * dist;\n"\
-"			minlight = rad - minlight;\n"\
-"			dist = length(in_pos - local_pos);\n"\
-"			total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) / 256. * l.color;\n"\
+"#if " QS_STRINGIFY (SHOW_ACTIVE_LIGHT_CLUSTERS) "\n"\
+"			int cluster_idx = cluster_coord.x + cluster_coord.y * LIGHT_TILES_X + cluster_coord.z * LIGHT_TILES_X * LIGHT_TILES_Y;\n"\
+"			total_light = vec3(ivec3((cluster_idx + 1) * 0x45d9f3b) >> ivec3(0, 8, 16) & 255) / 255.0;\n"\
+"#endif // SHOW_ACTIVE_LIGHT_CLUSTERS\n"\
+"			vec4 plane;\n"\
+"			plane.xyz = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"\
+"			plane.w = dot(in_pos, plane.xyz);\n"\
+"			for (i = 0u, ofs = 0u; i < 2u; i++, ofs += 32u)\n"\
+"			{\n"\
+"				uint mask = clusterdata[i];\n"\
+"				while (mask != 0u)\n"\
+"				{\n"\
+"					int j = findLSB(mask);\n"\
+"					mask ^= 1u << j;\n"\
+"					Light l = Lights[ofs + j];\n"\
+"					// mimics R_AddDynamicLights, up to a point\n"\
+"					float rad = l.radius;\n"\
+"					float dist = dot(l.origin, plane.xyz) - plane.w;\n"\
+"					rad -= abs(dist);\n"\
+"					float minlight = l.minlight;\n"\
+"					if (rad < minlight)\n"\
+"						continue;\n"\
+"					vec3 local_pos = l.origin - plane.xyz * dist;\n"\
+"					minlight = rad - minlight;\n"\
+"					dist = length(in_pos - local_pos);\n"\
+"					total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) / 256. * l.color;\n"\
+"				}\n"\
+"			}\n"\
 "		}\n"\
 "	}\n"\
 "	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"\
 "	result.rgb += fullbright;\n"\
 "	result = clamp(result, 0.0, 1.0);\n"\
-"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"\
+"	float fog = exp2(-(FogDensity * in_depth) * (FogDensity * in_depth));\n"\
 "	fog = clamp(fog, 0.0, 1.0);\n"\
 "	result.rgb = mix(FogColor, result.rgb, fog);\n"\
 "	float alpha = instance.alpha;\n"\
 "	if (alpha < 0.0)\n"\
 "		alpha = 1.0;\n"\
 "	result.a = alpha; // FIXME: This will make almost transparent things cut holes though heavy fog\n"\
-"	out_fragcolor = vec4(1,0,1,1);\n"\
 "	out_fragcolor = result;\n"\
 "}\n"\
 
@@ -1063,4 +1103,128 @@ static const char update_lightmap_compute_shader[] =
 "}\n";
 
 ////////////////////////////////////////////////////////////////
+//
+// Light clustering
+//
+////////////////////////////////////////////////////////////////
 
+static const char cluster_lights_compute_shader[] =
+"#version 430\n"
+"\n"
+"layout(local_size_x=8, local_size_y=8, local_size_z=1) in;\n"
+"\n"
+FRAMEDATA_BUFFER
+"\n"
+LIGHT_CLUSTER_IMAGE("writeonly")
+"\n"
+"layout(std430, binding=1) restrict readonly buffer InputBuffer\n"
+"{\n"
+"	mat4	TransposedProj;\n"
+"	mat4	View;\n"
+"};\n"
+"\n"
+"shared vec4 local_lights[MAX_LIGHTS]; // xyz = view space pos; w = radius\n"
+"\n"
+"vec4 cluster_planes[6]; // view space; facing outside\n"
+"vec3 cluster_center;\n"
+"vec3 cluster_half_size;\n"
+"\n"
+"vec4 ExtractFrustumPlane(int axis, float ndcval, float side)\n"
+"{\n"
+"	vec4 plane = TransposedProj[axis] - ndcval * TransposedProj[3];\n"
+"	return inversesqrt(dot(plane.xyz, plane.xyz)) * side * plane;\n"
+"}\n"
+"\n"
+"void ComputeClusterPlanes(uvec3 gid)\n"
+"{\n"
+"	const float TileSizeX = 2.0 / float(LIGHT_TILES_X);\n"
+"	const float TileSizeY = 2.0 / float(LIGHT_TILES_Y);\n"
+"	float x0 = -1.0 + float(gid.x) * TileSizeX;\n"
+"	float y0 = -1.0 + float(gid.y) * TileSizeY;\n"
+"	float z0 = exp2((float(gid.z) - ZLogBias) / ZLogScale);\n"
+"	cluster_planes[0] = ExtractFrustumPlane(0, x0,             -1.0);      // left\n"
+"	cluster_planes[1] = ExtractFrustumPlane(0, x0 + TileSizeX,  1.0);      // right\n"
+"	cluster_planes[2] = ExtractFrustumPlane(1, y0,             -1.0);      // bottom\n"
+"	cluster_planes[3] = ExtractFrustumPlane(1, y0 + TileSizeY,  1.0);      // top\n"
+"	cluster_planes[4] = vec4(-1.0, 0.0, 0.0,  z0);                         // near\n"
+"	cluster_planes[5] = vec4( 1.0, 0.0, 0.0, -z0 * exp2(1.0 / ZLogScale)); // far\n"
+"}\n"
+"\n"
+"float PointPlaneDistance(vec3 p, vec4 plane)\n"
+"{\n"
+"	return dot(p, plane.xyz) + plane.w;\n"
+"}\n"
+"\n"
+"vec3 IntersectDepthPlane(vec3 dir, float depth)\n"
+"{\n"
+"	return vec3(depth, (depth / dir.x) * dir.yz);\n"
+"}\n"
+"\n"
+"void ComputeClusterExtents()\n"
+"{\n"
+"	vec3 bl = cross(cluster_planes[2].xyz, cluster_planes[0].xyz); // bottom-left\n"
+"	vec3 tr = cross(cluster_planes[3].xyz, cluster_planes[1].xyz); // top-right\n"
+"	float depth_near = cluster_planes[4].w;\n"
+"	float depth_far = -cluster_planes[5].w;\n"
+"	vec3 p0 = IntersectDepthPlane(bl, depth_near);\n"
+"	vec3 p1 = IntersectDepthPlane(bl, depth_far);\n"
+"	vec3 p2 = IntersectDepthPlane(tr, depth_near);\n"
+"	vec3 p3 = IntersectDepthPlane(tr, depth_far);\n"
+"	vec3 cluster_mins = vec3(depth_near, min(min(p0.yz, p1.yz), min(p2.yz, p3.yz)));\n"
+"	vec3 cluster_maxs = vec3(depth_far,  max(max(p0.yz, p1.yz), max(p2.yz, p3.yz)));\n"
+"	cluster_center = (cluster_mins + cluster_maxs) * 0.5;\n"
+"	cluster_half_size = (cluster_maxs - cluster_mins) * 0.5;\n"
+"}\n"
+"\n"
+"bool LightTouchesCluster(vec4 l)\n"
+"{\n"
+"#if 1\n"
+"	vec3 delta = max(abs(l.xyz - cluster_center) - cluster_half_size, 0.0);\n"
+"	if (dot(delta, delta) >= l.w * l.w)\n"
+"		return false;\n"
+"#endif\n"
+"#if 0\n"
+"	for (int i = 0; i < 6; i++)\n"
+"		if (PointPlaneDistance(l.xyz, cluster_planes[i]) > l.w)\n"
+"			return false;\n"
+"#endif\n"
+"	return true;\n"
+"}\n"
+"\n"
+"void main()\n"
+"{\n"
+"	uvec3 gid = gl_GlobalInvocationID;\n"
+"	if (any(greaterThanEqual(gid, uvec3(LIGHT_TILES_X, LIGHT_TILES_Y, LIGHT_TILES_Z))))\n"
+"		return;\n"
+"	uint numlights = NumLights;\n"
+"	if (numlights == 0u)\n"
+"	{\n"
+"		imageStore(LightClusters, ivec3(gid), uvec4(0u));\n"
+"		return;\n"
+"	}\n"
+"	uint groupsize = gl_WorkGroupSize.x * gl_WorkGroupSize.y * gl_WorkGroupSize.z;\n"
+"	uint numpasses = (numlights + (groupsize - 1u)) / groupsize;\n"
+"	uint i, j, ofs;\n"
+"	for (i = 0u, ofs = 0u; i < numpasses; i++, ofs += groupsize)\n"
+"	{\n"
+"		uint index = gl_LocalInvocationIndex + ofs;\n"
+"		if (index < numlights)\n"
+"		{\n"
+"			Light l = Lights[index];\n"
+"			local_lights[index] = vec4((View * vec4(l.origin, 1.0)).xyz, l.radius);\n"
+"		}\n"
+"	}\n"
+"	memoryBarrierShared();\n"
+"	barrier();\n"
+"\n"
+"	ComputeClusterPlanes(gid);\n"
+"	ComputeClusterExtents();\n"
+"\n"
+"	uint clustermask[MAX_LIGHTS / 32];\n"
+"	for (i = 0u; i < clustermask.length(); i++)\n"
+"		clustermask[i] = 0u;\n"
+"	for (i = 0u; i < numlights; i++)\n"
+"		if (LightTouchesCluster(local_lights[i]))\n"
+"			clustermask[i >> 5u] |= 1u << (i & 31u);\n"
+"	imageStore(LightClusters, ivec3(gid), uvec4(clustermask[0], clustermask[1], 0u, 0u));\n"
+"}\n";
