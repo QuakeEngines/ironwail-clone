@@ -1133,10 +1133,6 @@ static void GL_SetupState (void)
 	glClearColor (0.f, 0.f, 0.f, 0.f);
 	glFrontFace (GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glDepthRange (0, 1); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glDepthFunc (GL_LEQUAL); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glEnable (GL_BLEND);
