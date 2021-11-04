@@ -114,6 +114,7 @@ int TexMgr_PadConditional (int s);
 void GL_SelectTexture (GLenum texunit);
 qboolean GL_Bind (GLenum texunit, gltexture_t *texture);
 qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle);
+void GL_DeleteNativeTexture (GLuint texnum);
 void GL_ClearBindings (void);
 
 #endif	/* _GL_TEXMAN_H */

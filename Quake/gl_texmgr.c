@@ -1562,27 +1562,34 @@ qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle)
 
 /*
 ================
-GL_DeleteTexture -- ericw
+GL_DeleteNativeTexture -- ericw
 
 Wrapper around glDeleteTextures that also clears the given texture number
 from our per-TMU cached texture binding table.
 ================
 */
-static void GL_DeleteTexture (gltexture_t *texture)
+void GL_DeleteNativeTexture (GLuint texnum)
 {
 	int i;
+	for (i = 0; i < countof(currenttexture); i++)
+		if (texnum == currenttexture[i])
+			currenttexture[i] = GL_UNUSED_TEXTURE;
+	glDeleteTextures (1, &texnum);
+}
 
+/*
+================
+GL_DeleteTexture -- ericw
+================
+*/
+static void GL_DeleteTexture (gltexture_t *texture)
+{
 	if (texture->bindless_handle)
 	{
 		GL_MakeTextureHandleNonResidentARBFunc (texture->bindless_handle);
 		texture->bindless_handle = 0;
 	}
-	glDeleteTextures (1, &texture->texnum);
-
-	for (i = 0; i < countof(currenttexture); i++)
-		if (texture->texnum == currenttexture[i])
-			currenttexture[i] = GL_UNUSED_TEXTURE;
-
+	GL_DeleteNativeTexture (texture->texnum);
 	texture->texnum = 0;
 }
 

@@ -101,6 +101,7 @@ cvar_t	r_nolerp_list = {"r_nolerp_list", "progs/flame.mdl,progs/flame2.mdl,progs
 cvar_t	r_noshadow_list = {"r_noshadow_list", "progs/flame2.mdl,progs/flame.mdl,progs/bolt1.mdl,progs/bolt2.mdl,progs/bolt3.mdl,progs/laser.mdl", CVAR_NONE};
 
 extern cvar_t	r_vfog;
+extern cvar_t	vid_fsaa;
 //johnfitz
 
 cvar_t	gl_zfix = {"gl_zfix", "1", CVAR_ARCHIVE}; // QuakeSpasm z-fighting fix
@@ -118,42 +119,141 @@ cvar_t	r_scale = {"r_scale", "1", CVAR_ARCHIVE};
 
 //==============================================================================
 //
-// GLSL GAMMA CORRECTION
+// FRAMEBUFFERS
 //
 //==============================================================================
 
-static GLuint r_gamma_texture;
-static int r_gamma_texture_width, r_gamma_texture_height;
+glframebufs_t framebufs;
 
 /*
 =============
-GLSLGamma_DeleteTexture
+GL_CreateFBOAttachment
 =============
 */
-void GLSLGamma_DeleteTexture (void)
+static GLuint GL_CreateFBOAttachment (GLenum format, int samples, GLenum filter, const char *name)
 {
-	glDeleteTextures (1, &r_gamma_texture);
-	r_gamma_texture = 0;
+	GLenum target = samples > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D;
+	GLuint texnum;
+
+	glGenTextures (1, &texnum);
+	GL_BindNative (GL_TEXTURE0, target, texnum);
+	GL_ObjectLabelFunc (GL_TEXTURE, texnum, -1, name);
+	if (samples > 1)
+	{
+		GL_TexStorage2DMultisampleFunc (target, samples, format, vid.width, vid.height, GL_FALSE);
+	}
+	else
+	{
+		GL_TexStorage2DFunc (target, 1, format, vid.width, vid.height);
+		glTexParameteri (target, GL_TEXTURE_MAG_FILTER, filter);
+		glTexParameteri (target, GL_TEXTURE_MIN_FILTER, filter);
+	}
+	glTexParameteri (target, GL_TEXTURE_MAX_LEVEL, 0);
+
+	return texnum;
 }
 
 /*
 =============
-GLSLGamma_CreateResources
+GL_CreateFBO
 =============
 */
-void GLSLGamma_CreateResources (void)
+static GLuint GL_CreateFBO (GLenum target, GLuint colors, GLuint depth, GLuint stencil, const char *name)
 {
-	glGenTextures (1, &r_gamma_texture);
-	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_gamma_texture);
+	GLenum status;
+	GLuint fbo;
 
-	r_gamma_texture_width = vid.width;
-	r_gamma_texture_height = vid.height;
+	GL_GenFramebuffersFunc (1, &fbo);
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, fbo);
+	GL_ObjectLabelFunc (GL_FRAMEBUFFER, fbo, -1, name);
 
-	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_gamma_texture_width, r_gamma_texture_height, 0, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, NULL);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	GL_ObjectLabelFunc (GL_TEXTURE, r_gamma_texture, -1, "postprocess");
+	if (colors)
+		GL_FramebufferTexture2DFunc (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, colors, 0);
+	if (depth)
+		GL_FramebufferTexture2DFunc (GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, depth, 0);
+	if (stencil)
+		GL_FramebufferTexture2DFunc (GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, target, stencil, 0);
+
+	status = GL_CheckFramebufferStatusFunc (GL_FRAMEBUFFER);
+	if (status != GL_FRAMEBUFFER_COMPLETE)
+		Sys_Error ("Failed to create %s (status code 0x%X)", name, status);
+
+	return fbo;
 }
+
+/*
+=============
+GL_CreateFrameBuffers
+=============
+*/
+void GL_CreateFrameBuffers (void)
+{
+	GLenum color_format = GL_RGB10_A2;
+	GLenum depth_format = GL_DEPTH24_STENCIL8;
+
+	/* query MSAA limits */
+	glGetIntegerv (GL_MAX_COLOR_TEXTURE_SAMPLES, &framebufs.max_color_tex_samples);
+	glGetIntegerv (GL_MAX_DEPTH_TEXTURE_SAMPLES, &framebufs.max_depth_tex_samples);
+	framebufs.max_samples = q_min (framebufs.max_color_tex_samples, framebufs.max_depth_tex_samples);
+
+	/* main framebuffer (color only) */
+	framebufs.composite.color_tex = GL_CreateFBOAttachment (color_format, 1, GL_NEAREST, "composite colors");
+	framebufs.composite.fbo = GL_CreateFBO (GL_TEXTURE_2D, framebufs.composite.color_tex, 0, 0, "composite fbo");
+
+	/* scene framebuffer (color + depth + stencil, potentially multisampled) */
+	framebufs.scene.samples = Q_nextPow2 ((int) q_max (1.f, vid_fsaa.value));
+	framebufs.scene.samples = CLAMP (1, framebufs.scene.samples, framebufs.max_samples);
+
+	framebufs.scene.color_tex = GL_CreateFBOAttachment (color_format, framebufs.scene.samples, GL_NEAREST, "scene colors");
+	framebufs.scene.depth_stencil_tex = GL_CreateFBOAttachment (depth_format, framebufs.scene.samples, GL_NEAREST, "scene depth/stencil");
+	framebufs.scene.fbo = GL_CreateFBO (framebufs.scene.samples > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D,
+		framebufs.scene.color_tex,
+		framebufs.scene.depth_stencil_tex,
+		framebufs.scene.depth_stencil_tex,
+		"scene fbo"
+	);
+
+	/* resolved scene framebuffer (color only) */
+	if (framebufs.scene.samples > 1)
+	{
+		framebufs.resolved_scene.color_tex = GL_CreateFBOAttachment (color_format, 1, GL_LINEAR, "resolved scene colors");
+		framebufs.resolved_scene.fbo = GL_CreateFBO (GL_TEXTURE_2D, framebufs.resolved_scene.color_tex, 0, 0, "resolved scene fbo");
+	}
+	else
+	{
+		framebufs.resolved_scene.color_tex = 0;
+		framebufs.resolved_scene.fbo = 0;
+	}
+
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, 0);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, 0);
+}
+
+/*
+=============
+GL_DeleteFrameBuffers
+=============
+*/
+void GL_DeleteFrameBuffers (void)
+{
+	GL_DeleteFramebuffersFunc (1, &framebufs.resolved_scene.fbo);
+	GL_DeleteFramebuffersFunc (1, &framebufs.scene.fbo);
+	GL_DeleteFramebuffersFunc (1, &framebufs.composite.fbo);
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, 0);
+
+	GL_DeleteNativeTexture (framebufs.resolved_scene.color_tex);
+	GL_DeleteNativeTexture (framebufs.scene.depth_stencil_tex);
+	GL_DeleteNativeTexture (framebufs.scene.color_tex);
+	GL_DeleteNativeTexture (framebufs.composite.color_tex);
+
+	memset (&framebufs, 0, sizeof (framebufs));
+}
+
+//==============================================================================
+//
+// GLSL GAMMA CORRECTION
+//
+//==============================================================================
 
 /*
 =============
@@ -167,18 +267,15 @@ void GLSLGamma_GammaCorrect (void)
 
 	GL_BeginGroup ("Postprocess");
 
-// copy the framebuffer to the texture
-	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_gamma_texture);
-	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, glx, gly, glwidth, glheight);
-
-// draw the texture back to the framebuffer with a fragment shader
-	GL_UseProgram (glprogs.postprocess);
-	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
-	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
-
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, 0);
 	glViewport (glx, gly, glwidth, glheight);
 
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+	GL_UseProgram (glprogs.postprocess);
+	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, framebufs.composite.color_tex);
+	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
+
+	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
 
 	GL_EndGroup ();
 }
@@ -555,15 +652,10 @@ R_SetupGL
 */
 void R_SetupGL (void)
 {
-	int scale;
+	int scale = CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
 
-	//johnfitz -- rewrote this section
-	scale =  CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
-	glViewport (glx + r_refdef.vrect.x,
-				gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height,
-				r_refdef.vrect.width / scale,
-				r_refdef.vrect.height / scale);
-	//johnfitz
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, framebufs.scene.fbo);
+	glViewport (0, 0, r_refdef.vrect.width / scale, r_refdef.vrect.height / scale);
 }
 
 /*
@@ -573,12 +665,7 @@ R_Clear -- johnfitz -- rewritten and gutted
 */
 void R_Clear (void)
 {
-	unsigned int clearbits;
-
-	clearbits = GL_DEPTH_BUFFER_BIT;
-	// from mh -- if we get a stencil buffer, we should clear it, even though we don't use it
-	if (gl_stencilbits)
-		clearbits |= GL_STENCIL_BUFFER_BIT;
+	GLbitfield clearbits = GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
 	if (gl_clear.value)
 		clearbits |= GL_COLOR_BUFFER_BIT;
 
@@ -667,8 +754,6 @@ void R_SetupView (void)
 	R_MarkSurfaces (); //johnfitz -- create texture chains from PVS
 
 	R_SortEntities ();
-
-	R_Clear ();
 
 	R_PushDlights ();
 
@@ -842,6 +927,8 @@ void R_RenderScene (void)
 {
 	R_SetupScene (); //johnfitz -- this does everything that should be done once per call to RenderScene
 
+	R_Clear ();
+
 	Fog_EnableGFog (); //johnfitz
 
 	R_DrawViewModel (); //johnfitz -- moved here from R_RenderView
@@ -861,41 +948,6 @@ void R_RenderScene (void)
 	R_ShowTris (); //johnfitz
 }
 
-static GLuint r_warpscale_texture;
-static int r_warpscale_texture_width, r_warpscale_texture_height;
-
-/*
-=============
-R_WarpScaleView_DeleteTexture
-=============
-*/
-void R_WarpScaleView_DeleteTexture (void)
-{
-	glDeleteTextures (1, &r_warpscale_texture);
-	r_warpscale_texture = 0;
-}
-
-/*
-=============
-R_WarpScaleView_CreateResources
-=============
-*/
-void R_WarpScaleView_CreateResources (void)
-{
-	glGenTextures (1, &r_warpscale_texture);
-	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_warpscale_texture);
-
-	r_warpscale_texture_width = vid.width;
-	r_warpscale_texture_height = vid.height;
-
-	glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA8, r_warpscale_texture_width, r_warpscale_texture_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	GL_ObjectLabelFunc (GL_TEXTURE, r_warpscale_texture, -1, "warp/scale");
-}
-
 /*
 ================
 R_WarpScaleView
@@ -908,9 +960,10 @@ or possibly as a perforance boost on slow graphics cards.
 */
 void R_WarpScaleView (void)
 {
-	float smax, tmax;
 	int scale;
 	int srcx, srcy, srcw, srch;
+	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f;
+	qboolean msaa = framebufs.scene.samples > 1;
 
 	// copied from R_SetupGL()
 	scale = CLAMP(1, (int)r_scale.value, 4);
@@ -919,24 +972,37 @@ void R_WarpScaleView (void)
 	srcw = r_refdef.vrect.width / scale;
 	srch = r_refdef.vrect.height / scale;
 
-	if (scale == 1 && !water_warp)
-		return;
+	if (msaa)
+	{
+		GL_BeginGroup ("MSAA resolve");
+		GL_BindFramebufferFunc (GL_READ_FRAMEBUFFER, framebufs.scene.fbo);
+		GL_BindFramebufferFunc (GL_DRAW_FRAMEBUFFER, framebufs.resolved_scene.fbo);
+		GL_BlitFramebufferFunc (0, 0, srcw, srch, 0, 0, srcw, srch, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		GL_EndGroup ();
+	}
 
 	GL_BeginGroup ("Warp/scale view");
 
-	// copy the framebuffer to the texture
-	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, r_warpscale_texture);
-	glCopyTexSubImage2D (GL_TEXTURE_2D, 0, 0, 0, srcx, srcy, srcw, srch);
-
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, postprocess ? framebufs.composite.fbo : 0);
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
 
-	smax = srcw/(float)r_warpscale_texture_width;
-	tmax = srch/(float)r_warpscale_texture_height;
+	if (water_warp)
+	{
+		float smax = srcw/(float)vid.width;
+		float tmax = srch/(float)vid.height;
 
-	GL_UseProgram (glprogs.warpscale);
-	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
-	GL_Uniform4fFunc(0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
-	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+		GL_UseProgram (glprogs.warpscale);
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+
+		GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
+		GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
+		glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
+	}
+	else
+	{
+		GL_BindFramebufferFunc (GL_READ_FRAMEBUFFER, msaa ? framebufs.resolved_scene.fbo : framebufs.scene.fbo);
+		GL_BlitFramebufferFunc (0, 0, srcw, srch, srcx, srcy, srcx + r_refdef.vrect.width, srcy + r_refdef.vrect.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+	}
 
 	GL_EndGroup ();
 }

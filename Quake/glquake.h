@@ -171,12 +171,18 @@ extern	qboolean	gl_bindless_able;
 	x(void,			GenerateMipmap, (GLenum target))\
 	x(void,			BindFramebuffer, (GLenum target, GLuint framebuffer))\
 	x(void,			GenFramebuffers, (GLsizei n, GLuint *framebuffers))\
+	x(void,			DeleteFramebuffers, (GLsizei n, const GLuint *framebuffers))\
 	x(void,			FramebufferTexture2D, (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level))\
+	x(GLenum,		CheckFramebufferStatus, (GLenum target))\
+	x(void,			BlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter))\
 	x(void,			DebugMessageCallback, (GLDEBUGPROC callback, const void *userParam))\
 	x(void,			ObjectLabel, (GLenum identifier, GLuint name, GLsizei length, const GLchar *label))\
 	x(void,			PushDebugGroup, (GLenum source, GLuint id, GLsizei length, const char * message))\
 	x(void,			PopDebugGroup, (void))\
 	x(const GLubyte*,GetStringi, (GLenum name, GLuint index))\
+	x(void,			TexStorage2D, (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height))\
+	x(void,			TexStorage3D, (GLenum target, GLsizei levels, GLenum internalFormat, GLsizei width, GLsizei height, GLsizei depth))\
+	x(void,			TexStorage2DMultisample, (GLenum target, GLsizei samples, GLenum internalFormat, GLsizei width, GLsizei height, GLboolean fixedsamplelocations))\
 	x(void,			TexImage3D, (GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type, const GLvoid *pixels))\
 	x(void,			TexSubImage3D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const GLvoid *pixels))\
 	x(void,			BindTextures, (GLuint first, GLsizei count, const GLuint *textures))\
@@ -449,8 +455,34 @@ void GL_ClearCachedProgram (void);
 void GL_CreateShaders (void);
 void GL_DeleteShaders (void);
 
-void R_WarpScaleView_CreateResources (void);
-void GLSLGamma_CreateResources (void);
+typedef struct glframebufs_s {
+	GLint			max_color_tex_samples;
+	GLint			max_depth_tex_samples;
+	GLint			max_samples; // lowest of max_color_tex_samples/max_depth_tex_samples
+
+	struct {
+		GLint		samples;
+		GLuint		color_tex;
+		GLuint		depth_stencil_tex;
+		GLuint		fbo;
+	}				scene;
+
+	struct {
+		GLuint		color_tex;
+		GLuint		fbo;
+	}				resolved_scene;
+
+	struct {
+		GLuint		color_tex;
+		GLuint		fbo;
+	}				composite;
+} glframebufs_t;
+
+extern glframebufs_t framebufs;
+
+void GL_CreateFrameBuffers (void);
+void GL_DeleteFrameBuffers (void);
+
 void GLWorld_CreateResources (void);
 void GLLight_CreateResources (void);
 void GLLight_DeleteResources (void);
@@ -475,10 +507,7 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf
 void GL_DynamicBuffersBeginFrame (void);
 void GL_DynamicBuffersEndFrame (void);
 
-void GLSLGamma_DeleteTexture (void);
 void GLSLGamma_GammaCorrect (void);
-
-void R_WarpScaleView_DeleteTexture (void);
 
 float GL_WaterAlphaForTextureType (textype_t type);
 

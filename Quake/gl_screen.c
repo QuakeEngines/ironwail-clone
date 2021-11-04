@@ -1138,8 +1138,6 @@ void SCR_UpdateScreen (void)
 
 	GL_EndGroup ();
 
-	GLSLGamma_GammaCorrect ();
-
 	GL_EndRendering ();
 }
 

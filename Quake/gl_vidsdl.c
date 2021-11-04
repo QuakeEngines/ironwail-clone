@@ -138,15 +138,15 @@ static const glfunc_t gl_arb_bindless_texture_functions[] =
 //====================================
 
 //johnfitz -- new cvars
-static cvar_t	vid_fullscreen = {"vid_fullscreen", "0", CVAR_ARCHIVE};	// QuakeSpasm, was "1"
-static cvar_t	vid_width = {"vid_width", "800", CVAR_ARCHIVE};		// QuakeSpasm, was 640
-static cvar_t	vid_height = {"vid_height", "600", CVAR_ARCHIVE};	// QuakeSpasm, was 480
-static cvar_t	vid_bpp = {"vid_bpp", "16", CVAR_ARCHIVE};
-static cvar_t	vid_refreshrate = {"vid_refreshrate", "60", CVAR_ARCHIVE};
-static cvar_t	vid_vsync = {"vid_vsync", "0", CVAR_ARCHIVE};
-static cvar_t	vid_fsaa = {"vid_fsaa", "0", CVAR_ARCHIVE}; // QuakeSpasm
-static cvar_t	vid_desktopfullscreen = {"vid_desktopfullscreen", "0", CVAR_ARCHIVE}; // QuakeSpasm
-static cvar_t	vid_borderless = {"vid_borderless", "0", CVAR_ARCHIVE}; // QuakeSpasm
+cvar_t		vid_fullscreen = {"vid_fullscreen", "0", CVAR_ARCHIVE};	// QuakeSpasm, was "1"
+cvar_t		vid_width = {"vid_width", "800", CVAR_ARCHIVE};		// QuakeSpasm, was 640
+cvar_t		vid_height = {"vid_height", "600", CVAR_ARCHIVE};	// QuakeSpasm, was 480
+cvar_t		vid_bpp = {"vid_bpp", "16", CVAR_ARCHIVE};
+cvar_t		vid_refreshrate = {"vid_refreshrate", "60", CVAR_ARCHIVE};
+cvar_t		vid_vsync = {"vid_vsync", "0", CVAR_ARCHIVE};
+cvar_t		vid_fsaa = {"vid_fsaa", "0", CVAR_ARCHIVE}; // QuakeSpasm
+cvar_t		vid_desktopfullscreen = {"vid_desktopfullscreen", "0", CVAR_ARCHIVE}; // QuakeSpasm
+cvar_t		vid_borderless = {"vid_borderless", "0", CVAR_ARCHIVE}; // QuakeSpasm
 //johnfitz
 
 cvar_t		vid_gamma = {"gamma", "1", CVAR_ARCHIVE}; //johnfitz -- moved here from view.c
@@ -425,7 +425,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	Uint32	flags;
 	char		caption[50];
 	int		depthbits, stencilbits;
-	int		fsaa_obtained;
 #if defined(USE_SDL2)
 	int		previous_display;
 #endif
@@ -442,13 +441,9 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		depthbits = 16;
 	else
 		depthbits = 24;
-	stencilbits = 8;
+	stencilbits = 0;
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, depthbits);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, stencilbits);
-
-	/* fsaa */
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, fsaa > 0 ? 1 : 0);
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, fsaa);
 
 	q_snprintf(caption, sizeof(caption), "QuakeSpasm " QUAKESPASM_VER_STRING);
 
@@ -468,11 +463,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
 #endif
 		draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
-		if (!draw_context) { // scale back fsaa
-			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
-			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-			draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
-		}
 		if (!draw_context) { // scale back SDL_GL_DEPTH_SIZE
 			SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
 			draw_context = SDL_CreateWindow (caption, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, flags);
@@ -540,11 +530,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	bpp = SDL_VideoModeOK(width, height, bpp, flags);
 
 	draw_context = SDL_SetVideoMode(width, height, bpp, flags);
-	if (!draw_context) { // scale back fsaa
-		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
-		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-		draw_context = SDL_SetVideoMode(width, height, bpp, flags);
-	}
 	if (!draw_context) { // scale back SDL_GL_DEPTH_SIZE
 		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
 		draw_context = SDL_SetVideoMode(width, height, bpp, flags);
@@ -570,10 +555,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	if (SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &depthbits) == -1)
 		depthbits = 0;
 
-// read obtained fsaa samples
-	if (SDL_GL_GetAttribute(SDL_GL_MULTISAMPLESAMPLES, &fsaa_obtained) == -1)
-		fsaa_obtained = 0;
-
 // read stencil bits
 	if (SDL_GL_GetAttribute(SDL_GL_STENCIL_SIZE, &gl_stencilbits) == -1)
 		gl_stencilbits = 0;
@@ -587,14 +568,11 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 // fix the leftover Alt from any Alt-Tab or the like that switched us away
 	ClearAllStates ();
 
-	Con_SafePrintf ("Video mode %dx%dx%d %dHz (Z%d S%d %dxAA) initialized\n",
+	Con_SafePrintf ("Video mode: %dx%dx%d %dHz\n",
 				VID_GetCurrentWidth(),
 				VID_GetCurrentHeight(),
 				VID_GetCurrentBPP(),
-				VID_GetCurrentRefreshRate(),
-				depthbits,
-				gl_stencilbits,
-				fsaa_obtained);
+				VID_GetCurrentRefreshRate());
 
 	vid.recalc_refdef = 1;
 
@@ -654,8 +632,7 @@ static void VID_Restart (void)
 
 	TexMgr_DeleteTextureObjects ();
 	GLLight_DeleteResources ();
-	GLSLGamma_DeleteTexture ();
-	R_WarpScaleView_DeleteTexture ();
+	GL_DeleteFrameBuffers ();
 	GL_DeleteShaders ();
 	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
@@ -1192,8 +1169,7 @@ static void GL_Init (void)
 	//johnfitz
 
 	GL_CreateShaders ();
-	R_WarpScaleView_CreateResources ();
-	GLSLGamma_CreateResources ();
+	GL_CreateFrameBuffers ();
 	GLWorld_CreateResources ();
 	GLLight_CreateResources ();
 
@@ -1208,11 +1184,15 @@ GL_BeginRendering -- sets values of glx, gly, glwidth, glheight
 */
 void GL_BeginRendering (int *x, int *y, int *width, int *height)
 {
+	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f;
+
 	*x = *y = 0;
 	*width = vid.width;
 	*height = vid.height;
 
 	GL_DynamicBuffersBeginFrame ();
+
+	GL_BindFramebufferFunc (GL_FRAMEBUFFER, postprocess ? framebufs.composite.fbo : 0);
 }
 
 /*
@@ -1222,7 +1202,9 @@ GL_EndRendering
 */
 void GL_EndRendering (void)
 {
+	GLSLGamma_GammaCorrect ();
 	GL_DynamicBuffersEndFrame ();
+
 	if (!scr_skipupdate)
 	{
 #if defined(USE_SDL2)
@@ -1315,18 +1297,6 @@ static void VID_DescribeModes_f (void)
 		}
 	}
 	Con_Printf ("\n%i modes\n", count);
-}
-
-/*
-===================
-VID_FSAA_f -- ericw -- warn that vid_fsaa requires engine restart
-===================
-*/
-static void VID_FSAA_f (cvar_t *var)
-{
-	// don't print the warning if vid_fsaa is set during startup
-	if (vid_initialized)
-		Con_Printf("%s %d requires engine restart to take effect\n", var->name, (int)var->value);
 }
 
 //==========================================================================
@@ -1455,7 +1425,7 @@ void	VID_Init (void)
 	Cvar_SetCallback (&vid_refreshrate, VID_Changed_f);
 	Cvar_SetCallback (&vid_bpp, VID_Changed_f);
 	Cvar_SetCallback (&vid_vsync, VID_Changed_f);
-	Cvar_SetCallback (&vid_fsaa, VID_FSAA_f);
+	Cvar_SetCallback (&vid_fsaa, VID_Changed_f);
 	Cvar_SetCallback (&vid_desktopfullscreen, VID_Changed_f);
 	Cvar_SetCallback (&vid_borderless, VID_Changed_f);
 	
