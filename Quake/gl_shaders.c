@@ -193,8 +193,10 @@ void GL_CreateShaders (void)
 	glprogs.warpscale = GL_CreateProgram (warpscale_vertex_shader, warpscale_fragment_shader, "view warp/scale");
 	glprogs.postprocess = GL_CreateProgram (postprocess_vertex_shader, postprocess_fragment_shader, "postprocess");
 
-	glprogs.world[0] = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0), "world");
-	glprogs.world[1] = GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1), "world [bindless]");
+	glprogs.world[0][0] = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0, 0), "world");
+	glprogs.world[0][1] = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0, 1), "world alpha test");
+	glprogs.world[1][0] = GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1, 0), "world [bindless]");
+	glprogs.world[1][1] = GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1, 1), "world alpha test [bindless]");
 	glprogs.water[0] = GL_CreateProgram (WATER_VERTEX_SHADER(0), WATER_FRAGMENT_SHADER(0), "water");
 	glprogs.water[1] = GL_CreateProgram (WATER_VERTEX_SHADER(1), WATER_FRAGMENT_SHADER(1), "water [bindless]");
 	glprogs.skystencil[0] = GL_CreateProgram (SKYSTENCIL_VERTEX_SHADER(0), NULL, "sky stencil");

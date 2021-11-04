@@ -338,10 +338,11 @@ WORLD_VERTEX_BUFFER \
 
 ////////////////////////////////////////////////////////////////
 
-#define WORLD_FRAGMENT_SHADER(bindless)\
+#define WORLD_FRAGMENT_SHADER(bindless, alphatest)\
 "#version 430\n"\
 "\n"\
 "#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
+"#define USE_ALPHA_TEST " QS_STRINGIFY(alphatest) "\n"\
 "#if USE_BINDLESS\n"\
 "	#extension GL_ARB_bindless_texture : require\n"\
 "	sampler2D Tex;\n"\
@@ -374,9 +375,11 @@ WORLD_INSTANCEDATA_BUFFER \
 "	FullbrightTex = sampler2D(call.fbhandle);\n"\
 "#endif\n"\
 "	vec4 result = texture(Tex, in_uv.xy);\n"\
-"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"\
-"	if ((call.flags & CF_USE_ALPHA_TEST) != 0 && result.a < 0.666)\n"\
+"#if USE_ALPHA_TEST\n"\
+"	if (result.a < 0.666)\n"\
 "		discard;\n"\
+"#endif\n"\
+"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"\
 "	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"\
 "	if (NumLights > 0u)\n"\
 "	{\n"\

@@ -429,9 +429,9 @@ typedef struct glprogs_s {
 	GLuint		postprocess;
 
 	/* 3d */
-	GLuint		world[2];
-	GLuint		water[2];
-	GLuint		skystencil[2];
+	GLuint		world[2][2];	// [bindless][alpha test]
+	GLuint		water[2];		// [bindless]
+	GLuint		skystencil[2];	// [bindless]
 	GLuint		skylayers;
 	GLuint		skybox;
 	GLuint		alias;

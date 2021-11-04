@@ -406,7 +406,8 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 }
 
 typedef enum {
-	BP_NORMAL,
+	BP_SOLID,
+	BP_ALPHATEST,
 	BP_SKY,
 	BP_SHOWTRIS,
 } brushpass_t;
@@ -437,11 +438,16 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 
 	switch (pass)
 	{
-	case BP_NORMAL:
 	default:
+	case BP_SOLID:
 		texbegin = 0;
+		texend = TEXTYPE_CUTOUT;
+		program = glprogs.world[gl_bindless_able][0];
+		break;
+	case BP_ALPHATEST:
+		texbegin = TEXTYPE_CUTOUT;
 		texend = TEXTYPE_CUTOUT + 1;
-		program = glprogs.world[gl_bindless_able];
+		program = glprogs.world[gl_bindless_able][1];
 		break;
 	case BP_SKY:
 		texbegin = TEXTYPE_SKY;
@@ -451,7 +457,7 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	case BP_SHOWTRIS:
 		texbegin = 0;
 		texend = TEXTYPE_COUNT;
-		program = glprogs.world[gl_bindless_able];
+		program = glprogs.world[gl_bindless_able][0];
 		break;
 	}
 
@@ -607,7 +613,8 @@ R_DrawBrushModels
 */
 void R_DrawBrushModels (entity_t **ents, int count)
 {
-	R_DrawBrushModels_Real (ents, count, BP_NORMAL);
+	R_DrawBrushModels_Real (ents, count, BP_SOLID);
+	R_DrawBrushModels_Real (ents, count, BP_ALPHATEST);
 }
 
 /*
