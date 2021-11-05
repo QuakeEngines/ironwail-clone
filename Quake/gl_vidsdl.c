@@ -765,8 +765,15 @@ static qboolean GL_FindExtension (const char *name)
 {
 	int i;
 	for (i = 0; i < gl_num_extensions; i++)
+	{
 		if (0 == strcmp(name, (const char*) GL_GetStringiFunc (GL_EXTENSIONS, i)))
+		{
+			if (Q_strncmp (name, "GL_", 3) == 0)
+				name += 3;
+			Con_SafePrintf ("FOUND: %s\n", name);
 			return true;
+		}
+	}
 	return false;
 }
 
@@ -967,7 +974,6 @@ static void GL_CheckExtensions (void)
 
 		if (test1 == 1 && test2 == 2)
 		{
-			Con_SafePrintf("FOUND: EXT_texture_filter_anisotropic\n");
 			gl_anisotropy_able = true;
 		}
 		else
@@ -994,7 +1000,6 @@ static void GL_CheckExtensions (void)
 		GL_FindRequiredExtension ("GL_ARB_bindless_texture") &&
 		GL_InitFunctions (gl_arb_bindless_texture_functions, true))
 	{
-		Con_SafePrintf ("FOUND: bindless textures\n");
 		gl_bindless_able = true;
 	}
 	else
