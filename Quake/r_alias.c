@@ -380,7 +380,10 @@ static void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	// transform it
 	//
 	if (e == &cl.viewent && scr_fov.value > 90.f && cl_gun_fovscale.value)
+	{
 		fovscale = tan(scr_fov.value * (0.5f * M_PI / 180.f));
+		fovscale = 1.f + (fovscale - 1.f) * cl_gun_fovscale.value;
+	}
 
 	R_EntityMatrix (model_matrix, lerpdata.origin, lerpdata.angles);
 	TranslationMatrix (translation_matrix, paliashdr->scale_origin[0], paliashdr->scale_origin[1] * fovscale, paliashdr->scale_origin[2] * fovscale);
