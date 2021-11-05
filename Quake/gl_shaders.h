@@ -623,8 +623,6 @@ static const char sky_box_fragment_shader[] =
 "layout(std430, binding=1) restrict readonly buffer InstanceBuffer\n"\
 "{\n"\
 "	vec4	Fog;\n"\
-"	int		UseAlphaTest;\n"\
-"	int		padding[3];\n"\
 "	InstanceData instances[];\n"\
 "};\n"\
 
@@ -705,8 +703,10 @@ ALIAS_INSTANCE_BUFFER
 "void main()\n"
 "{\n"
 "	vec4 result = texture(Tex, in_texcoord);\n"
-"	if (UseAlphaTest != 0 && result.a < 0.666)\n"
+"#if ALPHATEST\n"
+"	if (result.a < 0.666)\n"
 "		discard;\n"
+"#endif\n"
 "	result *= in_color * 2.0;\n"
 "	result += texture(FullbrightTex, in_texcoord);\n"
 "	result = clamp(result, 0.0, 1.0);\n"

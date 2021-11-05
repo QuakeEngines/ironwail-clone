@@ -2996,7 +2996,9 @@ void Mod_LoadAliasModel (qmodel_t *mod, void *buffer)
 		return;
 	memcpy (mod->cache.data, pheader, total);
 
-	mod->sortkey = CRC_Block (mod->name, strlen(mod->name)) & ~MODSORT_FRAMEMASK;
+	mod->sortkey = (CRC_Block (mod->name, strlen(mod->name)) >> 1) & ~(MODSORT_FRAMEMASK|MODSORT_ALIAS_ALPHATEST);
+	if (mod->flags & MF_HOLEY)
+		mod->sortkey |= MODSORT_ALIAS_ALPHATEST;
 
 	Hunk_FreeToLowMark (start);
 }

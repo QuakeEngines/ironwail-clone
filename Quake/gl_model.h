@@ -417,10 +417,11 @@ typedef enum {mod_brush, mod_alias, mod_sprite, mod_numtypes} modtype_t;
 //
 enum
 {
-	MODSORT_FRAMEBITS	= 4,
-	MODSORT_MODELBITS	= 12,
-	MODSORT_FRAMEMASK	= (1 << MODSORT_FRAMEBITS) - 1,
-	MODSORT_MODELMASK	= (1 << MODSORT_MODELBITS) - 1,
+	MODSORT_FRAMEBITS			= 4,
+	MODSORT_MODELBITS			= 12,
+	MODSORT_FRAMEMASK			= (1 << MODSORT_FRAMEBITS) - 1,
+	MODSORT_MODELMASK			= (1 << MODSORT_MODELBITS) - 1,
+	MODSORT_ALIAS_ALPHATEST		= 1 << 15,
 };
 
 typedef struct qmodel_s

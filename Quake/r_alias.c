@@ -78,8 +78,6 @@ struct ibuf_s {
 
 	struct {
 		vec4_t	fog;
-		int		use_alpha_test;
-		int		padding[3];
 	} global;
 	aliasinstance_t inst[MAX_ALIAS_INSTANCES];
 } ibuf;
@@ -314,7 +312,7 @@ void R_FlushAliasInstances (void)
 
 	GL_BeginGroup (model->name);
 
-	GL_UseProgram (glprogs.alias);
+	GL_UseProgram (glprogs.alias[model->flags & MF_HOLEY ? 1 : 0]);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
 	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)
@@ -324,7 +322,6 @@ void R_FlushAliasInstances (void)
 	GL_SetState (state);
 
 	memcpy(ibuf.global.fog, r_framedata.global.fogdata, 4 * sizeof(float));
-	ibuf.global.use_alpha_test = (model->flags & MF_HOLEY) ? 1 : 0;
 
 	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);

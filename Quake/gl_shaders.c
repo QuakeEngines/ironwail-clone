@@ -260,7 +260,8 @@ void GL_CreateShaders (void)
 	glprogs.skylayers = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers");
 	glprogs.skybox = GL_CreateProgram (sky_box_vertex_shader, sky_box_fragment_shader, "skybox");
 
-	glprogs.alias = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias");
+	for (alphatest = 0; alphatest < 2; alphatest++)
+		glprogs.alias[alphatest] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|ALPHATEST %d", alphatest);
 	glprogs.sprites = GL_CreateProgram (sprites_vertex_shader, sprites_fragment_shader, "sprites");
 	glprogs.particles = GL_CreateProgram (particles_vertex_shader, particles_fragment_shader, "particles");
 

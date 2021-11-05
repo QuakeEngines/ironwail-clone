@@ -434,7 +434,7 @@ typedef struct glprogs_s {
 	GLuint		skystencil[2];	// [bindless]
 	GLuint		skylayers;
 	GLuint		skybox;
-	GLuint		alias;
+	GLuint		alias[2];		// [alpha test]
 	GLuint		sprites;
 	GLuint		particles;
 
