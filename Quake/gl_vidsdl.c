@@ -105,6 +105,7 @@ qboolean	scr_skipupdate;
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
 qboolean gl_bindless_able = false;
+qboolean gl_clipcontrol_able = false;
 float gl_max_anisotropy; //johnfitz
 int gl_stencilbits;
 
@@ -131,6 +132,12 @@ static const glfunc_t gl_core_functions[] =
 static const glfunc_t gl_arb_bindless_texture_functions[] =
 {
 	QGL_ARB_bindless_texture_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	{NULL, NULL}
+};
+
+static const glfunc_t gl_arb_clip_control_functions[] =
+{
+	QGL_ARB_clip_control_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
 	{NULL, NULL}
 };
 #undef QGL_REGISTER_NAMED_FUNC
@@ -996,16 +1003,16 @@ static void GL_CheckExtensions (void)
 		Con_Warning ("texture_filter_anisotropic not supported\n");
 	}
 
-	if (GL_FindRequiredExtension ("GL_ARB_shader_draw_parameters") &&
+	gl_bindless_able =
+		GL_FindRequiredExtension ("GL_ARB_shader_draw_parameters") &&
 		GL_FindRequiredExtension ("GL_ARB_bindless_texture") &&
-		GL_InitFunctions (gl_arb_bindless_texture_functions, true))
-	{
-		gl_bindless_able = true;
-	}
-	else
-	{
-		gl_bindless_able = false;
-	}
+		GL_InitFunctions (gl_arb_bindless_texture_functions, true)
+	;
+
+	gl_clipcontrol_able =
+		GL_FindExtension ("GL_ARB_clip_control") &&
+		GL_InitFunctions (gl_arb_clip_control_functions, false)
+	;
 }
 
 /*
@@ -1113,10 +1120,20 @@ does all the stuff from GL_Init that needs to be done every time a new GL render
 static void GL_SetupState (void)
 {
 	glClearColor (0.f, 0.f, 0.f, 0.f);
+	if (gl_clipcontrol_able)
+	{
+		GL_ClipControlFunc (GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+		glClearDepth (0.f);
+		glDepthFunc (GL_GEQUAL);
+	}
+	else
+	{
+		glClearDepth (1.f);
+		glDepthFunc (GL_LEQUAL);
+	}
 	glFrontFace (GL_CW); //johnfitz -- glquake used CCW with backwards culling -- let's do it right
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
-	glDepthRange (0, 1); //johnfitz -- moved here becuase gl_ztrick is gone.
-	glDepthFunc (GL_LEQUAL); //johnfitz -- moved here becuase gl_ztrick is gone.
+	GL_DepthRange (ZRANGE_FULL); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glEnable (GL_BLEND);
 
 	GL_ResetState ();

@@ -416,6 +416,9 @@ negative offset moves polygon closer to camera
 */
 void GL_PolygonOffset (int offset)
 {
+	if (gl_clipcontrol_able)
+		offset = -offset;
+
 	if (offset > 0)
 	{
 		glEnable (GL_POLYGON_OFFSET_FILL);
@@ -432,6 +435,38 @@ void GL_PolygonOffset (int offset)
 	{
 		glDisable (GL_POLYGON_OFFSET_FILL);
 		glDisable (GL_POLYGON_OFFSET_LINE);
+	}
+}
+
+/*
+=============
+GL_DepthRange
+
+Wrapper around glDepthRange that handles clip control/reversed Z differences
+=============
+*/
+void GL_DepthRange (zrange_t range)
+{
+	switch (range)
+	{
+	default:
+	case ZRANGE_FULL:
+		glDepthRange (0.f, 1.f);
+		break;
+
+	case ZRANGE_VIEWMODEL:
+		if (gl_clipcontrol_able)
+			glDepthRange (0.7f, 1.f);
+		else
+			glDepthRange (0.f, 0.3f);
+		break;
+
+	case ZRANGE_NEAR:
+		if (gl_clipcontrol_able)
+			glDepthRange (1.f, 1.f);
+		else
+			glDepthRange (0.f, 0.f);
+		break;
 	}
 }
 
@@ -573,12 +608,24 @@ static void GL_FrustumMatrix(float matrix[16], float fovx, float fovy)
 
 	memset(matrix, 0, 16 * sizeof(float));
 
-	// projection matrix with the coordinate system conversion baked in
-	matrix[0*4 + 2] = (f + n) / (f - n);
-	matrix[0*4 + 3] = 1.f;
-	matrix[1*4 + 0] = -w;
-	matrix[2*4 + 1] = h;
-	matrix[3*4 + 2] = -2.f * f * n / (f - n);
+	if (gl_clipcontrol_able)
+	{
+		// reversed Z projection matrix with the coordinate system conversion baked in
+		matrix[0*4 + 2] = -n / (f - n);
+		matrix[0*4 + 3] = 1.f;
+		matrix[1*4 + 0] = -w;
+		matrix[2*4 + 1] = h;
+		matrix[3*4 + 2] = f * n / (f - n);
+	}
+	else
+	{
+		// standard projection matrix with the coordinate system conversion baked in
+		matrix[0*4 + 2] = (f + n) / (f - n);
+		matrix[0*4 + 3] = 1.f;
+		matrix[1*4 + 0] = -w;
+		matrix[2*4 + 1] = h;
+		matrix[3*4 + 2] = -2.f * f * n / (f - n);
+	}
 }
 
 /*
@@ -851,9 +898,9 @@ void R_DrawViewModel (void)
 	GL_BeginGroup ("View model");
 
 	// hack the depth range to prevent view model from poking into walls
-	glDepthRange (0, 0.3);
+	GL_DepthRange (ZRANGE_VIEWMODEL);
 	R_DrawAliasModels (&e, 1);
-	glDepthRange (0, 1);
+	GL_DepthRange (ZRANGE_FULL);
 
 	GL_EndGroup ();
 }
@@ -879,7 +926,7 @@ void R_ShowTris (void)
 	R_UploadFrameData ();
 
 	if (r_showtris.value == 1)
-		glDepthRange(0.f, 0.f);
+		GL_DepthRange (ZRANGE_NEAR);
 	glPolygonMode (GL_FRONT_AND_BACK, GL_LINE);
 	GL_PolygonOffset (OFFSET_SHOWTRIS);
 
@@ -898,12 +945,11 @@ void R_ShowTris (void)
 		&& e->model->type == mod_alias)
 	{
 		if (r_showtris.value != 1.f)
-			glDepthRange (0, 0.3);
+			GL_DepthRange (ZRANGE_VIEWMODEL);
 
 		R_DrawAliasModels_ShowTris (&e, 1);
 
-		if (r_showtris.value != 1.f)
-			glDepthRange (0.f, 1.f);
+		GL_DepthRange (ZRANGE_FULL);
 	}
 
 	R_DrawParticles_ShowTris ();
@@ -911,7 +957,7 @@ void R_ShowTris (void)
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
 	GL_PolygonOffset (OFFSET_NONE);
 	if (r_showtris.value == 1)
-		glDepthRange (0.f, 1.f);
+		GL_DepthRange (ZRANGE_FULL);
 
 	Sbar_Changed (); //so we don't get dots collecting on the statusbar
 

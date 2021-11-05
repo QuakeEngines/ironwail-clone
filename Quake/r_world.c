@@ -396,7 +396,7 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 
 	call->texture = tx ? tx->bindless_handle : greytexture->bindless_handle;
 	call->fullbright = fb ? fb->bindless_handle : blacktexture->bindless_handle;
-	call->flags = (t != NULL && t->type == TEXTYPE_CUTOUT) | (zfix << 1);
+	call->flags = (t != NULL && t->type == TEXTYPE_CUTOUT) | (zfix << 1) | (((GLuint) gl_clipcontrol_able) << 31);
 	call->alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
 
 	SDL_assert (num_instances > 0);

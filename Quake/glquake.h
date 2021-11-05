@@ -115,6 +115,7 @@ extern	cvar_t	gl_playermip;
 
 extern int		gl_stencilbits;
 extern	qboolean	gl_bindless_able;
+extern	qboolean	gl_clipcontrol_able;
 
 //==============================================================================
 
@@ -201,9 +202,15 @@ extern	qboolean	gl_bindless_able;
 	x(void,			MakeTextureHandleResidentARB, (GLuint64 handle))\
 	x(void,			MakeTextureHandleNonResidentARB, (GLuint64 handle))\
 
+#define QGL_ARB_clip_control_FUNCTIONS(x)\
+	x(void,			ClipControl, (GLenum origin, GLenum depth))\
+
+#define GL_ZERO_TO_ONE		0x935F
+
 #define QGL_ALL_FUNCTIONS(x)\
 	QGL_CORE_FUNCTIONS(x)\
 	QGL_ARB_bindless_texture_FUNCTIONS(x)\
+	QGL_ARB_clip_control_FUNCTIONS(x)\
 
 #define QGL_DECLARE_FUNC(ret, name, args) extern ret (APIENTRYP GL_##name##Func) args;
 QGL_ALL_FUNCTIONS(QGL_DECLARE_FUNC)
@@ -260,6 +267,13 @@ extern	qboolean	gl_anisotropy_able;
 #define OFFSET_FOG -2
 #define OFFSET_SHOWTRIS -3
 void GL_PolygonOffset (int);
+
+typedef enum {
+	ZRANGE_FULL,
+	ZRANGE_VIEWMODEL,
+	ZRANGE_NEAR,
+} zrange_t;
+void GL_DepthRange (zrange_t range);
 
 //johnfitz -- rendering statistics
 extern int rs_brushpolys, rs_aliaspolys, rs_skypolys, rs_particles, rs_fogpolys;

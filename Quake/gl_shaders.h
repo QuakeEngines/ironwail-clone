@@ -45,7 +45,7 @@ static const char gui_vertex_shader[] =
 "\n"
 "void main()\n"
 "{\n"
-"	gl_Position = vec4(in_pos, -1.0, 1.0);\n"
+"	gl_Position = vec4(in_pos, 0.0, 1.0);\n"
 "	out_uv = in_uv;\n"
 "	out_color = in_color;\n"
 "}\n";
@@ -231,12 +231,13 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "{\n"\
 "	uvec2	txhandle;\n"\
 "	uvec2	fbhandle;\n"\
-"	int		flags;\n"\
+"	uint	flags;\n"\
 "	float	wateralpha;\n"\
 "};\n"\
-"const int\n"\
-"	CF_USE_ALPHA_TEST = 1,\n"\
-"	CF_USE_POLYGON_OFFSET = 2\n"\
+"const uint\n"\
+"	CF_USE_ALPHA_TEST = 1u,\n"\
+"	CF_USE_POLYGON_OFFSET = 2u,\n"\
+"	CF_REVERSED_Z = 1u << 31\n"\
 ";\n"\
 "\n"\
 "layout(std430, binding=1) restrict readonly buffer CallBuffer\n"\
@@ -309,8 +310,8 @@ WORLD_VERTEX_BUFFER
 "	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
 "	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
-"	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0)\n"
-"		gl_Position.z += 1./1024.;\n"
+"	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
+"		gl_Position.z += uintBitsToFloat(floatBitsToUint(1./1024.) ^ (call.flags & CF_REVERSED_Z));\n"
 "	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
 "	out_depth = gl_Position.w;\n"
 "	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"
