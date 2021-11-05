@@ -31,44 +31,111 @@ static int gl_num_programs;
 
 /*
 =============
-GL_CheckShader
+AppendString
 =============
 */
-static void GL_CheckShader (GLuint shader, const char *name, const char *type)
+static qboolean AppendString (char **dst, const char *dstend, const char *str, int len)
 {
+	int avail = dstend - *dst;
+	if (len < 0)
+		len = Q_strlen (str);
+	if (len + 1 > avail)
+		return false;
+	memcpy (*dst, str, len);
+	(*dst)[len] = 0;
+	*dst += len;
+	return true;
+}
+
+/*
+=============
+GL_CreateShader
+=============
+*/
+static GLuint GL_CreateShader (GLenum type, const char *source, const char *extradefs, const char *name)
+{
+	const char *strings[16];
+	const char *typestr = NULL;
+	int numstrings = 0;
 	GLint status;
+	GLuint shader;
+
+	strings[numstrings++] = "#version 430\n\n";
+
+	switch (type)
+	{
+		case GL_VERTEX_SHADER:
+			typestr = "vertex";
+			break;
+		case GL_FRAGMENT_SHADER:
+			typestr = "fragment";
+			break;
+		case GL_COMPUTE_SHADER:
+			typestr = "compute";
+			break;
+		default:
+			Sys_Error ("GL_CreateShader: unknown type 0x%X for %s", type, name);
+			break;
+	}
+
+	if (extradefs && *extradefs)
+		strings[numstrings++] = extradefs;
+	strings[numstrings++] = source;
+
+	shader = GL_CreateShaderFunc (type);
+	GL_ObjectLabelFunc (GL_SHADER, shader, -1, name);
+	GL_ShaderSourceFunc (shader, numstrings, strings, NULL);
+	GL_CompileShaderFunc (shader);
 	GL_GetShaderivFunc (shader, GL_COMPILE_STATUS, &status);
 
 	if (status != GL_TRUE)
 	{
 		char infolog[1024];
-
 		memset(infolog, 0, sizeof(infolog));
 		GL_GetShaderInfoLogFunc (shader, sizeof(infolog), NULL, infolog);
-		
-		Sys_Error ("Error compiling %s %s shader :\n%s", name, type, infolog);
+		Sys_Error ("Error compiling %s %s shader :\n%s", name, typestr, infolog);
 	}
+
+	return shader;
 }
 
 /*
 =============
-GL_CheckProgram
+GL_CreateProgramFromShaders
 =============
 */
-static void GL_CheckProgram (GLuint program, const char *name)
+static GLuint GL_CreateProgramFromShaders (const GLuint *shaders, int numshaders, const char *name)
 {
+	GLuint program;
 	GLint status;
+
+	program = GL_CreateProgramFunc ();
+	GL_ObjectLabelFunc (GL_PROGRAM, program, -1, name);
+
+	while (numshaders-- > 0)
+	{
+		GL_AttachShaderFunc (program, *shaders);
+		GL_DeleteShaderFunc (*shaders);
+		++shaders;
+	}
+
+	GL_LinkProgramFunc (program);
 	GL_GetProgramivFunc (program, GL_LINK_STATUS, &status);
 
 	if (status != GL_TRUE)
 	{
 		char infolog[1024];
-
 		memset(infolog, 0, sizeof(infolog));
 		GL_GetProgramInfoLogFunc (program, sizeof(infolog), NULL, infolog);
-
 		Sys_Error ("Error linking %s program: %s", name, infolog);
 	}
+
+	if (gl_num_programs == countof(gl_programs))
+		Sys_Error ("gl_programs overflow");
+	gl_programs[gl_num_programs] = program;
+	gl_num_programs++;
+
+	return program;
 }
 
 /*
@@ -78,46 +145,55 @@ GL_CreateProgram
 Compiles and returns GLSL program.
 ====================
 */
-GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name)
+static GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name, ...) FUNC_PRINTF(3,4)
 {
-	GLuint program, vertShader, fragShader;
+	va_list argptr;
+	char macros[1024];
+	char eval[256];
+	char *pipe = strchr (name, '|');
+	GLuint shaders[2]; // vertex, fragment
 
-	vertShader = GL_CreateShaderFunc (GL_VERTEX_SHADER);
-	GL_ObjectLabelFunc (GL_SHADER, vertShader, -1, name);
-	GL_ShaderSourceFunc (vertShader, 1, &vertSource, NULL);
-	GL_CompileShaderFunc (vertShader);
-	GL_CheckShader (vertShader, name, "vertex");
+	va_start (argptr, name);
+	q_vsnprintf (eval, sizeof (eval), name, argptr);
+	va_end (argptr);
 
-	if (fragSource)
+	macros[0] = 0;
+
+	if (pipe) // parse symbol list and generate #defines
 	{
-		fragShader = GL_CreateShaderFunc (GL_FRAGMENT_SHADER);
-		GL_ObjectLabelFunc (GL_SHADER, fragShader, -1, name);
-		GL_ShaderSourceFunc (fragShader, 1, &fragSource, NULL);
-		GL_CompileShaderFunc (fragShader);
-		GL_CheckShader (fragShader, name, "fragment");
+		char *dst = macros;
+		char *dstend = macros + sizeof (macros);
+		char *src = eval + 1 + (pipe - name);
+
+		while (*src == ' ')
+			src++;
+
+		while (*src)
+		{
+			char *srcend = src + 1;
+			while (*srcend && *srcend != ';')
+				srcend++;
+
+			if (!AppendString (&dst, dstend, "#define ", 8) ||
+				!AppendString (&dst, dstend, src, srcend - src) ||
+				!AppendString (&dst, dstend, "\n", 1))
+				Sys_Error ("GL_CreateProgram: symbol overflow for %s", eval);
+
+			src = srcend;
+			while (*src == ';' || *src == ' ')
+				src++;
+		}
+
+		AppendString (&dst, dstend, "\n", 1);
 	}
 
-	program = GL_CreateProgramFunc ();
-	GL_ObjectLabelFunc (GL_PROGRAM, program, -1, name);
-	GL_AttachShaderFunc (program, vertShader);
-	GL_DeleteShaderFunc (vertShader);
+	name = eval;
 
+	shaders[0] = GL_CreateShader (GL_VERTEX_SHADER, vertSource, macros, name);
 	if (fragSource)
-	{
-		GL_AttachShaderFunc (program, fragShader);
-		GL_DeleteShaderFunc (fragShader);
-	}
-	
-	GL_LinkProgramFunc (program);
-	GL_CheckProgram (program, name);
+		shaders[1] = GL_CreateShader (GL_FRAGMENT_SHADER, fragSource, macros, name);
 
-	if (gl_num_programs == countof(gl_programs))
-		Sys_Error ("gl_programs overflow");
-
-	gl_programs[gl_num_programs] = program;
-	gl_num_programs++;
-
-	return program;
+	return GL_CreateProgramFromShaders (shaders, fragSource ? 2 : 1, name);
 }
 
 /*
@@ -127,31 +203,10 @@ GL_CreateComputeProgram
 Compiles and returns GLSL program.
 ====================
 */
-GLuint GL_CreateComputeProgram (const GLchar *source, const char *name)
+static GLuint GL_CreateComputeProgram (const GLchar *source, const char *name)
 {
-	GLuint program, shader;
-
-	shader = GL_CreateShaderFunc (GL_COMPUTE_SHADER);
-	GL_ObjectLabelFunc (GL_SHADER, shader, -1, name);
-	GL_ShaderSourceFunc (shader, 1, &source, NULL);
-	GL_CompileShaderFunc (shader);
-	GL_CheckShader (shader, name, "compute");
-
-	program = GL_CreateProgramFunc ();
-	GL_ObjectLabelFunc (GL_PROGRAM, program, -1, name);
-	GL_AttachShaderFunc (program, shader);
-	GL_DeleteShaderFunc (shader);
-
-	GL_LinkProgramFunc (program);
-	GL_CheckProgram (program, name);
-
-	if (gl_num_programs == countof(gl_programs))
-		Sys_Error ("gl_programs overflow");
-
-	gl_programs[gl_num_programs] = program;
-	gl_num_programs++;
-
-	return program;
+	GLuint shader = GL_CreateShader (GL_COMPUTE_SHADER, source, NULL, name);
+	return GL_CreateProgramFromShaders (&shader, 1, name);
 }
 
 /*
@@ -188,19 +243,20 @@ GL_CreateShaders
 */
 void GL_CreateShaders (void)
 {
+	int bindless, alphatest;
+
 	glprogs.gui = GL_CreateProgram (gui_vertex_shader, gui_fragment_shader, "gui");
 	glprogs.viewblend = GL_CreateProgram (viewblend_vertex_shader, viewblend_fragment_shader, "viewblend");
 	glprogs.warpscale = GL_CreateProgram (warpscale_vertex_shader, warpscale_fragment_shader, "view warp/scale");
 	glprogs.postprocess = GL_CreateProgram (postprocess_vertex_shader, postprocess_fragment_shader, "postprocess");
 
-	glprogs.world[0][0] = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0, 0), "world");
-	glprogs.world[0][1] = GL_CreateProgram (WORLD_VERTEX_SHADER(0), WORLD_FRAGMENT_SHADER(0, 1), "world alpha test");
-	glprogs.world[1][0] = GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1, 0), "world [bindless]");
-	glprogs.world[1][1] = GL_CreateProgram (WORLD_VERTEX_SHADER(1), WORLD_FRAGMENT_SHADER(1, 1), "world alpha test [bindless]");
-	glprogs.water[0] = GL_CreateProgram (WATER_VERTEX_SHADER(0), WATER_FRAGMENT_SHADER(0), "water");
-	glprogs.water[1] = GL_CreateProgram (WATER_VERTEX_SHADER(1), WATER_FRAGMENT_SHADER(1), "water [bindless]");
-	glprogs.skystencil[0] = GL_CreateProgram (SKYSTENCIL_VERTEX_SHADER(0), NULL, "sky stencil");
-	glprogs.skystencil[1] = GL_CreateProgram (SKYSTENCIL_VERTEX_SHADER(1), NULL, "sky stencil [bindless]");
+	for (bindless = 0; bindless < 2; bindless++)
+	{
+		for (alphatest = 0; alphatest < 2; alphatest++)
+			glprogs.world[bindless][alphatest] = GL_CreateProgram (world_vertex_shader, world_fragment_shader, "world|BINDLESS %d; ALPHATEST %d", bindless, alphatest);
+		glprogs.water[bindless] = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water|BINDLESS %d", bindless);
+		glprogs.skystencil[bindless] = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil|BINDLESS %d", bindless);
+	}
 	glprogs.skylayers = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers");
 	glprogs.skybox = GL_CreateProgram (sky_box_vertex_shader, sky_box_fragment_shader, "skybox");
 
@@ -223,7 +279,6 @@ GL_DeleteShaders
 void GL_DeleteShaders (void)
 {
 	int i;
-
 	for (i = 0; i < gl_num_programs; i++)
 	{
 		GL_DeleteProgramFunc (gl_programs[i]);

@@ -36,8 +36,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 ////////////////////////////////////////////////////////////////
 
 static const char gui_vertex_shader[] =
-"#version 430\n"
-"\n"
 "layout(location=0) in vec2 in_pos;\n"
 "layout(location=1) in vec2 in_uv;\n"
 "layout(location=2) in vec4 in_color;\n"
@@ -55,8 +53,6 @@ static const char gui_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char gui_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
 "layout(location=0) centroid in vec2 in_uv;\n"
@@ -76,8 +72,6 @@ static const char gui_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char viewblend_vertex_shader[] =
-"#version 430\n"
-"\n"
 "void main()\n"
 "{\n"
 "	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
@@ -88,8 +82,6 @@ static const char viewblend_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char viewblend_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(location=0) uniform vec4 Color;\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
@@ -106,8 +98,6 @@ static const char viewblend_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char warpscale_vertex_shader[] =
-"#version 430\n"
-"\n"
 "layout(location=0) out vec2 out_uv;\n"
 "\n"
 "void main()\n"
@@ -121,8 +111,6 @@ static const char warpscale_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char warpscale_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
 "layout(location=0) uniform vec4 UVScaleWarpTime; // xy=Scale z=Warp w=Time\n"
@@ -154,8 +142,6 @@ static const char warpscale_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char postprocess_vertex_shader[] =
-"#version 430\n"
-"\n"
 "void main()\n"
 "{\n"
 "	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
@@ -166,8 +152,6 @@ static const char postprocess_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char postprocess_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(binding=0) uniform sampler2D GammaTexture;\n"
 "\n"
 "layout(location=0) uniform vec2 GammaContrast;\n"
@@ -296,143 +280,136 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 //
 ////////////////////////////////////////////////////////////////
 
-#define WORLD_VERTEX_SHADER(bindless) \
-"#version 430\n"\
-"\n"\
-FRAMEDATA_BUFFER \
-WORLD_CALLDATA_BUFFER \
-WORLD_INSTANCEDATA_BUFFER \
-WORLD_VERTEX_BUFFER \
-"\n"\
-"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
-"#if USE_BINDLESS\n"\
-"	#extension GL_ARB_shader_draw_parameters : require\n"\
-"	#define DRAW_ID			gl_DrawIDARB\n"\
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
-"#else\n"\
-"	#define DRAW_ID			0\n"\
-"	#define INSTANCE_ID		gl_InstanceID\n"\
-"#endif\n"\
-"\n"\
-"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
-"layout(location=1) out vec3 out_pos;\n"\
-"layout(location=2) out vec4 out_uv;\n"\
-"layout(location=3) out float out_depth;\n"\
-"layout(location=4) noperspective out vec2 out_coord;\n"\
-"\n"\
-"void main()\n"\
-"{\n"\
-"	PackedVertex vert = vertices[gl_VertexID];\n"\
-"	Call call = call_data[DRAW_ID];\n"\
-"	Instance instance = instance_data[INSTANCE_ID];\n"\
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
-"	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
-"	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"\
-"	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0)\n"\
-"		gl_Position.z += 1./1024.;\n"\
-"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"\
-"	out_depth = gl_Position.w;\n"\
-"	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"\
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
-"}\n"\
+static const char world_vertex_shader[] =
+FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+WORLD_VERTEX_BUFFER
+"\n"
+"#if BINDLESS\n"
+"	#extension GL_ARB_shader_draw_parameters : require\n"
+"	#define DRAW_ID			gl_DrawIDARB\n"
+"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
+"#else\n"
+"	#define DRAW_ID			0\n"
+"	#define INSTANCE_ID		gl_InstanceID\n"
+"#endif\n"
+"\n"
+"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
+"layout(location=1) out vec3 out_pos;\n"
+"layout(location=2) out vec4 out_uv;\n"
+"layout(location=3) out float out_depth;\n"
+"layout(location=4) noperspective out vec2 out_coord;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	PackedVertex vert = vertices[gl_VertexID];\n"
+"	Call call = call_data[DRAW_ID];\n"
+"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
+"	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
+"	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0)\n"
+"		gl_Position.z += 1./1024.;\n"
+"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
+"	out_depth = gl_Position.w;\n"
+"	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"
+"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"}\n";
 
 ////////////////////////////////////////////////////////////////
 
-#define WORLD_FRAGMENT_SHADER(bindless, alphatest)\
-"#version 430\n"\
-"\n"\
-"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
-"#define USE_ALPHA_TEST " QS_STRINGIFY(alphatest) "\n"\
-"#if USE_BINDLESS\n"\
-"	#extension GL_ARB_bindless_texture : require\n"\
-"	sampler2D Tex;\n"\
-"	sampler2D FullbrightTex;\n"\
-"#else\n"\
-"	layout(binding=0) uniform sampler2D Tex;\n"\
-"	layout(binding=1) uniform sampler2D FullbrightTex;\n"\
-"#endif\n"\
-"layout(binding=2) uniform sampler2D LMTex;\n"\
-"\n"\
-FRAMEDATA_BUFFER \
-LIGHT_CLUSTER_IMAGE("readonly") \
-WORLD_CALLDATA_BUFFER \
-WORLD_INSTANCEDATA_BUFFER \
-"\n"\
-"layout(location=0) flat in ivec2 in_drawinstance;\n"\
-"layout(location=1) in vec3 in_pos;\n"\
-"layout(location=2) in vec4 in_uv;\n"\
-"layout(location=3) in float in_depth;\n"\
-"layout(location=4) noperspective in vec2 in_coord;\n"\
-"\n"\
-"layout(location=0) out vec4 out_fragcolor;\n"\
-"\n"\
-"void main()\n"\
-"{\n"\
-"	Call call = call_data[in_drawinstance.x];\n"\
-"	Instance instance = instance_data[in_drawinstance.y];\n"\
-"#if USE_BINDLESS\n"\
-"	Tex = sampler2D(call.txhandle);\n"\
-"	FullbrightTex = sampler2D(call.fbhandle);\n"\
-"#endif\n"\
-"	vec4 result = texture(Tex, in_uv.xy);\n"\
-"#if USE_ALPHA_TEST\n"\
-"	if (result.a < 0.666)\n"\
-"		discard;\n"\
-"#endif\n"\
-"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"\
-"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"\
-"	if (NumLights > 0u)\n"\
-"	{\n"\
-"		uint i, ofs;\n"\
-"		ivec3 cluster_coord;\n"\
-"		cluster_coord.x = int(floor(in_coord.x));\n"\
-"		cluster_coord.y = int(floor(in_coord.y));\n"\
-"		cluster_coord.z = int(floor(log2(in_depth) * ZLogScale + ZLogBias));\n"\
-"		uvec2 clusterdata = imageLoad(LightClusters, cluster_coord).xy;\n"\
-"		if ((clusterdata.x | clusterdata.y) != 0u)\n"\
-"		{\n"\
-"#if " QS_STRINGIFY (SHOW_ACTIVE_LIGHT_CLUSTERS) "\n"\
-"			int cluster_idx = cluster_coord.x + cluster_coord.y * LIGHT_TILES_X + cluster_coord.z * LIGHT_TILES_X * LIGHT_TILES_Y;\n"\
-"			total_light = vec3(ivec3((cluster_idx + 1) * 0x45d9f3b) >> ivec3(0, 8, 16) & 255) / 255.0;\n"\
-"#endif // SHOW_ACTIVE_LIGHT_CLUSTERS\n"\
-"			vec4 plane;\n"\
-"			plane.xyz = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"\
-"			plane.w = dot(in_pos, plane.xyz);\n"\
-"			for (i = 0u, ofs = 0u; i < 2u; i++, ofs += 32u)\n"\
-"			{\n"\
-"				uint mask = clusterdata[i];\n"\
-"				while (mask != 0u)\n"\
-"				{\n"\
-"					int j = findLSB(mask);\n"\
-"					mask ^= 1u << j;\n"\
-"					Light l = Lights[ofs + j];\n"\
-"					// mimics R_AddDynamicLights, up to a point\n"\
-"					float rad = l.radius;\n"\
-"					float dist = dot(l.origin, plane.xyz) - plane.w;\n"\
-"					rad -= abs(dist);\n"\
-"					float minlight = l.minlight;\n"\
-"					if (rad < minlight)\n"\
-"						continue;\n"\
-"					vec3 local_pos = l.origin - plane.xyz * dist;\n"\
-"					minlight = rad - minlight;\n"\
-"					dist = length(in_pos - local_pos);\n"\
-"					total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) / 256. * l.color;\n"\
-"				}\n"\
-"			}\n"\
-"		}\n"\
-"	}\n"\
-"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"\
-"	result.rgb += fullbright;\n"\
-"	result = clamp(result, 0.0, 1.0);\n"\
-"	float fog = exp2(-(FogDensity * in_depth) * (FogDensity * in_depth));\n"\
-"	fog = clamp(fog, 0.0, 1.0);\n"\
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"\
-"	float alpha = instance.alpha;\n"\
-"	if (alpha < 0.0)\n"\
-"		alpha = 1.0;\n"\
-"	result.a = alpha; // FIXME: This will make almost transparent things cut holes though heavy fog\n"\
-"	out_fragcolor = result;\n"\
-"}\n"\
+static const char world_fragment_shader[] =
+"#if BINDLESS\n"
+"	#extension GL_ARB_bindless_texture : require\n"
+"	sampler2D Tex;\n"
+"	sampler2D FullbrightTex;\n"
+"#else\n"
+"	layout(binding=0) uniform sampler2D Tex;\n"
+"	layout(binding=1) uniform sampler2D FullbrightTex;\n"
+"#endif\n"
+"layout(binding=2) uniform sampler2D LMTex;\n"
+"\n"
+FRAMEDATA_BUFFER
+LIGHT_CLUSTER_IMAGE("readonly")
+WORLD_CALLDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+"\n"
+"layout(location=0) flat in ivec2 in_drawinstance;\n"
+"layout(location=1) in vec3 in_pos;\n"
+"layout(location=2) in vec4 in_uv;\n"
+"layout(location=3) in float in_depth;\n"
+"layout(location=4) noperspective in vec2 in_coord;\n"
+"\n"
+"layout(location=0) out vec4 out_fragcolor;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	Call call = call_data[in_drawinstance.x];\n"
+"	Instance instance = instance_data[in_drawinstance.y];\n"
+"#if BINDLESS\n"
+"	Tex = sampler2D(call.txhandle);\n"
+"	FullbrightTex = sampler2D(call.fbhandle);\n"
+"#endif\n"
+"	vec4 result = texture(Tex, in_uv.xy);\n"
+"#if ALPHATEST\n"
+"	if (result.a < 0.666)\n"
+"		discard;\n"
+"#endif\n"
+"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"
+"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"
+"	if (NumLights > 0u)\n"
+"	{\n"
+"		uint i, ofs;\n"
+"		ivec3 cluster_coord;\n"
+"		cluster_coord.x = int(floor(in_coord.x));\n"
+"		cluster_coord.y = int(floor(in_coord.y));\n"
+"		cluster_coord.z = int(floor(log2(in_depth) * ZLogScale + ZLogBias));\n"
+"		uvec2 clusterdata = imageLoad(LightClusters, cluster_coord).xy;\n"
+"		if ((clusterdata.x | clusterdata.y) != 0u)\n"
+"		{\n"
+"#if " QS_STRINGIFY (SHOW_ACTIVE_LIGHT_CLUSTERS) "\n"
+"			int cluster_idx = cluster_coord.x + cluster_coord.y * LIGHT_TILES_X + cluster_coord.z * LIGHT_TILES_X * LIGHT_TILES_Y;\n"
+"			total_light = vec3(ivec3((cluster_idx + 1) * 0x45d9f3b) >> ivec3(0, 8, 16) & 255) / 255.0;\n"
+"#endif // SHOW_ACTIVE_LIGHT_CLUSTERS\n"
+"			vec4 plane;\n"
+"			plane.xyz = normalize(cross(dFdx(in_pos), dFdy(in_pos)));\n"
+"			plane.w = dot(in_pos, plane.xyz);\n"
+"			for (i = 0u, ofs = 0u; i < 2u; i++, ofs += 32u)\n"
+"			{\n"
+"				uint mask = clusterdata[i];\n"
+"				while (mask != 0u)\n"
+"				{\n"
+"					int j = findLSB(mask);\n"
+"					mask ^= 1u << j;\n"
+"					Light l = Lights[ofs + j];\n"
+"					// mimics R_AddDynamicLights, up to a point\n"
+"					float rad = l.radius;\n"
+"					float dist = dot(l.origin, plane.xyz) - plane.w;\n"
+"					rad -= abs(dist);\n"
+"					float minlight = l.minlight;\n"
+"					if (rad < minlight)\n"
+"						continue;\n"
+"					vec3 local_pos = l.origin - plane.xyz * dist;\n"
+"					minlight = rad - minlight;\n"
+"					dist = length(in_pos - local_pos);\n"
+"					total_light += clamp((minlight - dist) / 16.0, 0.0, 1.0) * max(0., rad - dist) / 256. * l.color;\n"
+"				}\n"
+"			}\n"
+"		}\n"
+"	}\n"
+"	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"
+"	result.rgb += fullbright;\n"
+"	result = clamp(result, 0.0, 1.0);\n"
+"	float fog = exp2(-(FogDensity * in_depth) * (FogDensity * in_depth));\n"
+"	fog = clamp(fog, 0.0, 1.0);\n"
+"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	float alpha = instance.alpha;\n"
+"	if (alpha < 0.0)\n"
+"		alpha = 1.0;\n"
+"	result.a = alpha; // FIXME: This will make almost transparent things cut holes though heavy fog\n"
+"	out_fragcolor = result;\n"
+"}\n";
 
 ////////////////////////////////////////////////////////////////
 //
@@ -440,80 +417,74 @@ WORLD_INSTANCEDATA_BUFFER \
 //
 ////////////////////////////////////////////////////////////////
 
-#define WATER_VERTEX_SHADER(bindless) \
-"#version 430\n"\
-"\n"\
-FRAMEDATA_BUFFER \
-WORLD_INSTANCEDATA_BUFFER \
-WORLD_VERTEX_BUFFER \
-"\n"\
-"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
-"#if USE_BINDLESS\n"\
-"#extension GL_ARB_shader_draw_parameters : require\n"\
-"	#define DRAW_ID			gl_DrawIDARB\n"\
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
-"#else\n"\
-"	#define DRAW_ID			0\n"\
-"	#define INSTANCE_ID		gl_InstanceID\n"\
-"#endif\n"\
-"\n"\
-"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
-"layout(location=1) out vec2 out_uv;\n"\
-"layout(location=2) out float out_fogdist;\n"\
-"\n"\
-"void main()\n"\
-"{\n"\
-"	PackedVertex vert = vertices[gl_VertexID];\n"\
-"	Instance instance = instance_data[INSTANCE_ID];\n"\
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
-"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
-"	gl_Position = ViewProj * vec4(pos, 1.0);\n"\
-"	out_uv = vec2(vert.data[3], vert.data[4]);\n"\
-"	out_fogdist = gl_Position.w;\n"\
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
-"}\n"\
+static const char water_vertex_shader[] =
+FRAMEDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+WORLD_VERTEX_BUFFER
+"\n"
+"#if BINDLESS\n"
+"#extension GL_ARB_shader_draw_parameters : require\n"
+"	#define DRAW_ID			gl_DrawIDARB\n"
+"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
+"#else\n"
+"	#define DRAW_ID			0\n"
+"	#define INSTANCE_ID		gl_InstanceID\n"
+"#endif\n"
+"\n"
+"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
+"layout(location=1) out vec2 out_uv;\n"
+"layout(location=2) out float out_fogdist;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	PackedVertex vert = vertices[gl_VertexID];\n"
+"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	out_uv = vec2(vert.data[3], vert.data[4]);\n"
+"	out_fogdist = gl_Position.w;\n"
+"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"}\n";
 
 ////////////////////////////////////////////////////////////////
 
-#define WATER_FRAGMENT_SHADER(bindless) \
-"#version 430\n"\
-"\n"\
-"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
-"#if USE_BINDLESS\n"\
-"#extension GL_ARB_bindless_texture : require\n"\
-"sampler2D Tex;\n"\
-"#else\n"\
-"layout(binding=0) uniform sampler2D Tex;\n"\
-"#endif\n"\
-"\n"\
-FRAMEDATA_BUFFER \
-WORLD_CALLDATA_BUFFER \
-WORLD_INSTANCEDATA_BUFFER \
-"\n"\
-"layout(location=0) flat in ivec2 in_drawinstance;\n"\
-"layout(location=1) in vec2 in_uv;\n"\
-"layout(location=2) in float in_fogdist;\n"\
-"\n"\
-"layout(location=0) out vec4 out_fragcolor;\n"\
-"\n"\
-"void main()\n"\
-"{\n"\
-"	Call call = call_data[in_drawinstance.x];\n"\
-"	Instance instance = instance_data[in_drawinstance.y];\n"\
-"#if USE_BINDLESS\n"\
-"	Tex = sampler2D(call.txhandle);\n"\
-"#endif\n"\
-"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"\
-"	vec4 result = texture(Tex, uv);\n"\
-"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"\
-"	fog = clamp(fog, 0.0, 1.0);\n"\
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"\
-"	float alpha = instance.alpha;\n"\
-"	if (alpha < 0.0)\n"\
-"		alpha = call.wateralpha;\n"\
-"	result.a *= alpha;\n"\
-"	out_fragcolor = result;\n"\
-"}\n"\
+static const char water_fragment_shader[] =
+"#if BINDLESS\n"
+"#extension GL_ARB_bindless_texture : require\n"
+"sampler2D Tex;\n"
+"#else\n"
+"layout(binding=0) uniform sampler2D Tex;\n"
+"#endif\n"
+"\n"
+FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+"\n"
+"layout(location=0) flat in ivec2 in_drawinstance;\n"
+"layout(location=1) in vec2 in_uv;\n"
+"layout(location=2) in float in_fogdist;\n"
+"\n"
+"layout(location=0) out vec4 out_fragcolor;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	Call call = call_data[in_drawinstance.x];\n"
+"	Instance instance = instance_data[in_drawinstance.y];\n"
+"#if BINDLESS\n"
+"	Tex = sampler2D(call.txhandle);\n"
+"#endif\n"
+"	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"
+"	vec4 result = texture(Tex, uv);\n"
+"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
+"	fog = clamp(fog, 0.0, 1.0);\n"
+"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	float alpha = instance.alpha;\n"
+"	if (alpha < 0.0)\n"
+"		alpha = call.wateralpha;\n"
+"	result.a *= alpha;\n"
+"	out_fragcolor = result;\n"
+"}\n";
 
 ////////////////////////////////////////////////////////////////
 //
@@ -521,34 +492,31 @@ WORLD_INSTANCEDATA_BUFFER \
 //
 ////////////////////////////////////////////////////////////////
 
-#define SKYSTENCIL_VERTEX_SHADER(bindless) \
-"#version 430\n"\
-"\n"\
-FRAMEDATA_BUFFER \
-WORLD_INSTANCEDATA_BUFFER \
-WORLD_VERTEX_BUFFER \
-"\n"\
-"#define USE_BINDLESS " QS_STRINGIFY(bindless) "\n"\
-"#if USE_BINDLESS\n"\
-"#extension GL_ARB_shader_draw_parameters : require\n"\
-"	#define DRAW_ID			gl_DrawIDARB\n"\
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
-"#else\n"\
-"	#define DRAW_ID			0\n"\
-"	#define INSTANCE_ID		gl_InstanceID\n"\
-"#endif\n"\
-"\n"\
-"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"\
-"\n"\
-"void main()\n"\
-"{\n"\
-"	PackedVertex vert = vertices[gl_VertexID];\n"\
-"	Instance instance = instance_data[INSTANCE_ID];\n"\
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
-"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"\
-"	gl_Position = ViewProj * vec4(pos, 1.0);\n"\
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"\
-"}\n"\
+static const char skystencil_vertex_shader[] =
+FRAMEDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+WORLD_VERTEX_BUFFER
+"\n"
+"#if BINDLESS\n"
+"#extension GL_ARB_shader_draw_parameters : require\n"
+"	#define DRAW_ID			gl_DrawIDARB\n"
+"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
+"#else\n"
+"	#define DRAW_ID			0\n"
+"	#define INSTANCE_ID		gl_InstanceID\n"
+"#endif\n"
+"\n"
+"layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
+"\n"
+"void main()\n"
+"{\n"
+"	PackedVertex vert = vertices[gl_VertexID];\n"
+"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"}\n";
 
 ////////////////////////////////////////////////////////////////
 //
@@ -557,8 +525,6 @@ WORLD_VERTEX_BUFFER \
 ////////////////////////////////////////////////////////////////
 
 static const char sky_layers_vertex_shader[] =
-"#version 430\n"
-"\n"
 "layout(location=0) in vec3 in_dir;\n"
 "\n"
 "layout(location=0) out vec3 out_dir;\n"
@@ -575,8 +541,6 @@ static const char sky_layers_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char sky_layers_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(binding=0) uniform sampler2D SolidLayer;\n"
 "layout(binding=1) uniform sampler2D AlphaLayer;\n"
 "\n"
@@ -604,8 +568,6 @@ static const char sky_layers_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char sky_box_vertex_shader[] =
-"#version 430\n"
-"\n"
 "layout(location=0) uniform mat4 MVP;\n"
 "layout(location=1) uniform vec3 EyePos;\n"
 "\n"
@@ -626,8 +588,6 @@ static const char sky_box_vertex_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char sky_box_fragment_shader[] =
-"#version 430\n"
-"\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
 "layout(location=2) uniform vec4 Fog;\n"
@@ -671,8 +631,6 @@ static const char sky_box_fragment_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char alias_vertex_shader[] =
-"#version 430\n"
-"\n"
 ALIAS_INSTANCE_BUFFER
 "\n"
 "layout(std430, binding=2) restrict readonly buffer PoseBuffer\n"
@@ -733,8 +691,6 @@ ALIAS_INSTANCE_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char alias_fragment_shader[] =
-"#version 430\n"
-"\n"
 ALIAS_INSTANCE_BUFFER
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
@@ -757,7 +713,7 @@ ALIAS_INSTANCE_BUFFER
 "	float fog = exp2(-(Fog.w * in_fogdist) * (Fog.w * in_fogdist));\n"
 "	fog = clamp(fog, 0.0, 1.0);\n"
 "	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
-"	result.a = in_color.a;\n" // FIXME: This will make almost transparent things cut holes though heavy fog
+"	result.a = in_color.a; // FIXME: This will make almost transparent things cut holes though heavy fog\n"
 "	out_fragcolor = result;\n"
 "}\n";
 
@@ -768,8 +724,6 @@ ALIAS_INSTANCE_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char sprites_vertex_shader[] =
-"#version 430\n"
-"\n"
 FRAMEDATA_BUFFER
 "\n"
 "layout(location=0) in vec4 in_pos;\n"
@@ -788,8 +742,6 @@ FRAMEDATA_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char sprites_fragment_shader[] =
-"#version 430\n"
-"\n"
 FRAMEDATA_BUFFER
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
@@ -817,8 +769,6 @@ FRAMEDATA_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char particles_vertex_shader[] =
-"#version 430\n"
-"\n"
 FRAMEDATA_BUFFER
 "\n"
 "layout(location=0) in vec4 in_pos;\n"
@@ -840,8 +790,6 @@ FRAMEDATA_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char particles_fragment_shader[] =
-"#version 430\n"
-"\n"
 FRAMEDATA_BUFFER
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
@@ -873,8 +821,6 @@ FRAMEDATA_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char clear_indirect_compute_shader[] =
-"#version 430\n"
-"\n"
 "layout(local_size_x=64) in;\n"
 "\n"
 WORLD_DRAW_BUFFER
@@ -893,8 +839,6 @@ WORLD_DRAW_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char gather_indirect_compute_shader[] =
-"#version 430\n"
-"\n"
 "layout(local_size_x=64) in;\n"
 "\n"
 DRAW_ELEMENTS_INDIRECT_COMMAND
@@ -945,8 +889,6 @@ DRAW_ELEMENTS_INDIRECT_COMMAND
 ////////////////////////////////////////////////////////////////
 
 static const char cull_mark_compute_shader[] =
-"#version 430\n"
-"\n"
 "layout(local_size_x=64) in;\n"
 "\n"
 WORLD_DRAW_BUFFER
@@ -1056,8 +998,6 @@ WORLD_DRAW_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char update_lightmap_compute_shader[] =
-"#version 430\n"
-"\n"
 "layout(local_size_x=256) in;\n"
 "\n"
 "layout(rgba8ui, binding=0) readonly uniform uimage2DArray LightmapSamples;\n"
@@ -1112,8 +1052,6 @@ static const char update_lightmap_compute_shader[] =
 ////////////////////////////////////////////////////////////////
 
 static const char cluster_lights_compute_shader[] =
-"#version 430\n"
-"\n"
 "layout(local_size_x=8, local_size_y=8, local_size_z=1) in;\n"
 "\n"
 FRAMEDATA_BUFFER

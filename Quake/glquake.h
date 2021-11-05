@@ -448,8 +448,6 @@ typedef struct glprogs_s {
 
 extern glprogs_t glprogs;
 
-GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name);
-GLuint GL_CreateComputeProgram (const GLchar *source, const char *name);
 void GL_UseProgram (GLuint program);
 void GL_ClearCachedProgram (void);
 void GL_CreateShaders (void);
