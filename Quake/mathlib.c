@@ -361,6 +361,38 @@ int Q_nextPow2(int val)
 }
 
 /*
+==================
+DeinterleaveOdd
+
+Deinterleaves the odd 16 bits in a 32-bit integer
+==================
+*/
+unsigned short DeinterleaveOdd (unsigned x)
+{
+	x &= 0x55555555u;
+	x = (x ^ (x >> 1u)) & 0x33333333u;
+	x = (x ^ (x >> 2u)) & 0x0F0F0F0Fu;
+	x = (x ^ (x >> 4u)) & 0x00FF00FFu;
+	x = (x ^ (x >> 8u)) & 0x0000FFFFu;
+	return x;
+}
+
+/*
+==================
+DecodeMortonIndex
+
+Extracts 2 8-bit coordintates from a 16-bit Z-order index
+==================
+*/
+void DecodeMortonIndex (unsigned short index, int *x, int *y)
+{
+	unsigned oddeven = index | ((index >> 1) << 16);
+	index = DeinterleaveOdd (oddeven);
+	*x = index & 255;
+	*y = index >> 8;
+}
+
+/*
 ================
 R_ConcatRotations
 ================

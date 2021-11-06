@@ -34,13 +34,16 @@ struct lightmap_s	*lightmaps;
 int					lightmap_count;
 int					last_lightmap_allocated;
 int					allocated[LMBLOCK_WIDTH];
-unsigned			*lightmap_data;
+int					num_lightmap_samples;
+unsigned			*lightmap_offsets;
+unsigned			*lightmap_samples;
+GLuint				lightmap_sample_buffer;
+GLuint				lightmap_offsets_texture;
 gltexture_t			*lightmap_texture;
-gltexture_t			*lightmap_samples_texture;
 int					lightmap_width;
 int					lightmap_height;
 int					cached_lightstyles[MAX_LIGHTSTYLES];
-unsigned			*lightmap_offsets;
+unsigned			*lightmap_block_offsets;
 
 
 /*
@@ -90,7 +93,7 @@ texture_t *R_TextureAnimation (texture_t *base, int frame)
 AllocBlock -- returns a texture number and the position inside it
 ========================
 */
-int AllocBlock (int w, int h, int *x, int *y)
+static int AllocBlock (int w, int h, int *x, int *y)
 {
 	int		i, j;
 	int		best, best2;
@@ -145,34 +148,37 @@ int AllocBlock (int w, int h, int *x, int *y)
 	return 0; //johnfitz -- shut up compiler
 }
 
-
-int	nColinElim;
-
 /*
 ========================
 GL_AllocSurfaceLightmap
 ========================
 */
-void GL_AllocSurfaceLightmap (msurface_t *surf)
+static void GL_AllocSurfaceLightmap (msurface_t *surf)
 {
 	int smax = (surf->extents[0]>>4)+1;
 	int tmax = (surf->extents[1]>>4)+1;
 	surf->lightmaptexturenum = AllocBlock (smax, tmax, &surf->light_s, &surf->light_t);
+	if (surf->samples)
+	{
+		int maps;
+		for (maps = 0; maps < MAXLIGHTMAPS && surf->styles[maps] != 255; maps++)
+			;
+		num_lightmap_samples += maps * smax * tmax;
+	}
 }
 
 /*
 ========================
-GL_FillSurfaceLightmap
+GL_MarkSurfaceLightmap
 ========================
 */
-void GL_FillSurfaceLightmap (msurface_t *surf)
+static void GL_MarkSurfaceLightmap (msurface_t *surf, msurface_t **texelsurf)
 {
 	struct lightmap_s *lm;
 	int			smax, tmax;
 	int			xofs, yofs;
-	int			map;
-	byte		*src;
-	unsigned	*dst;
+	int			s, t, maps;
+	msurface_t	**dst;
 
 	if (!cl.worldmodel->lightdata || !surf->samples)
 		return;
@@ -183,31 +189,114 @@ void GL_FillSurfaceLightmap (msurface_t *surf)
 	xofs = lm->xofs + surf->light_s;
 	yofs = lm->yofs + surf->light_t;
 
-	src = surf->samples;
-	dst = lightmap_data + yofs * lightmap_width + xofs;
+	dst = texelsurf + yofs * lightmap_width + xofs;
+	for (t = 0; t < tmax; t++, dst += lightmap_width)
+		for (s = 0; s < smax; s++)
+			dst[s] = surf;
 
-	for (map = 0; map < MAXLIGHTMAPS && surf->styles[map] != 255; map++, dst += lightmap_width * lightmap_height)
+	for (maps = 0; maps < MAXLIGHTMAPS && surf->styles[maps] != 255; maps++)
+		lm->stylemask[surf->styles[maps] >> 5] |= 1 << (surf->styles[maps] & 31);
+}
+
+/*
+==================
+GL_FillLightmapSamples
+==================
+*/
+static void GL_FillLightmapSamples (struct lightmap_s *lm, msurface_t **texelsurf, int *offset)
+{
+	int i;
+	for (i = 0; i < LMBLOCK_WIDTH * LMBLOCK_HEIGHT; i++)
 	{
-		unsigned style = surf->styles[map];
-		int s, t;
-		for (t = 0; t < tmax; t++)
-			for (s = 0; s < smax; s++, src += 3)
-				dst[t*lightmap_width + s] = src[0] | (src[1]<<8) | (src[2]<<16) | (style<<24);
-		lm->stylemask[style >> 5] |= 1 << (style & 31);
+		int			s, t, smax, tmax, maps;
+		unsigned	*packedofscount;
+		const byte	*src;
+		msurface_t	*surf;
+
+		DecodeMortonIndex (i, &s, &t);
+		surf = texelsurf [(lm->yofs + t) * lightmap_width + lm->xofs + s];
+		if (!surf || !surf->samples || surf->styles[0] == 255)
+			continue;
+
+		packedofscount = &lightmap_offsets[(lm->yofs + t) * lightmap_width + lm->xofs + s];
+		smax = (surf->extents[0]>>4)+1;
+		tmax = (surf->extents[1]>>4)+1;
+		s -= surf->light_s;
+		t -= surf->light_t;
+		src = surf->samples + (t * smax + s) * 3;
+
+		for (maps = 0; maps < MAXLIGHTMAPS && surf->styles[maps] != 255; maps++, src += smax * tmax * 3)
+		{
+			if (*offset >= num_lightmap_samples)
+				Sys_Error ("GL_FillLightmapSamples overflow");
+			lightmap_samples[(*offset)++] = src[0] | (src[1] << 8) | (src[2] << 16) | (surf->styles[maps] << 24);
+		}
+		*packedofscount = ((*offset - maps) << 3) | maps;
 	}
 }
 
 /*
 ==================
-GL_FreeLightmap
+GL_DeleteLightmapResources
+==================
+*/
+void GL_DeleteLightmapResources (void)
+{
+	if (lightmap_sample_buffer)
+	{
+		GL_DeleteBuffer (lightmap_sample_buffer);
+		lightmap_sample_buffer = 0;
+	}
+	if (lightmap_offsets_texture)
+	{
+		GL_DeleteNativeTexture (lightmap_offsets_texture);
+		lightmap_offsets_texture = 0;
+	}
+
+	R_InvalidateLightmaps ();
+}
+
+/*
+==================
+GL_CreateLightmapResources
+==================
+*/
+void GL_CreateLightmapResources (void)
+{
+	glGenTextures (1, &lightmap_offsets_texture);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, lightmap_offsets_texture);
+	GL_ObjectLabelFunc (GL_TEXTURE, lightmap_offsets_texture, -1, "lightmap sample offsets");
+	glTexImage2D (GL_TEXTURE_2D, 0, GL_R32UI, lightmap_width, lightmap_height, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, lightmap_offsets);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, 0);
+
+	GL_GenBuffersFunc (1, &lightmap_sample_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, lightmap_sample_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, lightmap_sample_buffer, -1, "lightmap sample buffer");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, num_lightmap_samples * sizeof (GLuint), lightmap_samples, GL_STATIC_DRAW);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+/*
+==================
+GL_FreeLightmapData
 ==================
 */
 static void GL_FreeLightmapData (void)
 {
-	if (lightmap_data)
+	GL_DeleteLightmapResources ();
+
+	if (lightmap_block_offsets)
 	{
-		free (lightmap_data);
-		lightmap_data = NULL;
+		free (lightmap_block_offsets);
+		lightmap_block_offsets = NULL;
+	}
+	if (lightmap_samples)
+	{
+		free (lightmap_samples);
+		lightmap_samples = NULL;
 	}
 	if (lightmap_offsets)
 	{
@@ -219,14 +308,13 @@ static void GL_FreeLightmapData (void)
 		free (lightmaps);
 		lightmaps = NULL;
 	}
-	lightmap_texture = NULL;
-	lightmap_samples_texture = NULL;
+
+	lightmap_texture = NULL; // freed by the texture manager
 	last_lightmap_allocated = 0;
 	lightmap_count = 0;
 	lightmap_width = 0;
 	lightmap_height = 0;
-
-	R_InvalidateLightmaps ();
+	num_lightmap_samples = 0;
 }
 
 /*
@@ -264,7 +352,7 @@ void R_UpdateLightmaps (void)
 		{
 			if (changemask[j] & lm->stylemask[j])
 			{
-				lightmap_offsets[count++] = lm->xofs | (lm->yofs << 16);
+				lightmap_block_offsets[count++] = lm->xofs | (lm->yofs << 16);
 				break;
 			}
 		}
@@ -276,14 +364,14 @@ void R_UpdateLightmaps (void)
 	GL_BeginGroup ("Lightmap update");
 
 	GL_UseProgram (glprogs.update_lightmap);
-	GL_BindImageTextureFunc (0, lightmap_samples_texture->texnum, 0, GL_TRUE, 0,  GL_READ_ONLY, GL_RGBA8UI);
-	GL_BindImageTextureFunc (1, lightmap_texture->texnum, 0, GL_FALSE, 0,  GL_WRITE_ONLY, GL_RGBA8UI);
+	GL_BindImageTextureFunc (0, lightmap_offsets_texture, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32UI);
+	GL_BindImageTextureFunc (1, lightmap_texture->texnum, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA8UI);
 
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, d_lightstylevalue, sizeof(d_lightstylevalue), &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, sizeof(d_lightstylevalue));
-
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, lightmap_offsets, sizeof(GLuint) * count, &buf, &ofs);
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, lightmap_block_offsets, sizeof(GLuint) * count, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(GLuint) * count);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, lightmap_sample_buffer, 0, num_lightmap_samples * sizeof(GLuint));
 
 	GL_DispatchComputeFunc (LMBLOCK_WIDTH / 256, LMBLOCK_HEIGHT / 1, count);
 	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
@@ -303,9 +391,11 @@ with all the surfaces from all brush models
 */
 void GL_BuildLightmaps (void)
 {
-	int		i, j, xblocks, yblocks;
+	int			i, j, xblocks, yblocks;
+	int			numsamples;
 	struct lightmap_s *lm;
 	qmodel_t	*m;
+	msurface_t	**texelsurf;
 
 	r_framecount = 1; // no dlightcache
 
@@ -359,10 +449,10 @@ void GL_BuildLightmaps (void)
 	}
 	Con_DPrintf ("Lightmap size: %d x %d (%d/%d blocks)\n", lightmap_width, lightmap_height, lightmap_count, xblocks * yblocks);
 
-	lightmap_offsets = (unsigned *) calloc (sizeof(*lightmap_offsets), lightmap_count);
-	lightmap_data = (unsigned *) malloc (sizeof(*lightmap_data) * MAXLIGHTMAPS * lightmap_width * lightmap_height);
-	for (i = 0; i < lightmap_width * lightmap_height * MAXLIGHTMAPS; i++)
-		lightmap_data[i] = 0xff000000u; // rgb=0, style=255
+	texelsurf              = (msurface_t **) calloc (sizeof(*texelsurf),              lightmap_width * lightmap_height);
+	lightmap_offsets       = (unsigned    *) calloc (sizeof(*lightmap_offsets),       lightmap_width * lightmap_height);
+	lightmap_samples       = (unsigned    *) calloc (sizeof(*lightmap_samples),       num_lightmap_samples);
+	lightmap_block_offsets = (unsigned    *) calloc (sizeof(*lightmap_block_offsets), lightmap_count);
 
 	// compute offsets for each lightmap block
 	for (i=0; i<lightmap_count; i++)
@@ -372,7 +462,7 @@ void GL_BuildLightmaps (void)
 		lm->yofs = (i / xblocks) * LMBLOCK_HEIGHT;
 	}
 
-	// fill lightmap data and assign lightmap UVs to surface vertices
+	// create texel -> surface map
 	for (j=1 ; j<MAX_MODELS ; j++)
 	{
 		m = cl.model_precache[j];
@@ -385,16 +475,20 @@ void GL_BuildLightmaps (void)
 			//johnfitz -- rewritten to use SURF_DRAWTILED instead of the sky/water flags
 			if (m->surfaces[i].flags & SURF_DRAWTILED)
 				continue;
-			GL_FillSurfaceLightmap (m->surfaces + i);
+			GL_MarkSurfaceLightmap (m->surfaces + i, texelsurf);
 			//johnfitz
 		}
 	}
 
-	lightmap_samples_texture =
-		TexMgr_LoadImageEx (cl.worldmodel, "lightmap_samples", lightmap_width, lightmap_height, MAXLIGHTMAPS,
-			SRC_RGBA, (byte *)lightmap_data, "", (src_offset_t)lightmap_data, TEXPREF_ARRAY | TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_NOPICMIP
-		);
+	// fill sample buffer
+	numsamples = 0;
+	for (i=0; i<lightmap_count; i++)
+		GL_FillLightmapSamples (lightmaps + i, texelsurf, &numsamples);
+	free (texelsurf);
+	texelsurf = NULL;
 
+	// create GPU resources
+	GL_CreateLightmapResources ();
 	lightmap_texture =
 		TexMgr_LoadImage (cl.worldmodel, "lightmap", lightmap_width, lightmap_height, SRC_LIGHTMAP, NULL, "", 0, TEXPREF_LINEAR | TEXPREF_NOPICMIP);
 

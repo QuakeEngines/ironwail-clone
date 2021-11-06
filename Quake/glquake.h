@@ -423,7 +423,10 @@ typedef struct bmodel_gpu_surf_s {
 	GLuint		firstvert;
 } bmodel_gpu_surf_t;
 
+void GL_DeleteLightmapResources (void);
+void GL_CreateLightmapResources (void);
 void GL_BuildLightmaps (void);
+
 void GL_DeleteBModelBuffers (void);
 void GL_BuildBModelVertexBuffer (void);
 void GL_BuildBModelMarkBuffers (void);
