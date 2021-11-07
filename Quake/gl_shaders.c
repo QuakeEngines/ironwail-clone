@@ -145,7 +145,7 @@ GL_CreateProgram
 Compiles and returns GLSL program.
 ====================
 */
-static GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name, ...) FUNC_PRINTF(3,4)
+static FUNC_PRINTF(3,4) GLuint GL_CreateProgram (const GLchar *vertSource, const GLchar *fragSource, const char *name, ...)
 {
 	va_list argptr;
 	char macros[1024];
