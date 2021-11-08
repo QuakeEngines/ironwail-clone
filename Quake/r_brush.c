@@ -373,7 +373,7 @@ void R_UpdateLightmaps (void)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(GLuint) * count);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, lightmap_sample_buffer, 0, num_lightmap_samples * sizeof(GLuint));
 
-	GL_DispatchComputeFunc (LMBLOCK_WIDTH / 256, LMBLOCK_HEIGHT / 1, count);
+	GL_DispatchComputeFunc (LMBLOCK_WIDTH / 64, LMBLOCK_HEIGHT / 1, count);
 	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
 
 	GL_EndGroup ();

@@ -999,7 +999,7 @@ WORLD_DRAW_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char update_lightmap_compute_shader[] =
-"layout(local_size_x=256) in;\n"
+"layout(local_size_x=64) in;\n"
 "\n"
 "layout(r32ui, binding=0) readonly uniform uimage2D LightmapSampleOffsets;\n"
 "layout(rgba8ui, binding=1) writeonly uniform uimage2D Lightmap;\n"
