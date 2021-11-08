@@ -174,7 +174,7 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 {
 	msprite_t		*psprite;
 	mspriteframe_t	*frame;
-	vec3_t			point, v_forward, v_right, v_up;
+	vec3_t			v_forward, v_right, v_up;
 	float			*s_up, *s_right;
 	float			angle, sr, cr;
 	spritevert_t	*verts;
@@ -245,29 +245,22 @@ static void R_DrawSpriteModel_Real (entity_t *e, qboolean showtris)
 	verts = batchverts + numbatchquads * 4;
 	++numbatchquads;
 
-	#define ADD_VERTEX(uvx, uvy, p)		\
-		VectorCopy(p, verts->pos);		\
-		verts->uv[0] = uvx;				\
-		verts->uv[1] = uvy;				\
-		++verts
+	VectorMA (e->origin, frame->down, s_up, verts[0].pos);
+	VectorMA (verts[0].pos, frame->left, s_right, verts[0].pos);
+	verts[0].uv[0] = 0.f;
+	verts[0].uv[1] = frame->tmax;
 
-	VectorMA (e->origin, frame->down, s_up, point);
-	VectorMA (point, frame->left, s_right, point);
-	ADD_VERTEX (0, frame->tmax, point);
+	VectorMA (verts[0].pos, frame->up - frame->down, s_up, verts[1].pos);
+	verts[1].uv[0] = 0.f;
+	verts[1].uv[1] = 0.f;
 
-	VectorMA (e->origin, frame->up, s_up, point);
-	VectorMA (point, frame->left, s_right, point);
-	ADD_VERTEX (0, 0, point);
+	VectorMA (verts[1].pos, frame->right - frame->left, s_right, verts[2].pos);
+	verts[2].uv[0] = frame->smax;
+	verts[2].uv[1] = 0.f;
 
-	VectorMA (e->origin, frame->up, s_up, point);
-	VectorMA (point, frame->right, s_right, point);
-	ADD_VERTEX (frame->smax, 0, point);
-
-	VectorMA (e->origin, frame->down, s_up, point);
-	VectorMA (point, frame->right, s_right, point);
-	ADD_VERTEX (frame->smax, frame->tmax, point);
-
-	#undef ADD_VERTEX
+	VectorMA (verts[2].pos, frame->down - frame->up, s_up, verts[3].pos);
+	verts[3].uv[0] = frame->smax;
+	verts[3].uv[1] = frame->tmax;
 }
 
 /*
