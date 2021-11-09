@@ -629,13 +629,12 @@ static void GL_AllocDynamicBuffers (void)
 
 		GL_GenBuffersFunc (1, &buf->handle);
 		GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
+		q_snprintf (name, sizeof(name), "dynamic buffer %d", i);
+		GL_ObjectLabelFunc (GL_BUFFER, buf->handle, -1, name);
 		GL_BufferStorageFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, flags);
 		buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
 		if (!buf->ptr)
 			Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %z bytes", dynabuf_size);
-
-		q_snprintf (name, sizeof(name), "dynamic buffer %d", i);
-		GL_ObjectLabelFunc (GL_BUFFER, buf->handle, -1, name);
 	}
 
 	dynabuf_offset = 0;

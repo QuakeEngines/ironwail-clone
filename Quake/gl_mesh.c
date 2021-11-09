@@ -490,10 +490,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	GL_DeleteBuffer (m->meshindexesvbo);
 	GL_GenBuffersFunc (1, &m->meshindexesvbo);
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, m->meshindexesvbo);
-	GL_BufferDataFunc (GL_ELEMENT_ARRAY_BUFFER, hdr->numindexes * sizeof (unsigned short), indexes, GL_STATIC_DRAW);
-
 	q_snprintf (name, sizeof(name), "%s indices", m->name);
 	GL_ObjectLabelFunc (GL_BUFFER, m->meshindexesvbo, -1, name);
+	GL_BufferDataFunc (GL_ELEMENT_ARRAY_BUFFER, hdr->numindexes * sizeof (unsigned short), indexes, GL_STATIC_DRAW);
 
 // create the vertex buffer (empty)
 
@@ -548,10 +547,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	GL_DeleteBuffer (m->meshvbo);
 	GL_GenBuffersFunc (1, &m->meshvbo);
 	GL_BindBuffer (GL_ARRAY_BUFFER, m->meshvbo);
-	GL_BufferDataFunc (GL_ARRAY_BUFFER, totalvbosize, vbodata, GL_STATIC_DRAW);
-
 	q_snprintf (name, sizeof(name), "%s vertices", m->name);
 	GL_ObjectLabelFunc (GL_BUFFER, m->meshvbo, -1, name);
+	GL_BufferDataFunc (GL_ARRAY_BUFFER, totalvbosize, vbodata, GL_STATIC_DRAW);
 
 	free (vbodata);
 }
