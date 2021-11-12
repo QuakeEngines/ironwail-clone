@@ -450,7 +450,7 @@ static void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	{
 		tx = blacktexture;
 		fb = whitetexture;
-		lightcolor[0] = lightcolor[2] = lightcolor[3] = 0.5f;
+		lightcolor[0] = lightcolor[1] = lightcolor[2] = 0.5f;
 		entalpha = 1.f;
 	}
 
