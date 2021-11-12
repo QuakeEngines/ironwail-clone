@@ -1715,7 +1715,7 @@ Mod_FindUsedTextures
 void Mod_FindUsedTextures (qmodel_t *mod)
 {
 	msurface_t *s;
-	int i, count;
+	int i, count, bit;
 	int ofs[TEXTYPE_COUNT];
 	int mark = Hunk_HighMark ();
 	byte *inuse = (byte *) Hunk_HighAllocName ((mod->numtextures + 7) >> 3, "used textures");
@@ -1727,7 +1727,7 @@ void Mod_FindUsedTextures (qmodel_t *mod)
 		byte *val = &inuse[s->texinfo->texnum >> 3];
 		if (!t)
 			continue;
-		int bit = 1 << (s->texinfo->texnum & 7);
+		bit = 1 << (s->texinfo->texnum & 7);
 		if (!(*val & bit))
 		{
 			*val |= bit;

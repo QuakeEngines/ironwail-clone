@@ -370,14 +370,15 @@ void R_EntityMatrix (float matrix[16], vec3_t origin, vec3_t angles)
 	}
 	else
 	{
+		float sy, sp, sr, cy, cp, cr;
 		pitch = DEG2RAD(pitch);
 		roll = DEG2RAD(roll);
-		float sy = sin(yaw);
-		float sp = sin(pitch);
-		float sr = sin(roll);
-		float cy = cos(yaw);
-		float cp = cos(pitch);
-		float cr = cos(roll);
+		sy = sin(yaw);
+		sp = sin(pitch);
+		sr = sin(roll);
+		cy = cos(yaw);
+		cp = cos(pitch);
+		cr = cos(roll);
 
 		// https://www.symbolab.com/solver/matrix-multiply-calculator FTW!
 
