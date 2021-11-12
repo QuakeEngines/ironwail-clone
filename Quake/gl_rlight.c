@@ -164,7 +164,7 @@ void R_PushDlights (void)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr) ofs, sizeof (cluster_inputs));
 	GL_BindImageTextureFunc (0, gl_lightclustertexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RG32UI);
 	GL_DispatchComputeFunc ((LIGHT_TILES_X+7)/8, (LIGHT_TILES_Y+7)/8, LIGHT_TILES_Z);
-	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
+	GL_MemoryBarrierFunc (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
 	GL_BindImageTextureFunc (0, gl_lightclustertexture, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RG32UI);
 
