@@ -873,8 +873,15 @@ static void APIENTRY GL_DebugCallback (GLenum source, GLenum type, GLuint id, GL
 			break;
 	}
 
-	Con_SafePrintf ("\x02GL %s %s[#%u/%s]: ", str_source, str_type, id, str_severity);
-	Con_SafePrintf ("%s\n", message);
+	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION)
+	{
+		Sys_Printf ("GL %s %s[#%u/%s]: %s\n", str_source, str_type, id, str_severity, message);
+	}
+	else
+	{
+		Con_SafePrintf ("\x02GL %s %s[#%u/%s]: ", str_source, str_type, id, str_severity);
+		Con_SafePrintf ("%s\n", message);
+	}
 }
 
 /*
