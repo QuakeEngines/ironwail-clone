@@ -237,6 +237,7 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "const uint\n"\
 "	CF_USE_ALPHA_TEST = 1u,\n"\
 "	CF_USE_POLYGON_OFFSET = 2u,\n"\
+"	CF_USE_FULLBRIGHT = 4u,\n"\
 "	CF_REVERSED_Z = 1u << 31\n"\
 ";\n"\
 "\n"\
@@ -348,16 +349,23 @@ WORLD_INSTANCEDATA_BUFFER
 "{\n"
 "	Call call = call_data[in_drawinstance.x];\n"
 "	Instance instance = instance_data[in_drawinstance.y];\n"
+"	vec3 fullbright = vec3(0.);\n"
 "#if BINDLESS\n"
 "	Tex = sampler2D(call.txhandle);\n"
-"	FullbrightTex = sampler2D(call.fbhandle);\n"
+"	if ((call.flags & CF_USE_FULLBRIGHT) != 0u)\n"
+"	{\n"
+"		FullbrightTex = sampler2D(call.fbhandle);\n"
+"		fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"
+"	}\n"
+"#else\n"
+"	if ((call.flags & CF_USE_FULLBRIGHT) != 0u)\n"
+"		fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"
 "#endif\n"
 "	vec4 result = texture(Tex, in_uv.xy);\n"
 "#if ALPHATEST\n"
 "	if (result.a < 0.666)\n"
 "		discard;\n"
 "#endif\n"
-"	vec3 fullbright = texture(FullbrightTex, in_uv.xy).rgb;\n"
 "	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"
 "	if (NumLights > 0u)\n"
 "	{\n"
