@@ -515,7 +515,38 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	if (!gl_context) {
 		gl_context = SDL_GL_CreateContext(draw_context);
 		if (!gl_context)
-			Sys_Error("Couldn't create GL context");
+		{
+			// Couldn't create an OpenGL context with our minimum requirements.
+			// Try again with the default attributes and see what we get,
+			// so we have more meaningful information for the error message.
+			int major, minor;
+			const char *version;
+
+			SDL_GL_ResetAttributes();
+			gl_context = SDL_GL_CreateContext(draw_context);
+			version = gl_context ? glGetString(GL_VERSION) : NULL;
+			if (!version || sscanf(version, "%d.%d", &major, &minor) != 2)
+				major = minor = 0;
+
+			if (major && MAKE_GL_VERSION(major, minor) < MIN_GL_VERSION)
+				Sys_Error(
+					"This engine requires OpenGL %d.%d, but only version %d.%d was found.\n"
+					"Please make sure that your GPU (%s) meets the minimum requirements and that the graphics drivers are up to date.",
+					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, major, minor, glGetString(GL_RENDERER)
+				);
+			else if (gl_context)
+				Sys_Error(
+					"Could not create OpenGL %d.%d context.\n"
+					"Please make sure that your GPU (%s) meets the minimum requirements and that the graphics drivers are up to date.",
+					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, glGetString(GL_RENDERER)
+				);
+			else
+				Sys_Error(
+					"Could not create OpenGL %d.%d context. " // no newline
+					"Please make sure that your GPU meets the minimum requirements and that the graphics drivers are up to date.",
+					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR
+				);
+		}
 	}
 
 	gl_swap_control = true;
