@@ -413,7 +413,8 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 typedef enum {
 	BP_SOLID,
 	BP_ALPHATEST,
-	BP_SKY,
+	BP_SKYLAYERS,
+	BP_SKYSTENCIL,
 	BP_SHOWTRIS,
 } brushpass_t;
 
@@ -454,7 +455,12 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 		texend = TEXTYPE_CUTOUT + 1;
 		program = glprogs.world[gl_bindless_able][1];
 		break;
-	case BP_SKY:
+	case BP_SKYLAYERS:
+		texbegin = TEXTYPE_SKY;
+		texend = TEXTYPE_SKY + 1;
+		program = glprogs.skylayers[gl_bindless_able];
+		break;
+	case BP_SKYSTENCIL:
 		texbegin = TEXTYPE_SKY;
 		texend = TEXTYPE_SKY + 1;
 		program = glprogs.skystencil[gl_bindless_able];
@@ -624,12 +630,22 @@ void R_DrawBrushModels (entity_t **ents, int count)
 
 /*
 =============
-R_DrawBrushModels_Sky
+R_DrawBrushModels_SkyLayers
 =============
 */
-void R_DrawBrushModels_Sky (entity_t **ents, int count)
+void R_DrawBrushModels_SkyLayers (entity_t **ents, int count)
 {
-	R_DrawBrushModels_Real (ents, count, BP_SKY);
+	R_DrawBrushModels_Real (ents, count, BP_SKYLAYERS);
+}
+
+/*
+=============
+R_DrawBrushModels_SkyStencil
+=============
+*/
+void R_DrawBrushModels_SkyStencil (entity_t **ents, int count)
+{
+	R_DrawBrushModels_Real (ents, count, BP_SKYSTENCIL);
 }
 
 /*

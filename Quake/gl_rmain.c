@@ -756,8 +756,12 @@ void R_SetupView (void)
 {
 	R_AnimateLight ();
 	R_UpdateLightmaps ();
+
 	r_framecount++;
 	r_framedata.global.time = cl.time;
+	r_framedata.global.eyepos[0] = r_refdef.vieworg[0];
+	r_framedata.global.eyepos[1] = r_refdef.vieworg[1];
+	r_framedata.global.eyepos[2] = r_refdef.vieworg[2];
 
 	Fog_SetupFrame (); //johnfitz
 

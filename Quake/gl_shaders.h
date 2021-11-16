@@ -190,6 +190,8 @@ static const char postprocess_fragment_shader[] =
 "	mat4	ViewProj;\n"\
 "	vec3	FogColor;\n"\
 "	float	FogDensity;\n"\
+"	vec3	EyePos;\n"\
+"	float	SkyFog;\n"\
 "	float	Time;\n"\
 "	float	ZLogScale;\n"\
 "	float	ZLogBias;\n"\
@@ -534,39 +536,66 @@ WORLD_VERTEX_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char sky_layers_vertex_shader[] =
-"layout(location=0) in vec3 in_dir;\n"
+FRAMEDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+WORLD_VERTEX_BUFFER
+"\n"
+"#if BINDLESS\n"
+"	#extension GL_ARB_shader_draw_parameters : require\n"
+"	#define DRAW_ID			gl_DrawIDARB\n"
+"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
+"#else\n"
+"	#define DRAW_ID			0\n"
+"	#define INSTANCE_ID		gl_InstanceID\n"
+"#endif\n"
 "\n"
 "layout(location=0) out vec3 out_dir;\n"
+"layout(location=1) flat out int out_drawid;\n"
 "\n"
 "void main()\n"
 "{\n"
-"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-"	v.x ^= v.y; // fix winding order\n"
-"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 1.0, 1.0);\n"
-"	out_dir = in_dir;\n"
+"	PackedVertex vert = vertices[gl_VertexID];\n"
+"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	out_dir = pos - EyePos;\n"
 "	out_dir.z *= 3.0; // flatten the sphere\n"
+"	out_drawid = DRAW_ID;\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
 
 static const char sky_layers_fragment_shader[] =
-"layout(binding=0) uniform sampler2D SolidLayer;\n"
-"layout(binding=1) uniform sampler2D AlphaLayer;\n"
+"#if BINDLESS\n"
+"	#extension GL_ARB_bindless_texture : require\n"
+"	sampler2D SolidLayer;\n"
+"	sampler2D AlphaLayer;\n"
+"#else\n"
+"	layout(binding=0) uniform sampler2D SolidLayer;\n"
+"	layout(binding=1) uniform sampler2D AlphaLayer;\n"
+"#endif\n"
 "\n"
-"layout(location=2) uniform float Time;\n"
-"layout(location=3) uniform vec4 Fog;\n"
+FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
 "\n"
 "layout(location=0) in vec3 in_dir;\n"
+"layout(location=1) flat in int in_drawid;\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
 "\n"
 "void main()\n"
 "{\n"
+"	Call call = call_data[in_drawid];\n"
+"#if BINDLESS\n"
+"	SolidLayer = sampler2D(call.txhandle);\n"
+"	AlphaLayer = sampler2D(call.fbhandle);\n"
+"#endif\n"
 "	vec2 uv = normalize(in_dir).xy * (189.0 / 64.0);\n"
 "	vec4 result = texture(SolidLayer, uv + Time / 16.0);\n"
 "	vec4 layer = texture(AlphaLayer, uv + Time / 8.0);\n"
 "	result.rgb = mix(result.rgb, layer.rgb, layer.a);\n"
-"	result.rgb = mix(result.rgb, Fog.rgb, Fog.w);\n"
+"	result.rgb = mix(result.rgb, FogColor, SkyFog);\n"
 "	out_fragcolor = result;\n"
 "}\n";
 

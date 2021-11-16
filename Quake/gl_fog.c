@@ -45,6 +45,8 @@ float old_blue;
 float fade_time; //duration of fade
 float fade_done; //time when fade will be done
 
+extern float skyfog;
+
 /*
 =============
 Fog_Update
@@ -288,8 +290,10 @@ called at the beginning of each frame
 void Fog_SetupFrame (void)
 {
 	const float ExpAdjustment = 1.20112241f; // sqrt(log2(e))
+	float density = Fog_GetDensity();
 	memcpy(r_framedata.global.fogdata, Fog_GetColor(), 3 * sizeof(float));
-	r_framedata.global.fogdata[3] = Fog_GetDensity() * (ExpAdjustment / 64.0f);
+	r_framedata.global.fogdata[3] = density * (ExpAdjustment / 64.0f);
+	r_framedata.global.skyfog = density > 0.f ? skyfog : 0.f;
 }
 
 /*

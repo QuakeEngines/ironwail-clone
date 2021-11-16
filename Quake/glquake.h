@@ -358,6 +358,8 @@ typedef struct gpuframedata_s {
 	struct {
 		float	viewproj[16];
 		float	fogdata[4];
+		vec3_t	eyepos;
+		float	skyfog;
 		float	time;
 		float	zlogscale;
 		float	zlogbias;
@@ -388,7 +390,8 @@ void R_UploadFrameData (void);
 
 void R_DrawBrushModels (entity_t **ents, int count);
 void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent);
-void R_DrawBrushModels_Sky (entity_t **ents, int count);
+void R_DrawBrushModels_SkyLayers (entity_t **ents, int count);
+void R_DrawBrushModels_SkyStencil (entity_t **ents, int count);
 void R_DrawAliasModels (entity_t **ents, int count);
 void R_DrawSpriteModels (entity_t **ents, int count);
 void R_DrawBrushModels_ShowTris (entity_t **ents, int count);
@@ -449,7 +452,7 @@ typedef struct glprogs_s {
 	GLuint		world[2][2];	// [bindless][alpha test]
 	GLuint		water[2];		// [bindless]
 	GLuint		skystencil[2];	// [bindless]
-	GLuint		skylayers;
+	GLuint		skylayers[2];	// [bindless]
 	GLuint		skybox;
 	GLuint		alias[2];		// [alpha test]
 	GLuint		sprites;

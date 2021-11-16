@@ -24,23 +24,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 
-#define	MAX_CLIP_VERTS 64
-
-float Fog_GetDensity(void);
-float *Fog_GetColor(void);
-
-extern GLuint gl_bmodel_vbo;
-
 extern	qmodel_t	*loadmodel;
 extern	int	rs_skypolys; //for r_speeds readout
 extern	int rs_skypasses; //for r_speeds readout
 float	skyflatcolor[3];
-float	skymins[2][6], skymaxs[2][6];
 
 char	skybox_name[1024]; //name of current skybox, or "" if no skybox
 
 gltexture_t	*skybox_textures[6];
-gltexture_t	*solidskytexture, *alphaskytexture;
 
 extern cvar_t gl_farclip;
 cvar_t r_fastsky = {"r_fastsky", "0", CVAR_NONE};
@@ -59,7 +50,7 @@ static const char st_to_vec[6][3] =
  	{2,-1,-3}		// straight down
 };
 
-static float skyfog; // ericw
+float skyfog; // ericw
 
 //==============================================================================
 //
@@ -78,12 +69,12 @@ void Sky_LoadTexture (texture_t *mt)
 {
 	char		texturename[64];
 	int			i, j, p, r, g, b, count;
-	byte		*src;
-	static byte	front_data[128*128]; //FIXME: Hunk_Alloc
-	static byte	back_data[128*128]; //FIXME: Hunk_Alloc
+	byte		*src, *front_data, *back_data;
 	unsigned	*rgba;
 
 	src = (byte *)mt + mt->offsets[0];
+	back_data = (byte *) Hunk_Alloc (128 * 128);
+	front_data = (byte *) Hunk_Alloc (128 * 128);
 
 // extract back layer and upload
 	for (i=0 ; i<128 ; i++)
@@ -91,7 +82,7 @@ void Sky_LoadTexture (texture_t *mt)
 			back_data[(i*128) + j] = src[i*256 + j + 128];
 
 	q_snprintf(texturename, sizeof(texturename), "%s:%s_back", loadmodel->name, mt->name);
-	solidskytexture = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, back_data, "", (src_offset_t)back_data, TEXPREF_NONE);
+	mt->gltexture = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, back_data, "", (src_offset_t)back_data, TEXPREF_BINDLESS);
 
 // extract front layer and upload
 	for (i=0 ; i<128 ; i++)
@@ -103,7 +94,7 @@ void Sky_LoadTexture (texture_t *mt)
 		}
 
 	q_snprintf(texturename, sizeof(texturename), "%s:%s_front", loadmodel->name, mt->name);
-	alphaskytexture = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, front_data, "", (src_offset_t)front_data, TEXPREF_ALPHA);
+	mt->fullbright = TexMgr_LoadImage (loadmodel, texturename, 128, 128, SRC_INDEXED, front_data, "", (src_offset_t)front_data, TEXPREF_ALPHA|TEXPREF_BINDLESS);
 
 // calculate r_fastsky color based on average of all opaque foreground colors
 	r = g = b = count = 0;
@@ -146,7 +137,7 @@ void Sky_LoadTextureQ64 (texture_t *mt)
 
 	// Normal indexed texture for the back layer
 	q_snprintf(texturename, sizeof(texturename), "%s:%s_back", loadmodel->name, mt->name);
-	solidskytexture = TexMgr_LoadImage (loadmodel, texturename, 32, 32, SRC_INDEXED, back, "", (src_offset_t)back, TEXPREF_NONE);
+	mt->gltexture = TexMgr_LoadImage (loadmodel, texturename, 32, 32, SRC_INDEXED, back, "", (src_offset_t)back, TEXPREF_NONE);
 	
 	// front layer, convert to RGBA and upload
 	p = r = g = b = count = 0;
@@ -170,7 +161,7 @@ void Sky_LoadTextureQ64 (texture_t *mt)
 	}
 
 	q_snprintf(texturename, sizeof(texturename), "%s:%s_front", loadmodel->name, mt->name);
-	alphaskytexture = TexMgr_LoadImage (loadmodel, texturename, 32, 32, SRC_RGBA, front_rgba, "", (src_offset_t)front_rgba, TEXPREF_NONE);
+	mt->fullbright = TexMgr_LoadImage (loadmodel, texturename, 32, 32, SRC_RGBA, front_rgba, "", (src_offset_t)front_rgba, TEXPREF_NONE);
 
 	// calculate r_fastsky color based on average of all opaque foreground colors
 	skyflatcolor[0] = (float)r/(count*255);
@@ -257,8 +248,6 @@ void Sky_ClearAll (void)
 	skybox_name[0] = 0;
 	for (i=0; i<6; i++)
 		skybox_textures[i] = NULL;
-	solidskytexture = NULL;
-	alphaskytexture = NULL;
 }
 
 /*
@@ -466,51 +455,6 @@ void Sky_DrawSkyBox (void)
 	}
 }
 
-//==============================================================================
-//
-//  RENDER CLOUDS
-//
-//==============================================================================
-
-/*
-==============
-Sky_DrawSkyLayers
-
-draws the old-style scrolling cloud layers
-==============
-*/
-void Sky_DrawSkyLayers (void)
-{
-	GLuint buf;
-	GLbyte *ofs;
-	vec3_t dirs[4];
-	vec4_t fog;
-
-	fog[0] = r_framedata.global.fogdata[0];
-	fog[1] = r_framedata.global.fogdata[1];
-	fog[2] = r_framedata.global.fogdata[2];
-	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
-
-	CrossProduct(frustum[2].normal, frustum[1].normal, dirs[0]); // bottom left
-	CrossProduct(frustum[0].normal, frustum[2].normal, dirs[1]); // bottom right
-	CrossProduct(frustum[3].normal, frustum[0].normal, dirs[2]); // top right
-	CrossProduct(frustum[1].normal, frustum[3].normal, dirs[3]); // top left
-
-	GL_UseProgram (glprogs.skylayers);
-
-	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(1));
-	GL_Upload (GL_ARRAY_BUFFER, dirs, sizeof(dirs), &buf, &ofs);
-	GL_BindBuffer (GL_ARRAY_BUFFER, buf);
-	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, 0, ofs);
-
-	GL_Uniform1fFunc (2, cl.time);
-	GL_Uniform4fvFunc (3, 1, fog);
-	GL_Bind (GL_TEXTURE0, solidskytexture);
-	GL_Bind (GL_TEXTURE1, alphaskytexture);
-
-	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
-}
-
 /*
 ==============
 Sky_DrawSky
@@ -523,24 +467,29 @@ void Sky_DrawSky (void)
 
 	GL_BeginGroup ("Sky");
 
-	glEnable (GL_STENCIL_TEST);
-	glStencilFunc (GL_ALWAYS, 1, 1);
-	glStencilOp (GL_KEEP, GL_KEEP, GL_REPLACE);
-	glColorMask (GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-
 	ents = R_GetVisEntities (mod_brush, false, &count);
-	R_DrawBrushModels_Sky (ents, count);
-
-	glStencilFunc (GL_EQUAL, 1, 1);
-	glStencilOp (GL_KEEP, GL_KEEP, GL_KEEP);
-	glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 	if (skybox_name[0])
-		Sky_DrawSkyBox ();
-	else
-		Sky_DrawSkyLayers ();
+	{
+		glEnable (GL_STENCIL_TEST);
+		glStencilFunc (GL_ALWAYS, 1, 1);
+		glStencilOp (GL_KEEP, GL_KEEP, GL_REPLACE);
+		glColorMask (GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
-	glDisable (GL_STENCIL_TEST);
+		R_DrawBrushModels_SkyStencil (ents, count);
+
+		glStencilFunc (GL_EQUAL, 1, 1);
+		glStencilOp (GL_KEEP, GL_KEEP, GL_KEEP);
+		glColorMask (GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+		Sky_DrawSkyBox ();
+
+		glDisable (GL_STENCIL_TEST);
+	}
+	else
+	{
+		R_DrawBrushModels_SkyLayers (ents, count);
+	}
 
 	GL_EndGroup ();
 }
