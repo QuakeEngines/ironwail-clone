@@ -351,6 +351,10 @@ static void R_FlushBModelCalls (void)
 	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT);
 
 	GL_UseProgram (bmodel_batch_program);
+	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
+	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
+	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof (float), NULL);
+	GL_VertexAttribPointerFunc (1, 4, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof (float), (void *)(3 * sizeof (float)));
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_calls, sizeof(bmodel_calls[0]) * num_bmodel_calls, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(bmodel_calls[0]) * num_bmodel_calls);
 	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_compacted_indirect_buffer);
@@ -481,7 +485,7 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 		return;
 
 	// setup state
-	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	state = GLS_CULL_BACK | GLS_ATTRIBS(2);
 	if (ents[0] == cl_entities || ENTALPHA_OPAQUE (ents[0]->alpha))
 		state |= GLS_BLEND_OPAQUE;
 	else
@@ -491,11 +495,8 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	GL_SetState (state);
 	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * count, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 	// generate drawcalls
 	for (i = 0, baseinst = 0; i < count; /**/)
@@ -572,7 +573,7 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 	GL_BeginGroup (translucent ? "Water (translucent)" : "Water (opaque)");
 
 	// setup state
-	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
+	state = GLS_CULL_BACK | GLS_ATTRIBS(2);
 	if (translucent)
 		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 	else
@@ -582,11 +583,8 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 	GL_SetState (state);
 	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
-	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
-
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * totalinst, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, gl_bmodel_vbo, 0, gl_bmodel_vbo_size);
 
 	// generate drawcalls
 	for (i = 0, baseinst = 0; i < count; /**/)

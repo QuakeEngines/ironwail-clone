@@ -267,15 +267,8 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 ////////////////////////////////////////////////////////////////
 
 #define WORLD_VERTEX_BUFFER \
-"struct PackedVertex\n"\
-"{\n"\
-"	float data[" QS_STRINGIFY(VERTEXSIZE) "];\n"\
-"};\n"\
-"\n"\
-"layout(std430, binding=3) restrict readonly buffer VertexBuffer\n"\
-"{\n"\
-"	PackedVertex vertices[];\n"\
-"};\n"\
+"layout(location=0) in vec3 in_pos;\n"\
+"layout(location=1) in vec4 in_uv;\n"\
 "\n"\
 
 ////////////////////////////////////////////////////////////////
@@ -307,15 +300,14 @@ WORLD_VERTEX_BUFFER
 "\n"
 "void main()\n"
 "{\n"
-"	PackedVertex vert = vertices[gl_VertexID];\n"
 "	Call call = call_data[DRAW_ID];\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
 "	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	out_pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	out_pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
 "		gl_Position.z += uintBitsToFloat(floatBitsToUint(1./1024.) ^ (call.flags & CF_REVERSED_Z));\n"
-"	out_uv = vec4(vert.data[3], vert.data[4], vert.data[5], vert.data[6]);\n"
+"	out_uv = in_uv;\n"
 "	out_depth = gl_Position.w;\n"
 "	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
@@ -448,12 +440,11 @@ WORLD_VERTEX_BUFFER
 "\n"
 "void main()\n"
 "{\n"
-"	PackedVertex vert = vertices[gl_VertexID];\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
 "	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
-"	out_uv = vec2(vert.data[3], vert.data[4]);\n"
+"	out_uv = in_uv.xy;\n"
 "	out_fogdist = gl_Position.w;\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
 "}\n";
@@ -521,10 +512,9 @@ WORLD_VERTEX_BUFFER
 "\n"
 "void main()\n"
 "{\n"
-"	PackedVertex vert = vertices[gl_VertexID];\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
 "	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
 "}\n";
@@ -554,10 +544,9 @@ WORLD_VERTEX_BUFFER
 "\n"
 "void main()\n"
 "{\n"
-"	PackedVertex vert = vertices[gl_VertexID];\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
 "	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * vec3(vert.data[0], vert.data[1], vert.data[2]) + world[3];\n"
+"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
 "	out_dir = pos - EyePos;\n"
 "	out_dir.z *= 3.0; // flatten the sphere\n"
