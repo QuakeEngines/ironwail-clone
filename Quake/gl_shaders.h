@@ -198,6 +198,15 @@ static const char postprocess_fragment_shader[] =
 "	uint	NumLights;\n"\
 "	Light	Lights[];\n"\
 "};\n"\
+"\n"\
+"vec3 ApplyFog(vec3 clr, float dist)\n"\
+"{\n"\
+"	dist *= FogDensity;\n"\
+"	float fog = exp2(-dist * dist);\n"\
+"	fog = clamp(fog, 0.0, 1.0);\n"\
+"	return mix(FogColor, clr, fog);\n"\
+"}\n"\
+"\n"\
 
 ////////////////////////////////////////////////////////////////
 
@@ -263,12 +272,31 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "	Instance instance_data[];\n"\
 "};\n"\
 "\n"\
+"vec3 Transform(vec3 p, Instance instance)\n"\
+"{\n"\
+"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"\
+"	return mat3(world[0], world[1], world[2]) * p + world[3];\n"\
+"}\n"\
+"\n"\
 
 ////////////////////////////////////////////////////////////////
 
 #define WORLD_VERTEX_BUFFER \
 "layout(location=0) in vec3 in_pos;\n"\
 "layout(location=1) in vec4 in_uv;\n"\
+"\n"\
+
+////////////////////////////////////////////////////////////////
+
+#define BINDLESS_VERTEX_HEADER \
+"#if BINDLESS\n"\
+"	#extension GL_ARB_shader_draw_parameters : require\n"\
+"	#define DRAW_ID			gl_DrawIDARB\n"\
+"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
+"#else\n"\
+"	#define DRAW_ID			0\n"\
+"	#define INSTANCE_ID		gl_InstanceID\n"\
+"#endif\n"\
 "\n"\
 
 ////////////////////////////////////////////////////////////////
@@ -282,15 +310,7 @@ FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-"\n"
-"#if BINDLESS\n"
-"	#extension GL_ARB_shader_draw_parameters : require\n"
-"	#define DRAW_ID			gl_DrawIDARB\n"
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
-"#else\n"
-"	#define DRAW_ID			0\n"
-"	#define INSTANCE_ID		gl_InstanceID\n"
-"#endif\n"
+BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
 "layout(location=1) out vec3 out_pos;\n"
@@ -302,8 +322,7 @@ WORLD_VERTEX_BUFFER
 "{\n"
 "	Call call = call_data[DRAW_ID];\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	out_pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
+"	out_pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
 "		gl_Position.z += uintBitsToFloat(floatBitsToUint(1./1024.) ^ (call.flags & CF_REVERSED_Z));\n"
@@ -404,9 +423,7 @@ WORLD_INSTANCEDATA_BUFFER
 "	result.rgb *= clamp(total_light, 0.0, 1.0) * 2.0;\n"
 "	result.rgb += fullbright;\n"
 "	result = clamp(result, 0.0, 1.0);\n"
-"	float fog = exp2(-(FogDensity * in_depth) * (FogDensity * in_depth));\n"
-"	fog = clamp(fog, 0.0, 1.0);\n"
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	result.rgb = ApplyFog(result.rgb, in_depth);\n"
 "	float alpha = instance.alpha;\n"
 "	if (alpha < 0.0)\n"
 "		alpha = 1.0;\n"
@@ -424,15 +441,7 @@ static const char water_vertex_shader[] =
 FRAMEDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-"\n"
-"#if BINDLESS\n"
-"#extension GL_ARB_shader_draw_parameters : require\n"
-"	#define DRAW_ID			gl_DrawIDARB\n"
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
-"#else\n"
-"	#define DRAW_ID			0\n"
-"	#define INSTANCE_ID		gl_InstanceID\n"
-"#endif\n"
+BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
 "layout(location=1) out vec2 out_uv;\n"
@@ -441,9 +450,7 @@ WORLD_VERTEX_BUFFER
 "void main()\n"
 "{\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
-"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	gl_Position = ViewProj * vec4(Transform(in_pos, instance), 1.0);\n"
 "	out_uv = in_uv.xy;\n"
 "	out_fogdist = gl_Position.w;\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
@@ -453,10 +460,10 @@ WORLD_VERTEX_BUFFER
 
 static const char water_fragment_shader[] =
 "#if BINDLESS\n"
-"#extension GL_ARB_bindless_texture : require\n"
-"sampler2D Tex;\n"
+"	#extension GL_ARB_bindless_texture : require\n"
+"	sampler2D Tex;\n"
 "#else\n"
-"layout(binding=0) uniform sampler2D Tex;\n"
+"	layout(binding=0) uniform sampler2D Tex;\n"
 "#endif\n"
 "\n"
 FRAMEDATA_BUFFER
@@ -478,9 +485,7 @@ WORLD_INSTANCEDATA_BUFFER
 "#endif\n"
 "	vec2 uv = in_uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"
 "	vec4 result = texture(Tex, uv);\n"
-"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
-"	fog = clamp(fog, 0.0, 1.0);\n"
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	float alpha = instance.alpha;\n"
 "	if (alpha < 0.0)\n"
 "		alpha = call.wateralpha;\n"
@@ -498,24 +503,14 @@ static const char skystencil_vertex_shader[] =
 FRAMEDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-"\n"
-"#if BINDLESS\n"
-"#extension GL_ARB_shader_draw_parameters : require\n"
-"	#define DRAW_ID			gl_DrawIDARB\n"
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
-"#else\n"
-"	#define DRAW_ID			0\n"
-"	#define INSTANCE_ID		gl_InstanceID\n"
-"#endif\n"
+BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
 "\n"
 "void main()\n"
 "{\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
-"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	gl_Position = ViewProj * vec4(Transform(in_pos, instance), 1.0);\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
 "}\n";
 
@@ -529,15 +524,7 @@ static const char sky_layers_vertex_shader[] =
 FRAMEDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-"\n"
-"#if BINDLESS\n"
-"	#extension GL_ARB_shader_draw_parameters : require\n"
-"	#define DRAW_ID			gl_DrawIDARB\n"
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"
-"#else\n"
-"	#define DRAW_ID			0\n"
-"	#define INSTANCE_ID		gl_InstanceID\n"
-"#endif\n"
+BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) out vec3 out_dir;\n"
 "layout(location=1) flat out int out_drawid;\n"
@@ -545,8 +532,7 @@ WORLD_VERTEX_BUFFER
 "void main()\n"
 "{\n"
 "	Instance instance = instance_data[INSTANCE_ID];\n"
-"	mat4x3 world = transpose(mat3x4(instance.mat[0], instance.mat[1], instance.mat[2]));\n"
-"	vec3 pos = mat3(world[0], world[1], world[2]) * in_pos + world[3];\n"
+"	vec3 pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
 "	out_dir = pos - EyePos;\n"
 "	out_dir.z *= 3.0; // flatten the sphere\n"
@@ -783,9 +769,7 @@ FRAMEDATA_BUFFER
 "	vec4 result = texture(Tex, in_uv);\n"
 "	if (result.a < 0.666)\n"
 "		discard;\n"
-"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
-"	fog = clamp(fog, 0.0, 1.0);\n"
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
 "}\n";
 
@@ -831,9 +815,7 @@ FRAMEDATA_BUFFER
 "{\n"
 "	vec4 result = texture(Tex, in_uv);\n"
 "	result *= in_color;\n"
-"	float fog = exp2(-(FogDensity * in_fogdist) * (FogDensity * in_fogdist));\n"
-"	fog = clamp(fog, 0.0, 1.0);\n"
-"	result.rgb = mix(FogColor, result.rgb, fog);\n"
+"	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
 "}\n";
 
