@@ -32,6 +32,9 @@ float	skyflatcolor[3];
 char	skybox_name[1024]; //name of current skybox, or "" if no skybox
 
 gltexture_t	*skybox_textures[6];
+gltexture_t	*skybox_cubemap;
+static byte *skybox_cubemap_pixels;
+static void *skybox_cubemap_offsets[6];
 
 extern cvar_t gl_farclip;
 cvar_t r_fastsky = {"r_fastsky", "0", CVAR_NONE};
@@ -177,10 +180,9 @@ Sky_LoadSkyBox
 const char	*suf[6] = {"rt", "bk", "lf", "ft", "up", "dn"};
 void Sky_LoadSkyBox (const char *name)
 {
-	int		i, mark, width, height;
+	int		i, mark, width[6], height[6], samesize, numloaded;
 	char	filename[MAX_OSPATH];
-	byte	*data;
-	qboolean nonefound = true;
+	byte	*data[6];
 
 	if (strcmp(skybox_name, name) == 0)
 		return; //no change
@@ -192,6 +194,11 @@ void Sky_LoadSkyBox (const char *name)
 			TexMgr_FreeTexture (skybox_textures[i]);
 		skybox_textures[i] = NULL;
 	}
+	if (skybox_cubemap)
+	{
+		TexMgr_FreeTexture (skybox_cubemap);
+		skybox_cubemap = NULL;
+	}
 
 	//turn off skybox if sky is set to ""
 	if (name[0] == 0)
@@ -201,35 +208,72 @@ void Sky_LoadSkyBox (const char *name)
 	}
 
 	//load textures
-	for (i=0; i<6; i++)
+	mark = Hunk_LowMark ();
+	for (i=0, numloaded=0, samesize=0; i<6; i++)
 	{
-		mark = Hunk_LowMark ();
 		q_snprintf (filename, sizeof(filename), "gfx/env/%s%s", name, suf[i]);
-		data = Image_LoadImage (filename, &width, &height);
-		if (data)
+		data[i] = Image_LoadImage (filename, &width[i], &height[i]);
+		if (data[i])
 		{
-			skybox_textures[i] = TexMgr_LoadImage (cl.worldmodel, filename, width, height, SRC_RGBA, data, filename, 0, TEXPREF_NONE);
-			nonefound = false;
+			numloaded++;
+			if (width[i] != height[i])
+				samesize = -1;
+			else if (samesize == 0)
+				samesize = width[i];
+			else if (samesize != width[i])
+				samesize = -1;
 		}
 		else
 		{
 			Con_Printf ("Couldn't load %s\n", filename);
-			skybox_textures[i] = notexture;
 		}
-		Hunk_FreeToLowMark (mark);
 	}
 
-	if (nonefound) // go back to scrolling sky if skybox is totally missing
+	if (numloaded == 0) // go back to scrolling sky if skybox is totally missing
 	{
-		for (i=0; i<6; i++)
-		{
-			if (skybox_textures[i] && skybox_textures[i] != notexture)
-				TexMgr_FreeTexture (skybox_textures[i]);
-			skybox_textures[i] = NULL;
-		}
 		skybox_name[0] = 0;
 		return;
 	}
+
+	if (samesize > 0) // create a single cubemap texture if all faces are the same size
+	{
+		const int cubemap_order[6] = {3, 1, 4, 5, 0, 2}; // ft/bk/up/dn/rt/lf
+		size_t numfacebytes = samesize * samesize * 4;
+
+		if (!(skybox_cubemap_pixels = (byte *) realloc (skybox_cubemap_pixels, numfacebytes * 6)))
+		{
+			skybox_name[0] = 0;
+			Hunk_FreeToLowMark (mark);
+			return;
+		}
+
+		for (i = 0; i < 6; i++)
+		{
+			byte *dstpixels = skybox_cubemap_pixels + numfacebytes * i;
+			byte *srcpixels = data[cubemap_order[i]];
+			if (srcpixels)
+				memcpy (dstpixels, srcpixels, numfacebytes);
+			else
+				memset (dstpixels, 0, numfacebytes); // TODO: average out existing faces instead?
+			skybox_cubemap_offsets[i] = dstpixels;
+		}
+
+		q_snprintf (filename, sizeof(filename), "gfx/env/%s", name);
+		skybox_cubemap = TexMgr_LoadImage (cl.worldmodel, filename,
+			samesize, samesize, SRC_RGBA,
+			(byte *)skybox_cubemap_offsets, "", (src_offset_t)skybox_cubemap_offsets,
+			TEXPREF_CUBEMAP | TEXPREF_NOPICMIP | TEXPREF_MIPMAP
+		);
+	}
+	else // create a separate texture for each side
+	{
+		for (i = 0; i < 6; i++)
+		{
+			q_snprintf (filename, sizeof(filename), "gfx/env/%s%s", name, suf[i]);
+			skybox_textures[i] = TexMgr_LoadImage (cl.worldmodel, filename, width[i], height[i], SRC_RGBA, data[i], filename, 0, TEXPREF_NONE);
+		}
+	}
+	Hunk_FreeToLowMark (mark);
 
 	q_strlcpy(skybox_name, name, sizeof(skybox_name));
 }
@@ -248,6 +292,7 @@ void Sky_ClearAll (void)
 	skybox_name[0] = 0;
 	for (i=0; i<6; i++)
 		skybox_textures[i] = NULL;
+	skybox_cubemap = NULL;
 }
 
 /*
@@ -421,7 +466,7 @@ void Sky_DrawSkyBox (void)
 	fog[2] = r_framedata.global.fogdata[2];
 	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
 
-	GL_UseProgram (glprogs.skybox);
+	GL_UseProgram (glprogs.skyboxside);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
 	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);
@@ -469,7 +514,11 @@ void Sky_DrawSky (void)
 
 	ents = R_GetVisEntities (mod_brush, false, &count);
 
-	if (skybox_name[0])
+	if (skybox_cubemap)
+	{
+		R_DrawBrushModels_SkyCubemap (ents, count);
+	}
+	else if (skybox_name[0])
 	{
 		glEnable (GL_STENCIL_TEST);
 		glStencilFunc (GL_ALWAYS, 1, 1);

@@ -391,6 +391,7 @@ void R_UploadFrameData (void);
 void R_DrawBrushModels (entity_t **ents, int count);
 void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent);
 void R_DrawBrushModels_SkyLayers (entity_t **ents, int count);
+void R_DrawBrushModels_SkyCubemap (entity_t **ents, int count);
 void R_DrawBrushModels_SkyStencil (entity_t **ents, int count);
 void R_DrawAliasModels (entity_t **ents, int count);
 void R_DrawSpriteModels (entity_t **ents, int count);
@@ -453,7 +454,8 @@ typedef struct glprogs_s {
 	GLuint		water[2];		// [bindless]
 	GLuint		skystencil[2];	// [bindless]
 	GLuint		skylayers[2];	// [bindless]
-	GLuint		skybox;
+	GLuint		skycubemap[2];	// [bindless]
+	GLuint		skyboxside;
 	GLuint		alias[2];		// [alpha test]
 	GLuint		sprites;
 	GLuint		particles;

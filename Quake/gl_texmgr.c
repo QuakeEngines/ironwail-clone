@@ -298,30 +298,40 @@ static void TexMgr_Imagedump_f (void)
 	q_snprintf(dirname, sizeof(dirname), "%s/imagedump", com_gamedir);
 	Sys_mkdir (dirname);
 
+	glPixelStorei (GL_PACK_ALIGNMENT, 1);/* for widths that aren't a multiple of 4 */
+
 	//loop through textures
 	for (glt = active_gltextures; glt; glt = glt->next)
 	{
+		int channels = (glt->flags & TEXPREF_ALPHA) ? 4 : 3;
+		int format   = (glt->flags & TEXPREF_ALPHA) ? GL_RGBA : GL_RGB;
+
 		q_strlcpy (tempname, glt->name, sizeof(tempname));
-		while ( (c = strchr(tempname, ':')) ) *c = '_';
-		while ( (c = strchr(tempname, '/')) ) *c = '_';
-		while ( (c = strchr(tempname, '*')) ) *c = '_';
-		q_snprintf(tganame, sizeof(tganame), "imagedump/%s.tga", tempname);
+		for (c = tempname; *c; ++c)
+			if (*c == ':' || *c == '/' || *c == '*')
+				*c = '_';
 
 		GL_Bind (GL_TEXTURE0, glt);
-		glPixelStorei (GL_PACK_ALIGNMENT, 1);/* for widths that aren't a multiple of 4 */
+		buffer = (byte *) malloc(glt->width * glt->height * glt->depth * channels);
 
-		if (glt->flags & TEXPREF_ALPHA)
+		if (glt->flags & TEXPREF_CUBEMAP)
 		{
-			buffer = (byte *) malloc(glt->width*glt->height*glt->depth*4);
-			glGetTexImage(glt->target, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, 32, true);
+			const char *suf[6] = {"ft", "bk", "up", "dn", "rt", "lf"};
+			int i;
+			for (i = 0; i < 6; i++)
+			{
+				q_snprintf(tganame, sizeof(tganame), "imagedump/%s%s.tga", tempname, suf[i]);
+				glGetTexImage(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format, GL_UNSIGNED_BYTE, buffer);
+				Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, channels*8, true);
+			}
 		}
 		else
 		{
-			buffer = (byte *) malloc(glt->width*glt->height*glt->depth*3);
-			glGetTexImage(glt->target, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
-			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, 24, true);
+			q_snprintf(tganame, sizeof(tganame), "imagedump/%s.tga", tempname);
+			glGetTexImage(glt->target, 0, format, GL_UNSIGNED_BYTE, buffer);
+			Image_WriteTGA (tganame, buffer, glt->width, glt->height*glt->depth, channels*8, true);
 		}
+
 		free (buffer);
 	}
 
@@ -343,10 +353,11 @@ float TexMgr_FrameUsage (void)
 	{
 		if (glt->visframe == r_framecount)
 		{
+			int faces = glt->flags & TEXPREF_CUBEMAP ? 6 : 1;
 			if (glt->flags & TEXPREF_MIPMAP)
-				texels += glt->width * glt->height * glt->depth * 4.0f / 3.0f;
+				texels += glt->width * glt->height * glt->depth * faces * (4.0f / 3.0f);
 			else
-				texels += (glt->width * glt->height * glt->depth);
+				texels += (glt->width * glt->height * glt->depth * faces);
 		}
 	}
 
@@ -1039,12 +1050,32 @@ static byte *TexMgr_PadImageH (byte *in, int width, int height, byte padbyte)
 GL_TexImage -- calls glTexImage2D/3D based on texture type
 ================
 */
-static void GL_TexImage (gltexture_t *glt, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid* pixels)
+static void GL_TexImage (gltexture_t *glt, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels)
 {
-	if (glt->target == GL_TEXTURE_2D_ARRAY)
-		GL_TexImage3DFunc (glt->target, level, internalformat, width, height, glt->depth, 0, format, type, pixels);
-	else
+	const GLvoid **images = (const GLvoid **)pixels; // for arrays/cubemaps "pixels" is actually an array of pointers
+	unsigned int i;
+
+	switch (glt->target)
+	{
+	case GL_TEXTURE_2D_ARRAY:
+		GL_TexImage3DFunc (glt->target, level, internalformat, width, height, glt->depth, 0, format, type, NULL);
+		for (i = 0; i < glt->depth; i++)
+			GL_TexSubImage3DFunc (glt->target, level, 0, 0, i, width, height, 1, format, type, images ? images[i] : NULL);
+		break;
+
+	case GL_TEXTURE_CUBE_MAP:
+		for (i = 0; i < 6; i++)
+			glTexImage2D (GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, level, internalformat, width, height, 0, format, type, images ? images[i] : NULL);
+		break;
+
+	case GL_TEXTURE_2D:
 		glTexImage2D (glt->target, level, internalformat, width, height, 0, format, type, pixels);
+		break;
+
+	default:
+		Sys_Error ("GL_TexImage: unknown target %d for %s", glt->target, glt->name);
+		break;
+	}
 }
 
 /*
@@ -1083,22 +1114,29 @@ static void TexMgr_LoadImage32 (gltexture_t *glt, unsigned *data)
 	// upload mipmaps
 	if (glt->flags & TEXPREF_MIPMAP)
 	{
-		mipwidth = glt->width;
-		mipheight = glt->height;
-
-		for (miplevel=1; mipwidth > 1 || mipheight > 1; miplevel++)
+		if (glt->flags & (TEXPREF_CUBEMAP|TEXPREF_ARRAY))
 		{
-			if (mipwidth > 1)
+			GL_GenerateMipmapFunc (glt->target);
+		}
+		else
+		{
+			mipwidth = glt->width;
+			mipheight = glt->height;
+
+			for (miplevel=1; mipwidth > 1 || mipheight > 1; miplevel++)
 			{
-				TexMgr_MipMapW (data, mipwidth, mipheight, glt->depth);
-				mipwidth >>= 1;
+				if (mipwidth > 1)
+				{
+					TexMgr_MipMapW (data, mipwidth, mipheight, glt->depth);
+					mipwidth >>= 1;
+				}
+				if (mipheight > 1)
+				{
+					TexMgr_MipMapH (data, mipwidth, mipheight, glt->depth);
+					mipheight >>= 1;
+				}
+				GL_TexImage (glt, miplevel, internalformat, mipwidth, mipheight, GL_RGBA, GL_UNSIGNED_BYTE, data);
 			}
-			if (mipheight > 1)
-			{
-				TexMgr_MipMapH (data, mipwidth, mipheight, glt->depth);
-				mipheight >>= 1;
-			}
-			GL_TexImage (glt, miplevel, internalformat, mipwidth, mipheight, GL_RGBA, GL_UNSIGNED_BYTE, data);
 		}
 	}
 
@@ -1233,11 +1271,12 @@ gltexture_t *TexMgr_LoadImageEx (qmodel_t *owner, const char *name, int width, i
 	if (isDedicated)
 		return NULL;
 
-	if (flags & TEXPREF_ARRAY)
-		flags = (flags & ~TEXPREF_MIPMAP) | TEXPREF_NOPICMIP;
+	// cubemaps/arrays are only partially implemented, disable unsupported flags
+	if (flags & (TEXPREF_ARRAY | TEXPREF_CUBEMAP))
+		flags = (flags & ~(TEXPREF_OVERWRITE | TEXPREF_PAD)) | TEXPREF_NOPICMIP;
 
 	// cache check
-	if (data)
+	if (data && (flags & TEXPREF_OVERWRITE) && (glt = TexMgr_FindTexture (owner, name)))
 	{
 		switch (format)
 		{
@@ -1254,18 +1293,23 @@ gltexture_t *TexMgr_LoadImageEx (qmodel_t *owner, const char *name, int width, i
 			crc = 0;
 			break;
 		}
-	}
-	if ((flags & TEXPREF_OVERWRITE) && (glt = TexMgr_FindTexture (owner, name)))
-	{
+
 		if (glt->source_crc == crc)
 			return glt;
 	}
 	else
+	{
 		glt = TexMgr_NewTexture ();
+	}
 
 	// copy data
 	glt->owner = owner;
-	glt->target = flags & TEXPREF_ARRAY ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
+	if (flags & TEXPREF_CUBEMAP)
+		glt->target = GL_TEXTURE_CUBE_MAP;
+	else if (flags & TEXPREF_ARRAY)
+		glt->target = GL_TEXTURE_2D_ARRAY;
+	else
+		glt->target = GL_TEXTURE_2D;
 	q_strlcpy (glt->name, name, sizeof(glt->name));
 	glt->width = width;
 	glt->height = height;

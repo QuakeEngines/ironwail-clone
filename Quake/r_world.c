@@ -28,6 +28,7 @@ extern cvar_t gl_fullbrights, gl_overbright, r_oldskyleaf, r_showtris; //johnfit
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
 
 extern gltexture_t *lightmap_texture;
+extern gltexture_t *skybox_cubemap;
 
 extern GLuint gl_bmodel_vbo;
 extern size_t gl_bmodel_vbo_size;
@@ -418,6 +419,7 @@ typedef enum {
 	BP_SOLID,
 	BP_ALPHATEST,
 	BP_SKYLAYERS,
+	BP_SKYCUBEMAP,
 	BP_SKYSTENCIL,
 	BP_SHOWTRIS,
 } brushpass_t;
@@ -464,6 +466,11 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 		texend = TEXTYPE_SKY + 1;
 		program = glprogs.skylayers[gl_bindless_able];
 		break;
+	case BP_SKYCUBEMAP:
+		texbegin = TEXTYPE_SKY;
+		texend = TEXTYPE_SKY + 1;
+		program = glprogs.skycubemap[gl_bindless_able];
+		break;
 	case BP_SKYSTENCIL:
 		texbegin = TEXTYPE_SKY;
 		texend = TEXTYPE_SKY + 1;
@@ -493,7 +500,10 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	
 	R_ResetBModelCalls (program);
 	GL_SetState (state);
-	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+	if (pass == BP_SKYCUBEMAP)
+		GL_Bind (GL_TEXTURE2, skybox_cubemap);
+	else
+		GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * count, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);
@@ -634,6 +644,16 @@ R_DrawBrushModels_SkyLayers
 void R_DrawBrushModels_SkyLayers (entity_t **ents, int count)
 {
 	R_DrawBrushModels_Real (ents, count, BP_SKYLAYERS);
+}
+
+/*
+=============
+R_DrawBrushModels_SkyCubemap
+=============
+*/
+void R_DrawBrushModels_SkyCubemap (entity_t **ents, int count)
+{
+	R_DrawBrushModels_Real (ents, count, BP_SKYCUBEMAP);
 }
 
 /*

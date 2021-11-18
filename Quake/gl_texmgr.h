@@ -30,7 +30,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define TEXPREF_LINEAR			0x0002	// force linear
 #define TEXPREF_NEAREST			0x0004	// force nearest
 #define TEXPREF_ALPHA			0x0008	// allow alpha
-#define TEXPREF_PAD			0x0010	// allow padding
+#define TEXPREF_PAD				0x0010	// allow padding
 #define TEXPREF_PERSIST			0x0020	// never free
 #define TEXPREF_OVERWRITE		0x0040	// overwrite existing same-name texture
 #define TEXPREF_NOPICMIP		0x0080	// always load full-sized
@@ -38,7 +38,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define TEXPREF_NOBRIGHT		0x0200	// use nobright mask palette
 #define TEXPREF_CONCHARS		0x0400	// use conchars palette
 #define TEXPREF_ARRAY			0x0800	// array texture
-#define TEXPREF_BINDLESS		0x1000	// enable bindless usage
+#define TEXPREF_CUBEMAP			0x1000	// cubemap texture
+#define TEXPREF_BINDLESS		0x2000	// enable bindless usage
 
 enum srcformat {SRC_INDEXED, SRC_LIGHTMAP, SRC_RGBA};
 

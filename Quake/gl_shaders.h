@@ -576,11 +576,52 @@ WORLD_CALLDATA_BUFFER
 
 ////////////////////////////////////////////////////////////////
 //
-// Skybox
+// Skybox cubemap
 //
 ////////////////////////////////////////////////////////////////
 
-static const char sky_box_vertex_shader[] =
+static const char sky_cubemap_vertex_shader[] =
+FRAMEDATA_BUFFER
+WORLD_INSTANCEDATA_BUFFER
+WORLD_VERTEX_BUFFER
+BINDLESS_VERTEX_HEADER
+"\n"
+"layout(location=0) out vec3 out_dir;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	vec3 pos = Transform(in_pos, instance);\n"
+"	gl_Position = ViewProj * vec4(pos, 1.0);\n"
+"	out_dir.x = -(pos.y - EyePos.y);\n"
+"	out_dir.y =  (pos.z - EyePos.z);\n"
+"	out_dir.z =  (pos.x - EyePos.x);\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+
+static const char sky_cubemap_fragment_shader[] =
+FRAMEDATA_BUFFER
+"\n"
+"layout(binding=2) uniform samplerCube Skybox;\n"
+"\n"
+"layout(location=0) in vec3 in_dir;\n"
+"\n"
+"layout(location=0) out vec4 out_fragcolor;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	out_fragcolor = texture(Skybox, in_dir);\n"
+"	out_fragcolor.rgb = mix(out_fragcolor.rgb, FogColor, SkyFog);\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+//
+// Skybox side
+//
+////////////////////////////////////////////////////////////////
+
+static const char sky_boxside_vertex_shader[] =
 "layout(location=0) uniform mat4 MVP;\n"
 "layout(location=1) uniform vec3 EyePos;\n"
 "\n"
@@ -600,7 +641,7 @@ static const char sky_box_vertex_shader[] =
 
 ////////////////////////////////////////////////////////////////
 
-static const char sky_box_fragment_shader[] =
+static const char sky_boxside_fragment_shader[] =
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
 "layout(location=2) uniform vec4 Fog;\n"

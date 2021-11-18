@@ -1175,6 +1175,7 @@ static void GL_SetupState (void)
 	glPolygonMode (GL_FRONT_AND_BACK, GL_FILL);
 	GL_DepthRange (ZRANGE_FULL); //johnfitz -- moved here becuase gl_ztrick is gone.
 	glEnable (GL_BLEND);
+	glEnable (GL_TEXTURE_CUBE_MAP_SEAMLESS);
 
 	GL_ResetState ();
 }

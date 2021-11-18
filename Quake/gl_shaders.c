@@ -257,8 +257,9 @@ void GL_CreateShaders (void)
 		glprogs.water[bindless] = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water|BINDLESS %d", bindless);
 		glprogs.skystencil[bindless] = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil|BINDLESS %d", bindless);
 		glprogs.skylayers[bindless] = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers|BINDLESS %d", bindless);
+		glprogs.skycubemap[bindless] = GL_CreateProgram (sky_cubemap_vertex_shader, sky_cubemap_fragment_shader, "sky cubemap|BINDLESS %d", bindless);
 	}
-	glprogs.skybox = GL_CreateProgram (sky_box_vertex_shader, sky_box_fragment_shader, "skybox");
+	glprogs.skyboxside = GL_CreateProgram (sky_boxside_vertex_shader, sky_boxside_fragment_shader, "skybox side");
 
 	for (alphatest = 0; alphatest < 2; alphatest++)
 		glprogs.alias[alphatest] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|ALPHATEST %d", alphatest);
