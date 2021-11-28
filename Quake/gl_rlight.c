@@ -43,6 +43,7 @@ void R_AnimateLight (void)
 		if (!cl_lightstyle[j].length)
 		{
 			d_lightstylevalue[j] = 256;
+			r_framedata.global.lighstyles[j] = 1.f;
 			continue;
 		}
 		//johnfitz -- r_flatlightstyles
@@ -56,8 +57,12 @@ void R_AnimateLight (void)
 			k = cl_lightstyle[j].map[k] - 'a';
 		}
 		d_lightstylevalue[j] = k*22;
+		r_framedata.global.lighstyles[j] = k * (22.f/256.f);
 		//johnfitz
 	}
+
+	if (r_fullbright_cheatsafe)
+		r_framedata.global.lighstyles[0] = 1.f;
 }
 
 /*

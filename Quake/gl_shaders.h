@@ -188,6 +188,7 @@ static const char postprocess_fragment_shader[] =
 "layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
 "{\n"\
 "	mat4	ViewProj;\n"\
+"	float	LightStyles[" QS_STRINGIFY (MAX_LIGHTSTYLES) "];\n"\
 "	vec3	FogColor;\n"\
 "	float	FogDensity;\n"\
 "	vec3	EyePos;\n"\
@@ -205,6 +206,11 @@ static const char postprocess_fragment_shader[] =
 "	float fog = exp2(-dist * dist);\n"\
 "	fog = clamp(fog, 0.0, 1.0);\n"\
 "	return mix(FogColor, clr, fog);\n"\
+"}\n"\
+"\n"\
+"float GetLightStyle(int index)\n"\
+"{\n"\
+"	return index < " QS_STRINGIFY (MAX_LIGHTSTYLES) " ? LightStyles[index] : 1.0;\n"\
 "}\n"\
 "\n"\
 
@@ -312,11 +318,14 @@ WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
 BINDLESS_VERTEX_HEADER
 "\n"
+"layout(binding=3) uniform sampler2D LightmapStyles;\n"
+"\n"
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
 "layout(location=1) out vec3 out_pos;\n"
 "layout(location=2) out vec4 out_uv;\n"
 "layout(location=3) out float out_depth;\n"
 "layout(location=4) noperspective out vec2 out_coord;\n"
+"layout(location=5) flat out vec4 out_styles;\n"
 "\n"
 "void main()\n"
 "{\n"
@@ -330,6 +339,17 @@ BINDLESS_VERTEX_HEADER
 "	out_depth = gl_Position.w;\n"
 "	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"
 "	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"	vec4 styles = textureLod(LightmapStyles, in_uv.zw, 0.);\n"
+"	out_styles.x = GetLightStyle(int(styles.x * 255. + .5));\n"
+"	if (styles.y > 0.5)\n"
+"		out_styles.yzw = vec3(-1.);\n"
+"	else\n"
+"		out_styles.yzw = vec3\n"
+"		(\n"
+"			GetLightStyle(int(styles.y * 255. + .5)),\n"
+"			GetLightStyle(int(styles.z * 255. + .5)),\n"
+"			GetLightStyle(int(styles.w * 255. + .5))\n"
+"		);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -343,7 +363,7 @@ static const char world_fragment_shader[] =
 "	layout(binding=0) uniform sampler2D Tex;\n"
 "	layout(binding=1) uniform sampler2D FullbrightTex;\n"
 "#endif\n"
-"layout(binding=2) uniform sampler2D LMTex;\n"
+"layout(binding=2) uniform sampler2DArray LMTex;\n"
 "\n"
 FRAMEDATA_BUFFER
 LIGHT_CLUSTER_IMAGE("readonly")
@@ -355,6 +375,7 @@ WORLD_INSTANCEDATA_BUFFER
 "layout(location=2) in vec4 in_uv;\n"
 "layout(location=3) in float in_depth;\n"
 "layout(location=4) noperspective in vec2 in_coord;\n"
+"layout(location=5) flat in vec4 in_styles;\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
 "\n"
@@ -379,7 +400,19 @@ WORLD_INSTANCEDATA_BUFFER
 "	if (result.a < 0.666)\n"
 "		discard;\n"
 "#endif\n"
-"	vec3 total_light = texture(LMTex, in_uv.zw).rgb;\n"
+"\n"
+"	vec4 lm0 = textureLod(LMTex, vec3(in_uv.zw, 0.), 0.);\n"
+"	vec3 total_light;\n"
+"	if (in_styles.y < 0.) // single style fast path\n"
+"		total_light = in_styles.x * lm0.xyz;\n"
+"	else\n"
+"		total_light = vec3\n"
+"		(\n"
+"			dot(in_styles, lm0),\n"
+"			dot(in_styles, textureLod(LMTex, vec3(in_uv.zw, 1.), 0.)),\n"
+"			dot(in_styles, textureLod(LMTex, vec3(in_uv.zw, 2.), 0.))\n"
+"		);\n"
+"\n"
 "	if (NumLights > 0u)\n"
 "	{\n"
 "		uint i, ofs;\n"
@@ -1039,67 +1072,6 @@ WORLD_DRAW_BUFFER
 "			indices[ofs++] = firstvert + j;\n"
 "		}\n"
 "	}\n"
-"}\n";
-
-////////////////////////////////////////////////////////////////
-//
-// Update lightmap
-//
-////////////////////////////////////////////////////////////////
-
-static const char update_lightmap_compute_shader[] =
-"layout(local_size_x=64) in;\n"
-"\n"
-"layout(r32ui, binding=0) readonly uniform uimage2D LightmapSampleOffsets;\n"
-"layout(rgba8ui, binding=1) writeonly uniform uimage2D Lightmap;\n"
-"\n"
-"layout(std430, binding=0) restrict readonly buffer LightStyles\n"
-"{\n"
-"	uint lightstyles[];\n"
-"};\n"
-"\n"
-"layout(std430, binding=1) restrict readonly buffer Blocks\n"
-"{\n"
-"	uint blockofs[]; // 16:16\n"
-"};\n"
-"\n"
-"layout(std430, binding=2) restrict readonly buffer SampleBuffer\n"
-"{\n"
-"	uint samples[];\n"
-"};\n"
-"\n"
-"uint deinterleave_odd(uint x)\n"
-"{\n"
-"	x &= 0x55555555u;\n"
-"	x = (x ^ (x >> 1u)) & 0x33333333u;\n"
-"	x = (x ^ (x >> 2u)) & 0x0F0F0F0Fu;\n"
-"	x = (x ^ (x >> 4u)) & 0x00FF00FFu;\n"
-"	x = (x ^ (x >> 8u)) & 0x0000FFFFu;\n"
-"	return x;\n"
-"}\n"
-"\n"
-"void main()\n"
-"{\n"
-"	uvec3 thread_id = gl_GlobalInvocationID;\n"
-"	uint xy = thread_id.x | (thread_id.y << 8u);\n"
-"	xy |= (xy >> 1u) << 16u;\n"
-"	xy = deinterleave_odd(xy); // morton order\n"
-"	uvec2 coord = uvec2(xy & 0xffu, xy >> 8u);\n"
-"	xy = blockofs[thread_id.z];\n"
-"	coord += uvec2(xy & 0xffffu, xy >> 16u);\n"
-"	uint packedsampleofs = imageLoad(LightmapSampleOffsets, ivec2(coord)).x;\n"
-"	uint numsamples = packedsampleofs & 7u;\n"
-"	uint sampleofs = packedsampleofs >> 3;\n"
-"	uvec3 accum = uvec3(0u);\n"
-"	uint i;\n"
-"	for (i = 0u; i < numsamples; i++)\n"
-"	{\n"
-"		uint data = samples[sampleofs + i];\n"
-"		uvec4 s = uvec4(data & 255u, (data >> 8) & 255u, (data >> 16) & 255u, data >> 24);\n"
-"		accum += s.xyz * lightstyles[s.w];\n"
-"	}\n"
-"	accum = min(accum >> 8u, uvec3(255u));\n"
-"	imageStore(Lightmap, ivec2(coord), uvec4(accum, 255u));\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////

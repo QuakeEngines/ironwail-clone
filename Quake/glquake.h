@@ -317,7 +317,6 @@ struct lightmap_s
 	glpoly_t	*polys;
 	int			xofs;
 	int			yofs;
-	unsigned	stylemask[MAX_LIGHTSTYLES >> 5];
 };
 extern struct lightmap_s *lightmaps;
 extern int lightmap_count;	//allocated lightmaps
@@ -357,6 +356,7 @@ typedef struct gpulight_s {
 typedef struct gpuframedata_s {
 	struct {
 		float	viewproj[16];
+		float	lighstyles[MAX_LIGHTSTYLES];
 		float	fogdata[4];
 		vec3_t	eyepos;
 		float	skyfog;
@@ -427,8 +427,6 @@ typedef struct bmodel_gpu_surf_s {
 	GLuint		firstvert;
 } bmodel_gpu_surf_t;
 
-void GL_DeleteLightmapResources (void);
-void GL_CreateLightmapResources (void);
 void GL_BuildLightmaps (void);
 
 void GL_DeleteBModelBuffers (void);
@@ -439,8 +437,6 @@ void GLMesh_DeleteVertexBuffers (void);
 
 int R_LightPoint (vec3_t p, lightcache_t *cache);
 
-void R_InvalidateLightmaps (void);
-void R_UpdateLightmaps (void);
 
 typedef struct glprogs_s {
 	/* 2d */
@@ -464,7 +460,6 @@ typedef struct glprogs_s {
 	GLuint		clear_indirect;
 	GLuint		gather_indirect;
 	GLuint		cull_mark;
-	GLuint		update_lightmap;
 	GLuint		cluster_lights;
 } glprogs_t;
 

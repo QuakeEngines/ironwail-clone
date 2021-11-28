@@ -28,6 +28,7 @@ extern cvar_t gl_fullbrights, gl_overbright, r_oldskyleaf, r_showtris; //johnfit
 extern cvar_t gl_zfix; // QuakeSpasm z-fighting fix
 
 extern gltexture_t *lightmap_texture;
+extern gltexture_t *lightmap_styles_texture;
 extern gltexture_t *skybox_cubemap;
 
 extern GLuint gl_bmodel_vbo;
@@ -500,10 +501,15 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	
 	R_ResetBModelCalls (program);
 	GL_SetState (state);
-	if (pass == BP_SKYCUBEMAP)
+	if (pass <= BP_ALPHATEST)
+	{
+		GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? fbtexture : lightmap_texture);
+		GL_Bind (GL_TEXTURE3, r_fullbright_cheatsafe ? fbstylestexture : lightmap_styles_texture);
+	}
+	else if (pass == BP_SKYCUBEMAP)
+	{
 		GL_Bind (GL_TEXTURE2, skybox_cubemap);
-	else
-		GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
+	}
 
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_instances, sizeof(bmodel_instances[0]) * count, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, buf, (GLintptr)ofs, sizeof(bmodel_instances[0]) * count);

@@ -38,6 +38,7 @@ GLint			gl_max_texture_size;
 static int numgltextures;
 static gltexture_t	*active_gltextures, *free_gltextures;
 gltexture_t		*notexture, *nulltexture, *whitetexture, *greytexture, *blacktexture;
+gltexture_t		*fbtexture, *fbstylestexture;
 
 unsigned int d_8to24table[256];
 unsigned int d_8to24table_fbright[256];
@@ -635,6 +636,8 @@ void TexMgr_Init (void)
 	static byte whitetexture_data[16] = {255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255}; //white
 	static byte greytexture_data[16] = {127,127,127,255,127,127,127,255,127,127,127,255,127,127,127,255}; //50% grey
 	static byte blacktexture_data[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}; //black
+	static byte fullbrightstyles_data[16] = {0,255,255,255,0,255,255,255,0,255,255,255,0,255,255,255}; // single-style fast path
+	static byte *fullbright_layers[3] = {greytexture_data, greytexture_data, greytexture_data};
 	extern texture_t *r_notexture_mip, *r_notexture_mip2;
 
 	// init texture list
@@ -670,6 +673,8 @@ void TexMgr_Init (void)
 	whitetexture = TexMgr_LoadImage (NULL, "whitetexture", 2, 2, SRC_RGBA, whitetexture_data, "", (src_offset_t)whitetexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
 	greytexture = TexMgr_LoadImage (NULL, "greytexture", 2, 2, SRC_RGBA, greytexture_data, "", (src_offset_t)greytexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
 	blacktexture = TexMgr_LoadImage (NULL, "blacktexture", 2, 2, SRC_RGBA, blacktexture_data, "", (src_offset_t)blacktexture_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP | TEXPREF_BINDLESS);
+	fbstylestexture = TexMgr_LoadImage (NULL, "fullbrightstyles", 2, 2, SRC_RGBA, fullbrightstyles_data, "", (src_offset_t)fullbrightstyles_data, TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_NOPICMIP);
+	fbtexture = TexMgr_LoadImageEx (NULL, "fullbrightlightmap", 2, 2, 3, SRC_RGBA, (byte*)fullbright_layers, "", (src_offset_t)fullbright_layers, TEXPREF_ARRAY | TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP);
 
 	//have to assign these here becuase Mod_Init is called before TexMgr_Init
 	r_notexture_mip->gltexture = r_notexture_mip2->gltexture = notexture;
@@ -1552,7 +1557,7 @@ void TexMgr_ReloadNobrightImages (void)
 ================================================================================
 */
 
-static GLuint	currenttexture[3] = {GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE}; // to avoid unnecessary texture sets
+static GLuint	currenttexture[4] = {GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE, GL_UNUSED_TEXTURE}; // to avoid unnecessary texture sets
 static GLenum	currenttexunit = GL_TEXTURE0_ARB;
 
 /*

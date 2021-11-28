@@ -755,7 +755,6 @@ R_SetupView -- johnfitz -- this is the stuff that needs to be done once per fram
 void R_SetupView (void)
 {
 	R_AnimateLight ();
-	R_UpdateLightmaps ();
 
 	r_framecount++;
 	r_framedata.global.time = cl.time;

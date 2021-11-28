@@ -673,9 +673,7 @@ static void VID_Restart (void)
 	GL_DeleteFrameBuffers ();
 	GL_DeleteShaders ();
 	GL_DeleteBModelBuffers ();
-	GL_DeleteLightmapResources ();
 	GLMesh_DeleteVertexBuffers ();
-	R_InvalidateLightmaps ();
 
 //
 // set new mode
@@ -684,7 +682,6 @@ static void VID_Restart (void)
 
 	GL_Init ();
 	TexMgr_ReloadImages ();
-	GL_CreateLightmapResources ();
 	GL_BuildBModelVertexBuffer ();
 	GL_BuildBModelMarkBuffers ();
 	GLMesh_LoadVertexBuffers ();
