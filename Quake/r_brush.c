@@ -30,17 +30,17 @@ int		gl_lightmap_format;
 int		lightmap_bytes;
 
 #define MAX_SANITY_LIGHTMAPS (1u<<20)
-struct lightmap_s	*lightmaps;
-int					lightmap_count;
-int					last_lightmap_allocated;
-int					allocated[LMBLOCK_WIDTH];
-int					num_lightmap_samples;
-unsigned			*lightmap_data;
-unsigned			*lightmap_layers[MAXLIGHTMAPS];
-gltexture_t			*lightmap_texture;
-gltexture_t			*lightmap_styles_texture;
-int					lightmap_width;
-int					lightmap_height;
+lightmap_t		*lightmaps;
+int				lightmap_count;
+int				last_lightmap_allocated;
+int				allocated[LMBLOCK_WIDTH];
+int				num_lightmap_samples;
+unsigned		*lightmap_data;
+unsigned		*lightmap_layers[MAXLIGHTMAPS];
+gltexture_t		*lightmap_texture;
+gltexture_t		*lightmap_styles_texture;
+int				lightmap_width;
+int				lightmap_height;
 
 
 /*
@@ -106,7 +106,7 @@ static int AllocBlock (int w, int h, int *x, int *y)
 		if (texnum == lightmap_count)
 		{
 			lightmap_count++;
-			lightmaps = (struct lightmap_s *) realloc(lightmaps, sizeof(*lightmaps)*lightmap_count);
+			lightmaps = (lightmap_t *) realloc(lightmaps, sizeof(*lightmaps)*lightmap_count);
 			memset(&lightmaps[texnum], 0, sizeof(lightmaps[texnum]));
 			//as we're only tracking one texture, we don't need multiple copies of allocated any more.
 			memset(allocated, 0, sizeof(allocated));
@@ -171,7 +171,7 @@ GL_FillSurfaceLightmap
 */
 static void GL_FillSurfaceLightmap (msurface_t *surf)
 {
-	struct lightmap_s *lm;
+	lightmap_t	*lm;
 	int			smax, tmax;
 	int			xofs, yofs;
 	int			map;
@@ -268,7 +268,7 @@ void GL_BuildLightmaps (void)
 {
 	int			i, j, xblocks, yblocks, lmsize;
 	qmodel_t	*m;
-	struct lightmap_s *lm;
+	lightmap_t	*lm;
 
 	r_framecount = 1; // no dlightcache
 
@@ -479,7 +479,7 @@ void GL_BuildBModelVertexBuffer (void)
 			float		*verts = &varray[VERTEXSIZE * varray_index];
 			float		texscalex, texscaley, useofs;
 			medge_t		*r_pedge;
-			struct lightmap_s *lm;
+			lightmap_t	*lm;
 
 			if (fa->flags & SURF_DRAWTILED)
 			{

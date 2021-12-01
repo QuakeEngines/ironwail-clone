@@ -309,16 +309,12 @@ extern int gl_lightmap_format, lightmap_bytes;
 #define LMBLOCK_WIDTH	256	//FIXME: make dynamic. if we have a decent card there's no real reason not to use 4k or 16k (assuming there's no lightstyles/dynamics that need uploading...)
 #define LMBLOCK_HEIGHT	256 //Alternatively, use texture arrays, which would avoid the need to switch textures as often.
 
-typedef struct glRect_s {
-	unsigned short l,t,w,h;
-} glRect_t;
-struct lightmap_s
+typedef struct lightmap_s
 {
-	glpoly_t	*polys;
 	int			xofs;
 	int			yofs;
-};
-extern struct lightmap_s *lightmaps;
+} lightmap_t;
+extern lightmap_t *lightmaps;
 extern int lightmap_count;	//allocated lightmaps
 
 extern qboolean r_fullbright_cheatsafe, r_lightmap_cheatsafe, r_drawworld_cheatsafe; //johnfitz
