@@ -75,6 +75,9 @@ void Sky_LoadTexture (texture_t *mt)
 	byte		*src, *front_data, *back_data;
 	unsigned	*rgba;
 
+	if (mt->width != 256 || mt->height != 128)
+		Sys_Error ("Sky texture %s has wrong size (%d x %d)", mt->name, mt->width, mt->height);
+
 	src = (byte *)(mt + 1);
 	back_data = (byte *) Hunk_Alloc (128 * 128);
 	front_data = (byte *) Hunk_Alloc (128 * 128);
