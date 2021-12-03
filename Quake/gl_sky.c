@@ -75,7 +75,7 @@ void Sky_LoadTexture (texture_t *mt)
 	byte		*src, *front_data, *back_data;
 	unsigned	*rgba;
 
-	src = (byte *)mt + mt->offsets[0];
+	src = (byte *)(mt + 1);
 	back_data = (byte *) Hunk_Alloc (128 * 128);
 	front_data = (byte *) Hunk_Alloc (128 * 128);
 
