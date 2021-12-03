@@ -455,32 +455,32 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	case BP_SOLID:
 		texbegin = 0;
 		texend = TEXTYPE_CUTOUT;
-		program = glprogs.world[gl_bindless_able][0];
+		program = glprogs.world[0];
 		break;
 	case BP_ALPHATEST:
 		texbegin = TEXTYPE_CUTOUT;
 		texend = TEXTYPE_CUTOUT + 1;
-		program = glprogs.world[gl_bindless_able][1];
+		program = glprogs.world[1];
 		break;
 	case BP_SKYLAYERS:
 		texbegin = TEXTYPE_SKY;
 		texend = TEXTYPE_SKY + 1;
-		program = glprogs.skylayers[gl_bindless_able];
+		program = glprogs.skylayers;
 		break;
 	case BP_SKYCUBEMAP:
 		texbegin = TEXTYPE_SKY;
 		texend = TEXTYPE_SKY + 1;
-		program = glprogs.skycubemap[gl_bindless_able];
+		program = glprogs.skycubemap;
 		break;
 	case BP_SKYSTENCIL:
 		texbegin = TEXTYPE_SKY;
 		texend = TEXTYPE_SKY + 1;
-		program = glprogs.skystencil[gl_bindless_able];
+		program = glprogs.skystencil;
 		break;
 	case BP_SHOWTRIS:
 		texbegin = 0;
 		texend = TEXTYPE_COUNT;
-		program = glprogs.world[gl_bindless_able][0];
+		program = glprogs.world[0];
 		break;
 	}
 
@@ -595,7 +595,7 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 	else
 		state |= GLS_BLEND_OPAQUE;
 
-	R_ResetBModelCalls (glprogs.water[gl_bindless_able]);
+	R_ResetBModelCalls (glprogs.water);
 	GL_SetState (state);
 	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 

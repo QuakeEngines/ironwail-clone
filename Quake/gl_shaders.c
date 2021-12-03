@@ -56,11 +56,10 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 {
 	const char *strings[16];
 	const char *typestr = NULL;
+	char header[256];
 	int numstrings = 0;
 	GLint status;
 	GLuint shader;
-
-	strings[numstrings++] = "#version 430\n\n";
 
 	switch (type)
 	{
@@ -77,6 +76,14 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 			Sys_Error ("GL_CreateShader: unknown type 0x%X for %s", type, name);
 			break;
 	}
+
+	q_snprintf (header, sizeof (header),
+		"#version 430\n"
+		"\n"
+		"#define BINDLESS %d\n",
+		gl_bindless_able
+	);
+	strings[numstrings++] = header;
 
 	if (extradefs && *extradefs)
 		strings[numstrings++] = extradefs;
@@ -243,22 +250,20 @@ GL_CreateShaders
 */
 void GL_CreateShaders (void)
 {
-	int bindless, alphatest;
+	int alphatest;
 
 	glprogs.gui = GL_CreateProgram (gui_vertex_shader, gui_fragment_shader, "gui");
 	glprogs.viewblend = GL_CreateProgram (viewblend_vertex_shader, viewblend_fragment_shader, "viewblend");
 	glprogs.warpscale = GL_CreateProgram (warpscale_vertex_shader, warpscale_fragment_shader, "view warp/scale");
 	glprogs.postprocess = GL_CreateProgram (postprocess_vertex_shader, postprocess_fragment_shader, "postprocess");
 
-	for (bindless = 0; bindless < 2; bindless++)
-	{
-		for (alphatest = 0; alphatest < 2; alphatest++)
-			glprogs.world[bindless][alphatest] = GL_CreateProgram (world_vertex_shader, world_fragment_shader, "world|BINDLESS %d; ALPHATEST %d", bindless, alphatest);
-		glprogs.water[bindless] = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water|BINDLESS %d", bindless);
-		glprogs.skystencil[bindless] = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil|BINDLESS %d", bindless);
-		glprogs.skylayers[bindless] = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers|BINDLESS %d", bindless);
-		glprogs.skycubemap[bindless] = GL_CreateProgram (sky_cubemap_vertex_shader, sky_cubemap_fragment_shader, "sky cubemap|BINDLESS %d", bindless);
-	}
+	for (alphatest = 0; alphatest < 2; alphatest++)
+		glprogs.world[alphatest] = GL_CreateProgram (world_vertex_shader, world_fragment_shader, "world|ALPHATEST %d", alphatest);
+	glprogs.water = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water");
+	glprogs.skystencil = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil");
+	glprogs.skylayers = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers");
+	glprogs.skycubemap = GL_CreateProgram (sky_cubemap_vertex_shader, sky_cubemap_fragment_shader, "sky cubemap");
+
 	glprogs.skyboxside = GL_CreateProgram (sky_boxside_vertex_shader, sky_boxside_fragment_shader, "skybox side");
 
 	for (alphatest = 0; alphatest < 2; alphatest++)
