@@ -514,7 +514,7 @@ void Mod_LoadTextures (lump_t *l)
 		if ( (mt->width & 15) || (mt->height & 15) )
 		{
 			if (loadmodel->bspversion != BSPVERSION_QUAKE64)
-				Con_DWarning ("Texture %s (%d x %d) is not 16 aligned", mt->name, mt->width, mt->height);
+				Con_Warning ("Texture %s (%d x %d) is not 16 aligned\n", mt->name, mt->width, mt->height);
 		}
 
 		pixels = mt->width*mt->height; // only copy the first mip, the rest are auto-generated
