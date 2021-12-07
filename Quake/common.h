@@ -92,10 +92,10 @@ typedef struct vec_header_t {
 
 #define VEC_HEADER(v)			(((vec_header_t*)(v))[-1])
 
-#define VEC_PUSH(v,n)			do { Vec_Grow(&(v), sizeof((v)[0]), 1); (v)[VEC_HEADER(v).size++] = (n); } while (0)
+#define VEC_PUSH(v,n)			do { Vec_Grow((void**)&(v), sizeof((v)[0]), 1); (v)[VEC_HEADER(v).size++] = (n); } while (0)
 #define VEC_SIZE(v)				((v) ? VEC_HEADER(v).size : 0)
-#define VEC_FREE(v)				Vec_Free(&(v))
-#define VEC_CLEAR(v)			Vec_Clear(&(v))
+#define VEC_FREE(v)				Vec_Free((void**)&(v))
+#define VEC_CLEAR(v)			Vec_Clear((void**)&(v))
 
 void Vec_Grow (void **pvec, size_t element_size, size_t count);
 void Vec_Clear (void **pvec);
