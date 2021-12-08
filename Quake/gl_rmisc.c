@@ -431,7 +431,7 @@ For program optimization
 void R_TimeRefresh_f (void)
 {
 	int		i;
-	float		start, stop, time;
+	double	start, stop, time;
 
 	if (cls.state != ca_connected)
 	{
@@ -443,7 +443,7 @@ void R_TimeRefresh_f (void)
 	for (i = 0; i < 128; i++)
 	{
 		GL_BeginRendering(&glx, &gly, &glwidth, &glheight);
-		r_refdef.viewangles[1] = i/128.0*360.0;
+		r_refdef.viewangles[1] = i*(360.0/128.0);
 		R_RenderView ();
 		GL_EndRendering ();
 	}
@@ -451,7 +451,7 @@ void R_TimeRefresh_f (void)
 	glFinish ();
 	stop = Sys_DoubleTime ();
 	time = stop-start;
-	Con_Printf ("%f seconds (%f fps)\n", time, 128/time);
+	Con_Printf ("%lf seconds (%.1lf fps)\n", time, 128/time);
 }
 
 void D_FlushCaches (void)
