@@ -29,11 +29,19 @@ extern cvar_t gl_fullbrights, gl_overbright; //johnfitz
 int		gl_lightmap_format;
 int		lightmap_bytes;
 
+typedef struct {
+	qboolean		reverse;
+	int				x, width, height;
+	int				*allocated;
+} chart_t;
+
 #define MAX_SANITY_LIGHTMAPS (1u<<20)
 lightmap_t		*lightmaps;
 int				lightmap_count;
 int				last_lightmap_allocated;
-int				allocated[LMBLOCK_WIDTH];
+chart_t			lightmap_chart;
+msurface_t		**lit_surfs;
+int				*lit_surf_order[2];
 int				num_lightmap_samples;
 unsigned		*lightmap_data;
 unsigned		*lightmap_layers[MAXLIGHTMAPS];
@@ -86,14 +94,76 @@ texture_t *R_TextureAnimation (texture_t *base, int frame)
 */
 
 /*
+==================
+Chart_Init
+==================
+*/
+static void Chart_Init (chart_t *chart, int width, int height)
+{
+	if (chart->width != width)
+	{
+		chart->allocated = (int *)realloc (chart->allocated, sizeof (chart->allocated[0]) * width);
+		if (!chart->allocated)
+			Sys_Error ("Chart_Init: could not allocate %zd bytes", sizeof (chart->allocated[0]) * width);
+	}
+	memset (chart->allocated, 0, sizeof (chart->allocated[0]) * width);
+	chart->width = width;
+	chart->height = height;
+	chart->x = 0;
+	chart->reverse = false;
+}
+
+/*
+==================
+Chart_Add
+==================
+*/
+static qboolean Chart_Add (chart_t *chart, int w, int h, int *outx, int *outy)
+{
+	int i, x, y;
+	if (chart->width < w || chart->height < h)
+		Sys_Error ("Chart_Add: block too large %dx%d, max is %dx%d", w, h, chart->width, chart->height);
+
+	// advance horizontally, reversing direction at the edges
+	x = chart->x;
+	chart->x += chart->reverse ? -w : w;
+	if (chart->x < 0)
+	{
+		x = 0;
+		chart->x = w;
+		chart->reverse = false;
+	}
+	else if (chart->x > chart->width)
+	{
+		x = chart->width - w;
+		chart->x = x;
+		chart->reverse = true;
+	}
+
+	// find lowest unoccupied vertical position
+	y = 0;
+	for (i = 0; i < w; i++)
+		y = q_max (y, chart->allocated[x + i]);
+	if (y + h > chart->height)
+		return false;
+
+	// update vertical position for each column
+	for (i = 0; i < w; i++)
+		chart->allocated[x + i] = y + h;
+
+	*outx = x;
+	*outy = y;
+
+	return true;
+}
+
+/*
 ========================
 AllocBlock -- returns a texture number and the position inside it
 ========================
 */
 static int AllocBlock (int w, int h, int *x, int *y)
 {
-	int		i, j;
-	int		best, best2;
 	int		texnum;
 
 	// ericw -- rather than searching starting at lightmap 0 every time,
@@ -108,34 +178,12 @@ static int AllocBlock (int w, int h, int *x, int *y)
 			lightmap_count++;
 			lightmaps = (lightmap_t *) realloc(lightmaps, sizeof(*lightmaps)*lightmap_count);
 			memset(&lightmaps[texnum], 0, sizeof(lightmaps[texnum]));
-			//as we're only tracking one texture, we don't need multiple copies of allocated any more.
-			memset(allocated, 0, sizeof(allocated));
-		}
-		best = LMBLOCK_HEIGHT;
-
-		for (i=0 ; i<LMBLOCK_WIDTH-w ; i++)
-		{
-			best2 = 0;
-
-			for (j=0 ; j<w ; j++)
-			{
-				if (allocated[i+j] >= best)
-					break;
-				if (allocated[i+j] > best2)
-					best2 = allocated[i+j];
-			}
-			if (j == w)
-			{	// this is a valid spot
-				*x = i;
-				*y = best = best2;
-			}
+			//as we're only tracking one texture, we don't need multiple copies any more.
+			Chart_Init (&lightmap_chart, LMBLOCK_WIDTH, LMBLOCK_HEIGHT);
 		}
 
-		if (best + h > LMBLOCK_HEIGHT)
+		if (!Chart_Add (&lightmap_chart, w, h, x, y))
 			continue;
-
-		for (i=0 ; i<w ; i++)
-			allocated[*x + i] = best + h;
 
 		last_lightmap_allocated = texnum;
 		return texnum;
@@ -247,6 +295,8 @@ static void GL_FreeLightmapData (void)
 		lightmaps = NULL;
 	}
 
+	VEC_CLEAR (lit_surfs);
+
 	lightmap_texture = NULL; // freed by the texture manager
 	lightmap_styles_texture = NULL;
 	last_lightmap_allocated = 0;
@@ -254,6 +304,81 @@ static void GL_FreeLightmapData (void)
 	lightmap_width = 0;
 	lightmap_height = 0;
 	num_lightmap_samples = 0;
+}
+
+/*
+==================
+GL_PackLitSurfaces
+==================
+*/
+static void GL_PackLitSurfaces (void)
+{
+	int			i, j, k, pass, bins[256];
+	msurface_t *surf;
+
+	// generate surface list
+	for (j=1 ; j<MAX_MODELS ; j++)
+	{
+		qmodel_t *m = cl.model_precache[j];
+		if (!m)
+			break;
+		if (m->name[0] == '*')
+			continue;
+		for (i=0, surf=m->surfaces ; i<m->numsurfaces ; i++, surf++)
+		{
+			if (surf->flags & SURF_DRAWTILED)
+				continue;
+			// use light_s temporarily as a sort key
+			surf->light_s = Interleave (surf->extents[0]>>4, surf->extents[1]>>4) ^ 0xffffu;
+			VEC_PUSH (lit_surfs, surf);
+		}
+	}
+
+	lit_surf_order[0] = (int *) realloc (lit_surf_order[0], sizeof (lit_surf_order[0][0]) * VEC_SIZE (lit_surfs));
+	lit_surf_order[1] = (int *) realloc (lit_surf_order[1], sizeof (lit_surf_order[1][0]) * VEC_SIZE (lit_surfs));
+
+	if (!lit_surf_order[0] || !lit_surf_order[1])
+		Sys_Error ("GL_PackLitSurfaces: out of memory (%zd surfs)", VEC_SIZE (lit_surfs));
+
+	for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
+		lit_surf_order[0][i] = i;
+
+	// generate surface order (radix sort: 2 passes x 8-bits)
+	for (pass = 0; pass < 2; pass++)
+	{
+		memset (bins, 0, sizeof (bins));
+
+		// count keys
+		for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
+		{
+			int idx = lit_surf_order[pass][i];
+			surf = lit_surfs[idx];
+			k = surf->light_s & 255;
+			++bins[k];
+		}
+
+		// generate offsets (prefix sum)
+		for (i = 0, j = 0; i < countof(bins); i++)
+		{
+			int tmp = bins[i];
+			bins[i] = j;
+			j += tmp;
+		}
+
+		// reorder
+		for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
+		{
+			int idx = lit_surf_order[pass][i];
+			surf = lit_surfs[idx];
+			k = surf->light_s & 255;
+			surf->light_s >>= 8;
+			lit_surf_order[pass ^ 1][bins[k]++] = idx;
+		}
+	}
+
+	// pack surfaces in sort order
+	for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
+		GL_AllocSurfaceLightmap (lit_surfs[lit_surf_order[0][i]]);
 }
 
 /*
@@ -267,7 +392,6 @@ with all the surfaces from all brush models
 void GL_BuildLightmaps (void)
 {
 	int			i, j, xblocks, yblocks, lmsize;
-	qmodel_t	*m;
 	lightmap_t	*lm;
 
 	r_framecount = 1; // no dlightcache
@@ -290,22 +414,7 @@ void GL_BuildLightmaps (void)
 	}
 
 	// allocate lightmap blocks
-	for (j=1 ; j<MAX_MODELS ; j++)
-	{
-		m = cl.model_precache[j];
-		if (!m)
-			break;
-		if (m->name[0] == '*')
-			continue;
-		for (i=0 ; i<m->numsurfaces ; i++)
-		{
-			//johnfitz -- rewritten to use SURF_DRAWTILED instead of the sky/water flags
-			if (m->surfaces[i].flags & SURF_DRAWTILED)
-				continue;
-			GL_AllocSurfaceLightmap (m->surfaces + i);
-			//johnfitz
-		}
-	}
+	GL_PackLitSurfaces ();
 
 	// determine combined texture size and allocate memory for it
 	xblocks = (int) ceil (sqrt (lightmap_count));
@@ -345,22 +454,8 @@ void GL_BuildLightmaps (void)
 	}
 
 	// fill lightmap samples
-	for (j=1 ; j<MAX_MODELS ; j++)
-	{
-		m = cl.model_precache[j];
-		if (!m)
-			break;
-		if (m->name[0] == '*')
-			continue;
-		for (i=0 ; i<m->numsurfaces ; i++)
-		{
-			//johnfitz -- rewritten to use SURF_DRAWTILED instead of the sky/water flags
-			if (m->surfaces[i].flags & SURF_DRAWTILED)
-				continue;
-			GL_FillSurfaceLightmap (m->surfaces + i);
-			//johnfitz
-		}
-	}
+	for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
+		GL_FillSurfaceLightmap (lit_surfs[i]);
 
 	lightmap_styles_texture = 
 		TexMgr_LoadImage (cl.worldmodel, "lightmapstyles", lightmap_width, lightmap_height,
