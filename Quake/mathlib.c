@@ -362,32 +362,61 @@ int Q_nextPow2(int val)
 
 /*
 ==================
-DeinterleaveOdd
+Interleave0
 
-Deinterleaves the odd 16 bits in a 32-bit integer
+Interleaves x with 16 0 bits
 ==================
 */
-unsigned short DeinterleaveOdd (unsigned x)
+uint32_t Interleave0 (uint16_t x)
+{
+	uint32_t ret = x;
+	ret = (ret ^ (ret << 8)) & 0x00FF00FF;
+	ret = (ret ^ (ret << 4)) & 0x0F0F0F0F;
+	ret = (ret ^ (ret << 2)) & 0x33333333;
+	ret = (ret ^ (ret << 1)) & 0x55555555;
+	return ret;
+}
+
+/*
+==================
+Interleave
+
+Interleaves 2 16-bit integers
+==================
+*/
+uint32_t Interleave (uint16_t even, uint16_t odd)
+{
+	return Interleave0 (even) | (Interleave0 (odd) << 1);
+}
+
+/*
+==================
+DeinterleaveEven
+
+Deinterleaves the even 16 bits of x (bits 0,2,4..28,30)
+==================
+*/
+uint16_t DeinterleaveEven (uint32_t x)
 {
 	x &= 0x55555555u;
 	x = (x ^ (x >> 1u)) & 0x33333333u;
 	x = (x ^ (x >> 2u)) & 0x0F0F0F0Fu;
 	x = (x ^ (x >> 4u)) & 0x00FF00FFu;
 	x = (x ^ (x >> 8u)) & 0x0000FFFFu;
-	return x;
+	return (uint16_t) x;
 }
 
 /*
 ==================
 DecodeMortonIndex
 
-Extracts 2 8-bit coordintates from a 16-bit Z-order index
+Extracts 2 8-bit coordinates from a 16-bit Z-order index
 ==================
 */
-void DecodeMortonIndex (unsigned short index, int *x, int *y)
+void DecodeMortonIndex (uint16_t index, int *x, int *y)
 {
-	unsigned oddeven = index | ((index >> 1) << 16);
-	index = DeinterleaveOdd (oddeven);
+	uint32_t evenodd = index | ((index >> 1) << 16);
+	index = DeinterleaveEven (evenodd);
 	*x = index & 255;
 	*y = index >> 8;
 }
