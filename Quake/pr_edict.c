@@ -194,7 +194,7 @@ Sets everything to NULL
 void ED_ClearEdict (edict_t *e)
 {
 	memset (&e->v, 0, progs->entityfields * 4);
-	e->free = false;
+	e->free = 0;
 }
 
 /*
@@ -210,29 +210,52 @@ angles and bad trails.
 */
 edict_t *ED_Alloc (void)
 {
-	int			i;
 	edict_t		*e;
 
-	for (i = svs.maxclients + 1; i < sv.num_edicts; i++)
+	if (sv.first_free_edict)
 	{
-		e = EDICT_NUM(i);
+		e = EDICT_NUM(sv.first_free_edict);
 		// the first couple seconds of server time can involve a lot of
 		// freeing and allocating, so relax the replacement policy
 		if (e->free && ( e->freetime < 2 || sv.time - e->freetime > 0.5 ) )
 		{
+			sv.first_free_edict = e->free;
+			if (sv.first_free_edict < 0)
+				sv.first_free_edict = sv.last_free_edict = 0;
 			ED_ClearEdict (e);
 			return e;
 		}
 	}
 
-	if (i == sv.max_edicts) //johnfitz -- use sv.max_edicts instead of MAX_EDICTS
+	if (sv.num_edicts == sv.max_edicts) //johnfitz -- use sv.max_edicts instead of MAX_EDICTS
 		Host_Error ("ED_Alloc: no free edicts (max_edicts is %i)", sv.max_edicts);
 
-	sv.num_edicts++;
-	e = EDICT_NUM(i);
+	e = EDICT_NUM(sv.num_edicts++);
 	memset(e, 0, pr_edict_size); // ericw -- switched sv.edicts to malloc(), so we are accessing uninitialized memory and must fully zero it, not just ED_ClearEdict
 
 	return e;
+}
+
+/*
+=================
+ED_AddToFreeList
+=================
+*/
+void ED_AddToFreeList (edict_t *ed, int idx)
+{
+	if (idx <= q_max (svs.maxclients, 1))
+		return;
+
+	if (ed->free && ed->free != ED_FREE_UNCHAINED)
+		Sys_Error ("ED_AddToFreeList: edict already chained");
+
+	if (sv.last_free_edict)
+		EDICT_NUM(sv.last_free_edict)->free = idx;
+	else
+		sv.first_free_edict = idx;
+	sv.last_free_edict = idx;
+
+	ed->free = ED_FREE_LASTCHAINED;
 }
 
 /*
@@ -247,7 +270,11 @@ void ED_Free (edict_t *ed)
 {
 	SV_UnlinkEdict (ed);		// unlink from world bsp
 
-	ed->free = true;
+	if (!ed->free || ed->free == ED_FREE_UNCHAINED)
+	{
+		ed->free = ED_FREE_UNCHAINED;
+		ED_AddToFreeList (ed, NUM_FOR_EDICT(ed));
+	}
 	ed->v.model = 0;
 	ed->v.takedamage = 0;
 	ed->v.modelindex = 0;
@@ -1072,7 +1099,7 @@ const char *ED_ParseEdict (const char *data, edict_t *ent)
 	}
 
 	if (!init)
-		ent->free = true;
+		ent->free = ED_FREE_UNCHAINED;
 
 	return data;
 }

@@ -1438,7 +1438,7 @@ void SV_SpawnServer (const char *server)
 //
 	ent = EDICT_NUM(0);
 	memset (&ent->v, 0, progs->entityfields * 4);
-	ent->free = false;
+	ent->free = 0;
 	ent->v.model = PR_SetEngineString(sv.worldmodel->name);
 	ent->v.modelindex = 1;		// world model
 	ent->v.solid = SOLID_BSP;
