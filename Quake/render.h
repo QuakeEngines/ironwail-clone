@@ -111,6 +111,7 @@ typedef struct
 	vec3_t		viewangles;
 
 	float		fov_x, fov_y;
+	int			scale;
 } refdef_t;
 
 

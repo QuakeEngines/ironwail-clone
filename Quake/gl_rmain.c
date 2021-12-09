@@ -701,10 +701,8 @@ R_SetupGL
 */
 void R_SetupGL (void)
 {
-	int scale = CLAMP(1, (int)r_scale.value, 4); // ericw -- see R_WarpScaleView
-
 	GL_BindFramebufferFunc (GL_FRAMEBUFFER, framebufs.scene.fbo);
-	glViewport (0, 0, r_refdef.vrect.width / scale, r_refdef.vrect.height / scale);
+	glViewport (0, 0, r_refdef.vrect.width / r_refdef.scale, r_refdef.vrect.height / r_refdef.scale);
 }
 
 /*
@@ -1011,17 +1009,15 @@ or possibly as a perforance boost on slow graphics cards.
 */
 void R_WarpScaleView (void)
 {
-	int scale;
 	int srcx, srcy, srcw, srch;
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f;
 	qboolean msaa = framebufs.scene.samples > 1;
 
 	// copied from R_SetupGL()
-	scale = CLAMP(1, (int)r_scale.value, 4);
 	srcx = glx + r_refdef.vrect.x;
 	srcy = gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height;
-	srcw = r_refdef.vrect.width / scale;
-	srch = r_refdef.vrect.height / scale;
+	srcw = r_refdef.vrect.width / r_refdef.scale;
+	srch = r_refdef.vrect.height / r_refdef.scale;
 
 	if (msaa)
 	{
