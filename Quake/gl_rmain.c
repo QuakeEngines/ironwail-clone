@@ -281,7 +281,7 @@ void GL_PostProcess (void)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
 	GL_Uniform3fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)), 1.f/r_refdef.scale);
 
-	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
+	glDrawArrays (GL_TRIANGLES, 0, 3);
 
 	GL_EndGroup ();
 }
@@ -1048,7 +1048,7 @@ void R_WarpScaleView (void)
 
 		GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
 		GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
-		glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
+		glDrawArrays (GL_TRIANGLES, 0, 3);
 	}
 	else
 	{

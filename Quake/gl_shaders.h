@@ -75,8 +75,7 @@ static const char viewblend_vertex_shader[] =
 "void main()\n"
 "{\n"
 "	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-"	v.x ^= v.y; // fix winding order\n"
-"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
+"	gl_Position = vec4(vec2(v) * 4.0 - 1.0, 0.0, 1.0);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -103,8 +102,7 @@ static const char warpscale_vertex_shader[] =
 "void main()\n"
 "{\n"
 "	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-"	v.x ^= v.y; // fix winding order\n"
-"	out_uv = vec2(v);\n"
+"	out_uv = vec2(v) * 2.0;\n"
 "	gl_Position = vec4(out_uv * 2.0 - 1.0, 0.0, 1.0);\n"
 "}\n";
 
@@ -223,8 +221,7 @@ static const char postprocess_vertex_shader[] =
 "void main()\n"
 "{\n"
 "	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-"	v.x ^= v.y; // fix winding order\n"
-"	gl_Position = vec4(vec2(v) * 2.0 - 1.0, 0.0, 1.0);\n"
+"	gl_Position = vec4(vec2(v) * 4.0 - 1.0, 0.0, 1.0);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
