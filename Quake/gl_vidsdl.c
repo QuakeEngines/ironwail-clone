@@ -675,6 +675,7 @@ static void VID_Restart (void)
 	GL_DeleteShaders ();
 	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
+	GL_DeleteDynamicBuffers ();
 
 //
 // set new mode
@@ -1237,7 +1238,7 @@ static void GL_Init (void)
 	GLPalette_CreateResources ();
 
 	GL_ClearBufferBindings ();
-	GL_InitDynamicBuffers ();
+	GL_CreateDynamicBuffers ();
 }
 
 /*

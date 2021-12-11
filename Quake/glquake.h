@@ -518,7 +518,8 @@ void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr of
 void GL_DeleteBuffer (GLuint buffer);
 void GL_ClearBufferBindings (void);
 
-void GL_InitDynamicBuffers (void);
+void GL_CreateDynamicBuffers (void);
+void GL_DeleteDynamicBuffers (void);
 void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs);
 void GL_DynamicBuffersBeginFrame (void);
 void GL_DynamicBuffersEndFrame (void);

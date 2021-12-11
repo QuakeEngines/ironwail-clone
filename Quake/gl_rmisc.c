@@ -643,12 +643,52 @@ static void GL_AllocDynamicBuffers (void)
 
 /*
 ====================
-GL_InitDynamicBuffers
+GL_CreateDynamicBuffers
 ====================
 */
-void GL_InitDynamicBuffers (void)
+void GL_CreateDynamicBuffers (void)
 {
 	GL_AllocDynamicBuffers ();
+}
+
+/*
+====================
+GL_DeleteDynamicBuffers
+====================
+*/
+void GL_DeleteDynamicBuffers (void)
+{
+	size_t i, j, num_garbage_bufs;
+
+	glFinish ();
+
+	for (i = 0; i < countof (dynabufs); i++)
+	{
+		dynabuf_t *buf = &dynabufs[i];
+
+		if (buf->fence)
+		{
+			GL_DeleteSyncFunc (buf->fence);
+			buf->fence = NULL;
+		}
+
+		for (j = 0, num_garbage_bufs = VEC_SIZE (buf->garbage); j < num_garbage_bufs; j++)
+			GL_DeleteBuffer (buf->garbage[j]);
+		VEC_CLEAR (buf->garbage);
+
+		if (buf->ptr)
+		{
+			GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
+			GL_UnmapBufferFunc (GL_ARRAY_BUFFER);
+			buf->ptr = NULL;
+		}
+
+		if (buf->handle)
+		{
+			GL_DeleteBuffer (buf->handle);
+			buf->handle = 0;
+		}
+	}
 }
 
 /*
