@@ -669,6 +669,7 @@ static void VID_Restart (void)
 // which is later deleted.
 
 	TexMgr_DeleteTextureObjects ();
+	GLPalette_DeleteResources ();
 	GLLight_DeleteResources ();
 	GL_DeleteFrameBuffers ();
 	GL_DeleteShaders ();
@@ -682,6 +683,7 @@ static void VID_Restart (void)
 
 	GL_Init ();
 	TexMgr_ReloadImages ();
+	GLPalette_Update ();
 	GL_BuildBModelVertexBuffer ();
 	GL_BuildBModelMarkBuffers ();
 	GLMesh_LoadVertexBuffers ();
@@ -1232,6 +1234,7 @@ static void GL_Init (void)
 	GL_CreateFrameBuffers ();
 	GLWorld_CreateResources ();
 	GLLight_CreateResources ();
+	GLPalette_CreateResources ();
 
 	GL_ClearBufferBindings ();
 	GL_InitDynamicBuffers ();
@@ -1244,7 +1247,7 @@ GL_BeginRendering -- sets values of glx, gly, glwidth, glheight
 */
 void GL_BeginRendering (int *x, int *y, int *width, int *height)
 {
-	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f;
+	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 
 	*x = *y = 0;
 	*width = vid.width;
@@ -1262,7 +1265,7 @@ GL_EndRendering
 */
 void GL_EndRendering (void)
 {
-	GLSLGamma_GammaCorrect ();
+	GL_PostProcess ();
 	GL_DynamicBuffersEndFrame ();
 
 	if (!scr_skipupdate)

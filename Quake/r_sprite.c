@@ -121,6 +121,7 @@ R_FlushSpriteInstances
 */
 static void R_FlushSpriteInstances (void)
 {
+	qboolean		dither;
 	qboolean		showtris = batchshowtris;
 	msprite_t		*psprite;
 	GLuint			buf;
@@ -138,7 +139,8 @@ static void R_FlushSpriteInstances (void)
 	if (psprite->type == SPR_ORIENTED)
 		GL_PolygonOffset (OFFSET_DECAL);
 
-	GL_UseProgram (glprogs.sprites);
+	dither = (softemu == SOFTEMU_COARSE && !showtris);
+	GL_UseProgram (glprogs.sprites[dither]);
 
 	if (showtris)
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));

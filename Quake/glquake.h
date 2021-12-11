@@ -439,24 +439,25 @@ typedef struct glprogs_s {
 	GLuint		gui;
 	GLuint		viewblend;
 	GLuint		warpscale;
-	GLuint		postprocess;
+	GLuint		postprocess[3];	// [palettize:off/dithered/direct]
 
 	/* 3d */
-	GLuint		world[2];		// [alpha test]
-	GLuint		water;
+	GLuint		world[2][2];	// [dither][alpha test]
+	GLuint		water[2];		// [dither]
 	GLuint		skystencil;
-	GLuint		skylayers;
-	GLuint		skycubemap;
-	GLuint		skyboxside;
-	GLuint		alias[2];		// [alpha test]
-	GLuint		sprites;
-	GLuint		particles;
+	GLuint		skylayers[2];	// [dither]
+	GLuint		skycubemap[2];	// [dither]
+	GLuint		skyboxside[2];	// [dither]
+	GLuint		alias[2][2];	// [dither][alpha test]
+	GLuint		sprites[2];		// [dither]
+	GLuint		particles[2];	// [dither]
 
 	/* compute */
 	GLuint		clear_indirect;
 	GLuint		gather_indirect;
 	GLuint		cull_mark;
 	GLuint		cluster_lights;
+	GLuint		palette_init;
 } glprogs_t;
 
 extern glprogs_t glprogs;
@@ -498,6 +499,10 @@ void GLWorld_CreateResources (void);
 void GLLight_CreateResources (void);
 void GLLight_DeleteResources (void);
 
+void GLPalette_CreateResources (void);
+void GLPalette_DeleteResources (void);
+void GLPalette_Update (void);
+
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 
 void Sky_Init (void);
@@ -518,7 +523,7 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf
 void GL_DynamicBuffersBeginFrame (void);
 void GL_DynamicBuffersEndFrame (void);
 
-void GLSLGamma_GammaCorrect (void);
+void GL_PostProcess (void);
 
 float GL_WaterAlphaForTextureType (textype_t type);
 

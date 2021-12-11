@@ -28,11 +28,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 const int	gl_solid_format = GL_RGB;
 const int	gl_alpha_format = GL_RGBA;
 
+static cvar_t	r_softemu = {"r_softemu", "0", CVAR_ARCHIVE};
 static cvar_t	gl_texturemode = {"gl_texturemode", "", CVAR_ARCHIVE};
 static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "8", CVAR_ARCHIVE};
 static cvar_t	gl_max_size = {"gl_max_size", "0", CVAR_NONE};
 static cvar_t	gl_picmip = {"gl_picmip", "0", CVAR_NONE};
 GLint			gl_max_texture_size;
+
+softemu_t		softemu;
 
 #define	MAX_GLTEXTURES	4096
 static int numgltextures;
@@ -178,13 +181,35 @@ static void TexMgr_SetFilterModes (gltexture_t *glt)
 
 /*
 ===============
+TexMgr_ApplyTextureMode
+===============
+*/
+static void TexMgr_ApplyTextureMode (void)
+{
+	gltexture_t	*glt;
+	for (glt = active_gltextures; glt; glt = glt->next)
+		TexMgr_SetFilterModes (glt);
+	Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
+}
+
+/*
+===============
 TexMgr_TextureMode_f -- called when gl_texturemode changes
 ===============
 */
 static void TexMgr_TextureMode_f (cvar_t *var)
 {
-	gltexture_t	*glt;
 	int i;
+
+	if (softemu == SOFTEMU_COARSE)
+	{
+		if (glmode_idx != 2) // nearest with linear mips
+		{
+			glmode_idx = 2;
+			TexMgr_ApplyTextureMode ();
+		}
+		return;
+	}
 
 	for (i = 0; i < NUM_GLMODES; i++)
 	{
@@ -193,9 +218,7 @@ static void TexMgr_TextureMode_f (cvar_t *var)
 			if (glmode_idx != i)
 			{
 				glmode_idx = i;
-				for (glt = active_gltextures; glt; glt = glt->next)
-					TexMgr_SetFilterModes (glt);
-				Sbar_Changed (); //sbar graphics need to be redrawn with new filter mode
+				TexMgr_ApplyTextureMode ();
 			}
 			return;
 		}
@@ -257,6 +280,23 @@ static void TexMgr_Anisotropy_f (cvar_t *var)
 			}
 		}
 	}
+}
+
+/*
+===============
+TexMgr_SoftEmu_f -- called when r_softemu changes
+===============
+*/
+static void TexMgr_SoftEmu_f (cvar_t *var)
+{
+	if (!r_softemu.value)
+		softemu = SOFTEMU_OFF;
+	else if (r_softemu.value >= 2.f)
+		softemu = SOFTEMU_COARSE;
+	else
+		softemu = SOFTEMU_FINE;
+
+	TexMgr_TextureMode_f (&gl_texturemode);
 }
 
 /*
@@ -607,6 +647,8 @@ void TexMgr_LoadPalette (void)
 	((byte *) &d_8to24table_conchars[0]) [3] = 0;
 
 	Hunk_FreeToLowMark (mark);
+
+	GLPalette_Update ();
 }
 
 /*
@@ -658,6 +700,8 @@ void TexMgr_Init (void)
 	gl_texturemode.string = glmodes[glmode_idx].name;
 	Cvar_RegisterVariable (&gl_texturemode);
 	Cvar_SetCallback (&gl_texturemode, &TexMgr_TextureMode_f);
+	Cvar_RegisterVariable (&r_softemu);
+	Cvar_SetCallback (&r_softemu, TexMgr_SoftEmu_f);
 	Cmd_AddCommand ("gl_describetexturemodes", &TexMgr_DescribeTextureModes_f);
 	Cmd_AddCommand ("imagelist", &TexMgr_Imagelist_f);
 	Cmd_AddCommand ("imagedump", &TexMgr_Imagedump_f);
@@ -1656,4 +1700,79 @@ void GL_ClearBindings(void)
 	int i;
 	for (i = 0; i < countof(currenttexture); i++)
 		currenttexture[i] = GL_UNUSED_TEXTURE;
+}
+
+/*
+================================================================================
+
+	PALETTIZATION
+
+================================================================================
+*/
+
+GLuint gl_palette_lut;
+GLuint gl_palette_buffer;
+static unsigned int cached_palette[256];
+
+/*
+================
+GLPalette_DeleteResources
+================
+*/
+void GLPalette_DeleteResources (void)
+{
+	GL_DeleteNativeTexture (gl_palette_lut);
+	GL_DeleteBuffer (gl_palette_buffer);
+	gl_palette_lut = 0;
+	gl_palette_buffer = 0;
+	memset (cached_palette, 0, sizeof (cached_palette));
+}
+
+/*
+================
+GLPalette_CreateResources
+================
+*/
+void GLPalette_CreateResources (void)
+{
+	glGenTextures (1, &gl_palette_lut);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_3D, gl_palette_lut);
+	GL_ObjectLabelFunc (GL_TEXTURE, gl_palette_lut, -1, "palette lut");
+	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_R8UI, 256, 256, 256, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	GL_GenBuffersFunc (1, &gl_palette_buffer);
+	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_palette_buffer);
+	GL_ObjectLabelFunc (GL_BUFFER, gl_palette_buffer, -1, "palette buffer");
+	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, 256 * sizeof (GLuint), NULL, GL_STATIC_DRAW);
+}
+
+/*
+================
+GLPalette_Update
+================
+*/
+void GLPalette_Update (void)
+{
+	int i;
+
+	if (!memcmp (cached_palette, d_8to24table, sizeof (cached_palette)))
+		return;
+	memcpy (cached_palette, d_8to24table, sizeof (cached_palette));
+
+	GL_UseProgramFunc (glprogs.palette_init);
+	GL_BindImageTextureFunc (0, gl_palette_lut, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
+	GL_BufferSubDataFunc (GL_SHADER_STORAGE_BUFFER, 0, 256 * sizeof (GLuint), d_8to24table);
+
+	for (i = 0; i < 256; i++)
+	{
+		GL_Uniform1iFunc (0, i << 16);
+		GL_DispatchComputeFunc (1, 256, 1);
+	}
+
+	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
 }

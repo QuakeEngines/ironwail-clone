@@ -137,8 +137,86 @@ static const char warpscale_fragment_shader[] =
 
 ////////////////////////////////////////////////////////////////
 //
-// Postprocess (gamma/contrast)
+// Postprocess (dithering, palettization, gamma/contrast)
 //
+////////////////////////////////////////////////////////////////
+
+#define PALETTE_BUFFER \
+"layout(std430, binding=0) restrict readonly buffer PaletteBuffer\n"\
+"{\n"\
+"	uint Palette[256];\n"\
+"};\n"\
+"\n"\
+"uvec3 UnpackRGB8(uint c)\n"\
+"{\n"\
+"	return uvec3(c, c >> 8, c >> 16) & 255u;\n"\
+"}\n"\
+"\n"\
+
+////////////////////////////////////////////////////////////////
+
+#define NOISE_FUNCTIONS \
+"// Interleaved gradient noise - Jorge Jimenez\n"\
+"// http://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare \n"\
+"float ignoise01(vec2 p)\n"\
+"{\n"\
+"	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));\n"\
+"}\n"\
+"\n"\
+"float ignoise(vec2 p)\n"\
+"{\n"\
+"	return ignoise01(p) - 0.5;\n"\
+"}\n"\
+"\n"\
+"// Hash without Sine\n"\
+"// https://www.shadertoy.com/view/4djSRW \n"\
+/* Copyright (c)2014 David Hoskins.\
+\
+Permission is hereby granted, free of charge, to any person obtaining a copy\
+of this software and associated documentation files (the "Software"), to deal\
+in the Software without restriction, including without limitation the rights\
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\
+copies of the Software, and to permit persons to whom the Software is\
+furnished to do so, subject to the following conditions:\
+\
+The above copyright notice and this permission notice shall be included in all\
+copies or substantial portions of the Software.\
+\
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\
+SOFTWARE.*/\
+"float whitenoise01(vec2 p)\n"\
+"{\n"\
+"	vec3 p3 = fract(vec3(p.xyx) * .1031);\n"\
+"	p3 += dot(p3, p3.yzx + 33.33);\n"\
+"	return fract((p3.x + p3.y) * p3.z);\n"\
+"}\n"\
+"\n"\
+"float whitenoise(vec2 p)\n"\
+"{\n"\
+"	return whitenoise01(p) - 0.5;\n"\
+"}\n"\
+"\n"\
+"// Convert uniform distribution to triangle-shaped distribution\n"\
+"// Input in [0..1], output in [-1..1]\n"\
+"// Based on https://www.shadertoy.com/view/4t2SDh \n"\
+"float tri(float x)\n"\
+"{\n"\
+"	float orig = x * 2.0 - 1.0;\n"\
+"	uint signbit = floatBitsToUint(orig) & 0x80000000u;\n"\
+"	x = sqrt(abs(orig)) - 1.;\n"\
+"	x = uintBitsToFloat(floatBitsToUint(x) ^ signbit);\n"\
+"	return x;\n"\
+"}\n"\
+"\n"\
+"#define DITHER_NOISE(uv) tri(ignoise01(uv))\n"\
+"#define SCREEN_SPACE_NOISE() DITHER_NOISE(gl_FragCoord.xy)\n"\
+"#define PAL_NOISESCALE (12./255.)\n"\
+
 ////////////////////////////////////////////////////////////////
 
 static const char postprocess_vertex_shader[] =
@@ -153,16 +231,34 @@ static const char postprocess_vertex_shader[] =
 
 static const char postprocess_fragment_shader[] =
 "layout(binding=0) uniform sampler2D GammaTexture;\n"
+"layout(binding=1) uniform usampler3D PaletteLUT;\n"
 "\n"
-"layout(location=0) uniform vec2 GammaContrast;\n"
+PALETTE_BUFFER
+NOISE_FUNCTIONS
+"\n"
+"layout(location=0) uniform vec3 Params;\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
 "\n"
 "void main()\n"
 "{\n"
+"	float gamma = Params.x;\n"
+"	float contrast = Params.y;\n"
+"	float scale = Params.z;\n"
 "	out_fragcolor = texelFetch(GammaTexture, ivec2(gl_FragCoord), 0);\n"
-"	out_fragcolor.rgb *= GammaContrast.y;\n"
-"	out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(GammaContrast.x)), 1.0);\n"
+"#if PALETTIZE == 1\n"
+"	vec2 noiseuv = floor(gl_FragCoord.xy * scale) + 0.5;\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += DITHER_NOISE(noiseuv) * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif // PALETTIZE == 1\n"
+"#if PALETTIZE\n"
+"	ivec3 clr = ivec3(clamp(out_fragcolor.rgb, 0., 1.) * 255. + 0.5);\n"
+"	uint remap = Palette[texelFetch(PaletteLUT, clr, 0).x];\n"
+"	out_fragcolor.rgb = vec3(UnpackRGB8(remap)) * (1./255.);\n"
+"#endif // PALETTIZE\n"
+"	out_fragcolor.rgb *= contrast;\n"
+"	out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(gamma)), 1.0);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -371,6 +467,7 @@ FRAMEDATA_BUFFER
 LIGHT_CLUSTER_IMAGE("readonly")
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(location=0) flat in ivec2 in_drawinstance;\n"
 "layout(location=1) in vec3 in_pos;\n"
@@ -404,7 +501,12 @@ WORLD_INSTANCEDATA_BUFFER
 "		discard;\n"
 "#endif\n"
 "\n"
-"	vec4 lm0 = textureLod(LMTex, vec3(in_lmuv, 0.), 0.);\n"
+"	vec2 lmuv = in_lmuv;\n"
+"#if DITHER\n"
+"	vec2 lmsize = vec2(textureSize(LMTex, 0).xy) * 16.;\n"
+"	lmuv = (floor(lmuv * lmsize) + 0.5) / lmsize;\n"
+"#endif // DITHER\n"
+"	vec4 lm0 = textureLod(LMTex, vec3(lmuv, 0.), 0.);\n"
 "	vec3 total_light;\n"
 "	if (in_styles.y < 0.) // single style fast path\n"
 "		total_light = in_styles.x * lm0.xyz;\n"
@@ -412,8 +514,8 @@ WORLD_INSTANCEDATA_BUFFER
 "		total_light = vec3\n"
 "		(\n"
 "			dot(in_styles, lm0),\n"
-"			dot(in_styles, textureLod(LMTex, vec3(in_lmuv, 1.), 0.)),\n"
-"			dot(in_styles, textureLod(LMTex, vec3(in_lmuv, 2.), 0.))\n"
+"			dot(in_styles, textureLod(LMTex, vec3(lmuv, 1.), 0.)),\n"
+"			dot(in_styles, textureLod(LMTex, vec3(lmuv, 2.), 0.))\n"
 "		);\n"
 "\n"
 "	if (NumLights > 0u)\n"
@@ -460,11 +562,22 @@ WORLD_INSTANCEDATA_BUFFER
 "	result.rgb += fullbright;\n"
 "	result = clamp(result, 0.0, 1.0);\n"
 "	result.rgb = ApplyFog(result.rgb, in_depth);\n"
+"\n"
 "	float alpha = instance.alpha;\n"
 "	if (alpha < 0.0)\n"
 "		alpha = 1.0;\n"
 "	result.a = alpha; // FIXME: This will make almost transparent things cut holes though heavy fog\n"
 "	out_fragcolor = result;\n"
+"#if DITHER\n"
+"	vec3 dpos = fwidth(in_pos);\n"
+"	float farblend = clamp(max(dpos.x, max(dpos.y, dpos.z)) * 0.5 - 0.125, 0., 1.);\n"
+"	farblend *= farblend;\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	float luma = dot(out_fragcolor.rgb, vec3(.25, .625, .125));\n"
+"	float worldnoise = tri(whitenoise01(lmuv * lmsize)) * luma;\n"
+"	out_fragcolor.rgb += mix(worldnoise, SCREEN_SPACE_NOISE(), farblend) * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif // DITHER\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -505,6 +618,7 @@ static const char water_fragment_shader[] =
 FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(location=0) flat in ivec2 in_drawinstance;\n"
 "layout(location=1) in vec2 in_uv;\n"
@@ -527,6 +641,11 @@ WORLD_INSTANCEDATA_BUFFER
 "		alpha = call.wateralpha;\n"
 "	result.a *= alpha;\n"
 "	out_fragcolor = result;\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -638,6 +757,7 @@ BINDLESS_VERTEX_HEADER
 
 static const char sky_cubemap_fragment_shader[] =
 FRAMEDATA_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(binding=2) uniform samplerCube Skybox;\n"
 "\n"
@@ -649,6 +769,11 @@ FRAMEDATA_BUFFER
 "{\n"
 "	out_fragcolor = texture(Skybox, in_dir);\n"
 "	out_fragcolor.rgb = mix(out_fragcolor.rgb, FogColor, SkyFog);\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -680,6 +805,8 @@ static const char sky_boxside_vertex_shader[] =
 static const char sky_boxside_fragment_shader[] =
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
+NOISE_FUNCTIONS
+"\n"
 "layout(location=2) uniform vec4 Fog;\n"
 "\n"
 "layout(location=0) in vec3 in_dir;\n"
@@ -691,6 +818,11 @@ static const char sky_boxside_fragment_shader[] =
 "{\n"
 "	out_fragcolor = texture(Tex, in_uv);\n"
 "	out_fragcolor.rgb = mix(out_fragcolor.rgb, Fog.rgb, Fog.w);\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -780,6 +912,7 @@ ALIAS_INSTANCE_BUFFER
 
 static const char alias_fragment_shader[] =
 ALIAS_INSTANCE_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "layout(binding=1) uniform sampler2D FullbrightTex;\n"
@@ -805,6 +938,11 @@ ALIAS_INSTANCE_BUFFER
 "	result.rgb = mix(Fog.rgb, result.rgb, fog);\n"
 "	result.a = in_color.a; // FIXME: This will make almost transparent things cut holes though heavy fog\n"
 "	out_fragcolor = result;\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -833,6 +971,7 @@ FRAMEDATA_BUFFER
 
 static const char sprites_fragment_shader[] =
 FRAMEDATA_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
@@ -848,6 +987,11 @@ FRAMEDATA_BUFFER
 "		discard;\n"
 "	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -879,6 +1023,7 @@ FRAMEDATA_BUFFER
 
 static const char particles_fragment_shader[] =
 FRAMEDATA_BUFFER
+NOISE_FUNCTIONS
 "\n"
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
@@ -894,6 +1039,11 @@ FRAMEDATA_BUFFER
 "	result *= in_color;\n"
 "	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
+"#if DITHER\n"
+"	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
+"	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
+"	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
+"#endif\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -1200,4 +1350,50 @@ LIGHT_CLUSTER_IMAGE("writeonly")
 "		if (LightTouchesCluster(local_lights[i]))\n"
 "			clustermask[i >> 5u] |= 1u << (i & 31u);\n"
 "	imageStore(LightClusters, ivec3(gid), uvec4(clustermask[0], clustermask[1], 0u, 0u));\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+//
+// Palette initialization
+//
+////////////////////////////////////////////////////////////////
+
+static const char palette_init_compute_shader[] =
+"layout(local_size_x=256) in;\n"
+"\n"
+"layout(location=0) uniform int Offset;\n"
+"\n"
+PALETTE_BUFFER
+"\n"
+"layout(rg8ui, binding=0) uniform writeonly uimage3D PaletteLUT;\n"
+"\n"
+"float ColorDistanceSquared(uvec3 c0, uvec3 c1)\n"
+"{\n"
+"	vec3 cn0 = vec3(c0) * (1./255.);\n"
+"	vec3 cn1 = vec3(c1) * (1./255.);\n"
+"	cn0 *= cn0; // gamma 2 to linear\n"
+"	cn1 *= cn1; // gamma 2 to linear\n"
+"	// Colour metric - Thiadmer Riemersma\n"
+"	// https://www.compuphase.com/cmetric.htm\n"
+"	float rmean = (cn0.r + cn1.r) * 0.5;\n"
+"	vec3 delta = cn0 - cn1;\n"
+"	return dot(delta * delta, vec3(2. + rmean, 4., 3. - rmean));\n"
+"}\n"
+"\n"
+"void main()\n"
+"{\n"
+"	uvec3 gid = gl_GlobalInvocationID + UnpackRGB8(uint(Offset));\n"
+"	int bestidx = 0;\n"
+"	float bestdist = 1e+32;\n"
+"	for (int i = 0; i < 256; i++)\n"
+"	{\n"
+"		uvec3 clr = UnpackRGB8(Palette[i]);\n"
+"		float dist = ColorDistanceSquared(clr, gid);\n"
+"		if (dist < bestdist)\n"
+"		{\n"
+"			bestidx = i;\n"
+"			bestdist = dist;\n"
+"		}\n"
+"	}\n"
+"	imageStore(PaletteLUT, ivec3(gid), uvec4(bestidx, 0, 0, 0));\n"
 "}\n";

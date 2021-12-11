@@ -87,6 +87,13 @@ extern unsigned int d_8to24table_pants[256];
 
 extern GLint gl_max_texture_size;
 
+typedef enum {
+	SOFTEMU_OFF,
+	SOFTEMU_FINE,		// screen-space dither
+	SOFTEMU_COARSE,		// world-space dither nearby, screen-space dither in the distance
+} softemu_t;
+extern softemu_t softemu;
+
 // TEXTURE MANAGER
 
 float TexMgr_FrameUsage (void);

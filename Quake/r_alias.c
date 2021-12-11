@@ -312,7 +312,7 @@ void R_FlushAliasInstances (void)
 
 	GL_BeginGroup (model->name);
 
-	GL_UseProgram (glprogs.alias[model->flags & MF_HOLEY ? 1 : 0]);
+	GL_UseProgram (glprogs.alias[softemu == SOFTEMU_COARSE][model->flags & MF_HOLEY ? 1 : 0]);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
 	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)

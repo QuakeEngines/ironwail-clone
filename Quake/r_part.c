@@ -861,6 +861,7 @@ static void R_DrawParticles_Real (qboolean showtris)
 	GLubyte			color[4] = {255, 255, 255, 255}, *c; //johnfitz -- particle transparency
 	extern	cvar_t	r_particles; //johnfitz
 	//float			alpha; //johnfitz -- particle transparency
+	qboolean		dither;
 
 	if (!r_particles.value)
 		return;
@@ -870,7 +871,8 @@ static void R_DrawParticles_Real (qboolean showtris)
 
 	GL_BeginGroup ("Particles");
 
-	GL_UseProgram (glprogs.particles);
+	dither = (softemu == SOFTEMU_COARSE && !showtris);
+	GL_UseProgram (glprogs.particles[dither]);
 	GL_Bind (GL_TEXTURE0, showtris ? whitetexture : particletexture);
 
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));

@@ -478,7 +478,7 @@ void Sky_DrawSkyBox (void)
 	fog[2] = r_framedata.global.fogdata[2];
 	fog[3] = r_framedata.global.fogdata[3] > 0.f ? skyfog : 0.f;
 
-	GL_UseProgram (glprogs.skyboxside);
+	GL_UseProgram (glprogs.skyboxside[softemu == SOFTEMU_COARSE]);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
 
 	GL_UniformMatrix4fvFunc (0, 1, GL_FALSE, r_matviewproj);

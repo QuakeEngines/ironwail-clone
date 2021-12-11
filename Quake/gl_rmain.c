@@ -252,18 +252,21 @@ void GL_DeleteFrameBuffers (void)
 
 //==============================================================================
 //
-// GLSL GAMMA CORRECTION
+// POSTPROCESSING
 //
 //==============================================================================
 
+extern GLuint gl_palette_lut;
+extern GLuint gl_palette_buffer;
+
 /*
 =============
-GLSLGamma_GammaCorrect
+GL_PostProcess
 =============
 */
-void GLSLGamma_GammaCorrect (void)
+void GL_PostProcess (void)
 {
-	if (vid_gamma.value == 1 && vid_contrast.value == 1)
+	if (vid_gamma.value == 1 && vid_contrast.value == 1 && !softemu)
 		return;
 
 	GL_BeginGroup ("Postprocess");
@@ -271,10 +274,12 @@ void GLSLGamma_GammaCorrect (void)
 	GL_BindFramebufferFunc (GL_FRAMEBUFFER, 0);
 	glViewport (glx, gly, glwidth, glheight);
 
-	GL_UseProgram (glprogs.postprocess);
+	GL_UseProgram (glprogs.postprocess[softemu]);
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, framebufs.composite.color_tex);
-	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
+	GL_BindNative (GL_TEXTURE1, GL_TEXTURE_3D, gl_palette_lut);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
+	GL_Uniform3fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)), 1.f/r_refdef.scale);
 
 	glDrawArrays (GL_TRIANGLE_FAN, 0, 4);
 
@@ -1010,7 +1015,7 @@ or possibly as a perforance boost on slow graphics cards.
 void R_WarpScaleView (void)
 {
 	int srcx, srcy, srcw, srch;
-	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f;
+	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 	qboolean msaa = framebufs.scene.samples > 1;
 
 	// copied from R_SetupGL()
