@@ -1043,7 +1043,7 @@ void R_WarpScaleView (void)
 		float smax = srcw/(float)vid.width;
 		float tmax = srch/(float)vid.height;
 
-		GL_UseProgram (glprogs.warpscale);
+		GL_UseProgram (glprogs.warpscale[water_warp]);
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 
 		GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
