@@ -676,6 +676,8 @@ static void VID_Restart (void)
 	GL_DeleteBModelBuffers ();
 	GLMesh_DeleteVertexBuffers ();
 	GL_DeleteDynamicBuffers ();
+	GL_DeleteVertexArraysFunc (1, &globalvao);
+	globalvao = 0;
 
 //
 // set new mode
