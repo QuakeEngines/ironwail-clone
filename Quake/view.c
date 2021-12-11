@@ -525,23 +525,6 @@ void V_UpdateBlend (void)
 }
 
 /*
-============
-V_PolyBlend -- johnfitz -- moved here from gl_rmain.c
-============
-*/
-void V_PolyBlend (void)
-{
-	if (!gl_polyblend.value || !v_blend[3])
-		return;
-
-	GL_UseProgram (glprogs.viewblend);
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
-	GL_Uniform4fvFunc (0, 1, v_blend);
-
-	glDrawArrays (GL_TRIANGLES, 0, 3);
-}
-
-/*
 ==============================================================================
 
 	VIEW RENDERING
@@ -872,8 +855,6 @@ void V_RenderView (void)
 	//johnfitz -- removed lcd code
 
 	R_RenderView ();
-
-	V_PolyBlend (); //johnfitz -- moved here from R_Renderview ();
 }
 
 /*

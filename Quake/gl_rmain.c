@@ -1038,7 +1038,7 @@ void R_WarpScaleView (void)
 	GL_BindFramebufferFunc (GL_FRAMEBUFFER, postprocess ? framebufs.composite.fbo : 0);
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
 
-	if (water_warp)
+	if (water_warp || (v_blend[3] && gl_polyblend.value))
 	{
 		float smax = srcw/(float)vid.width;
 		float tmax = srch/(float)vid.height;
@@ -1047,6 +1047,10 @@ void R_WarpScaleView (void)
 		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 
 		GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
+		if (v_blend[3] && gl_polyblend.value)
+			GL_Uniform4fvFunc (1, 1, v_blend);
+		else
+			GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
 		GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
 		glDrawArrays (GL_TRIANGLES, 0, 3);
 	}

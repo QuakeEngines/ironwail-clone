@@ -67,31 +67,6 @@ static const char gui_fragment_shader[] =
 
 ////////////////////////////////////////////////////////////////
 //
-// View blend
-//
-////////////////////////////////////////////////////////////////
-
-static const char viewblend_vertex_shader[] =
-"void main()\n"
-"{\n"
-"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
-"	gl_Position = vec4(vec2(v) * 4.0 - 1.0, 0.0, 1.0);\n"
-"}\n";
-
-////////////////////////////////////////////////////////////////
-
-static const char viewblend_fragment_shader[] =
-"layout(location=0) uniform vec4 Color;\n"
-"\n"
-"layout(location=0) out vec4 out_fragcolor;\n"
-"\n"
-"void main()\n"
-"{\n"
-"	out_fragcolor = Color;\n"
-"}\n";
-
-////////////////////////////////////////////////////////////////
-//
 // View warp/scale
 //
 ////////////////////////////////////////////////////////////////
@@ -112,6 +87,7 @@ static const char warpscale_fragment_shader[] =
 "layout(binding=0) uniform sampler2D Tex;\n"
 "\n"
 "layout(location=0) uniform vec4 UVScaleWarpTime; // xy=Scale z=Warp w=Time\n"
+"layout(location=1) uniform vec4 BlendColor;\n"
 "\n"
 "layout(location=0) in vec2 in_uv;\n"
 "\n"
@@ -131,6 +107,7 @@ static const char warpscale_fragment_shader[] =
 "		uv += warp_amp * sin(vec2(uv.y / aspect, uv.x) * (3.14159265 * 8.0) + time);\n"
 "	}\n"
 "	out_fragcolor = texture(Tex, uv * uv_scale);\n"
+"	out_fragcolor.rgb = mix(out_fragcolor.rgb, BlendColor.rgb, BlendColor.a);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
