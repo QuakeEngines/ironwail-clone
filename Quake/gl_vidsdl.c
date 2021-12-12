@@ -1055,6 +1055,7 @@ static void GL_CheckExtensions (void)
 	;
 
 	gl_clipcontrol_able =
+		!COM_CheckParm ("-noclipcontrol") &&
 		GL_FindExtension ("GL_ARB_clip_control") &&
 		GL_InitFunctions (gl_arb_clip_control_functions, false)
 	;
