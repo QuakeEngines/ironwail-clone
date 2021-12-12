@@ -678,6 +678,8 @@ static void VID_Restart (void)
 	GL_DeleteDynamicBuffers ();
 	GL_DeleteVertexArraysFunc (1, &globalvao);
 	globalvao = 0;
+	GL_ClearBufferBindings ();
+	GL_ClearBindings ();
 
 //
 // set new mode
