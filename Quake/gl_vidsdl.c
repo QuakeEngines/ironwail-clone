@@ -1048,9 +1048,10 @@ static void GL_CheckExtensions (void)
 	}
 
 	gl_bindless_able =
-		GL_FindRequiredExtension ("GL_ARB_shader_draw_parameters") &&
-		GL_FindRequiredExtension ("GL_ARB_bindless_texture") &&
-		GL_InitFunctions (gl_arb_bindless_texture_functions, true)
+		!COM_CheckParm ("-nobindless") &&
+		GL_FindExtension ("GL_ARB_bindless_texture") &&
+		GL_FindExtension ("GL_ARB_shader_draw_parameters") &&
+		GL_InitFunctions (gl_arb_bindless_texture_functions, false)
 	;
 
 	gl_clipcontrol_able =

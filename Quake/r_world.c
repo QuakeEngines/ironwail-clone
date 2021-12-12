@@ -271,23 +271,38 @@ typedef struct bmodel_gpu_instance_s {
 	float		padding[3];
 } bmodel_gpu_instance_t;
 
-typedef struct bmodel_gpu_call_s {
-	GLuint64	texture;
-	GLuint64	fullbright;
+typedef struct bmodel_bindless_gpu_call_s {
 	GLuint		flags;
 	GLfloat		alpha;
-} bmodel_gpu_call_t;
+	GLuint64	texture;
+	GLuint64	fullbright;
+} bmodel_bindless_gpu_call_t;
+
+typedef struct bmodel_bound_gpu_call_s {
+	GLuint		flags;
+	GLfloat		alpha;
+	GLint		baseinstance;
+	GLint		padding;
+} bmodel_bound_gpu_call_t;
 
 typedef struct bmodel_gpu_call_remap_s {
 	GLuint		src;
 	GLuint		inst;
 } bmodel_gpu_call_remap_t;
 
-static bmodel_gpu_instance_t	bmodel_instances[MAX_VISEDICTS + 1]; // +1 for worldspawn
-static bmodel_gpu_call_t		bmodel_calls[MAX_BMODEL_DRAWS];
-static bmodel_gpu_call_remap_t	bmodel_call_remap[MAX_BMODEL_DRAWS];
-static int						num_bmodel_calls;
-static GLuint					bmodel_batch_program;
+static bmodel_gpu_instance_t		bmodel_instances[MAX_VISEDICTS + 1]; // +1 for worldspawn
+static union {
+	struct {
+		bmodel_bindless_gpu_call_t	params[MAX_BMODEL_DRAWS];
+	} bindless;
+	struct {
+		bmodel_bound_gpu_call_t		params[MAX_BMODEL_DRAWS];
+		gltexture_t					*textures[MAX_BMODEL_DRAWS][2];
+	} bound;
+} bmodel_calls;
+static bmodel_gpu_call_remap_t		bmodel_call_remap[MAX_BMODEL_DRAWS];
+static int							num_bmodel_calls;
+static GLuint						bmodel_batch_program;
 
 /*
 =============
@@ -355,12 +370,28 @@ static void R_FlushBModelCalls (void)
 	GL_UseProgram (bmodel_batch_program);
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, gl_bmodel_ibo);
 	GL_BindBuffer (GL_ARRAY_BUFFER, gl_bmodel_vbo);
+	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_compacted_indirect_buffer);
 	GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof (float), NULL);
 	GL_VertexAttribPointerFunc (1, 4, GL_FLOAT, GL_FALSE, VERTEXSIZE * sizeof (float), (void *)(3 * sizeof (float)));
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_calls, sizeof(bmodel_calls[0]) * num_bmodel_calls, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof(bmodel_calls[0]) * num_bmodel_calls);
-	GL_BindBuffer (GL_DRAW_INDIRECT_BUFFER, gl_bmodel_compacted_indirect_buffer);
-	GL_MultiDrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, 0, num_bmodel_calls, sizeof (bmodel_draw_indirect_t));
+
+	if (gl_bindless_able)
+	{
+		GL_Upload (GL_SHADER_STORAGE_BUFFER, bmodel_calls.bindless.params, sizeof (bmodel_calls.bindless.params[0]) * num_bmodel_calls, &buf, &ofs);
+		GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof (bmodel_calls.bindless.params[0]) * num_bmodel_calls);
+		GL_MultiDrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, 0, num_bmodel_calls, sizeof (bmodel_draw_indirect_t));
+	}
+	else
+	{
+		int i;
+		for (i = 0; i < num_bmodel_calls; i++)
+		{
+			GL_Upload (GL_SHADER_STORAGE_BUFFER, &bmodel_calls.bound.params[i], sizeof (bmodel_calls.bound.params[i]), &buf, &ofs);
+			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof (bmodel_calls.bound.params[i]));
+			GL_Bind (GL_TEXTURE0, bmodel_calls.bound.textures[i][0]);
+			GL_Bind (GL_TEXTURE1, bmodel_calls.bound.textures[i][1]);
+			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (const byte *)(i * sizeof (bmodel_draw_indirect_t)));
+		}
+	}
 
 	num_bmodel_calls = 0;
 }
@@ -372,16 +403,12 @@ R_AddBModelCall
 */
 static void R_AddBModelCall (int index, int first_instance, int num_instances, texture_t *t, qboolean zfix)
 {
-	bmodel_gpu_call_t *call;
-	bmodel_gpu_call_remap_t *remap;
-	gltexture_t *tx, *fb;
+	GLuint		flags;
+	float		alpha;
+	gltexture_t	*tx, *fb;
 
 	if (num_bmodel_calls == MAX_BMODEL_DRAWS)
 		R_FlushBModelCalls ();
-
-	call = num_bmodel_calls + bmodel_calls;
-	remap = num_bmodel_calls + bmodel_call_remap;
-	num_bmodel_calls++;
 
 	if (t)
 	{
@@ -400,20 +427,40 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 	if (!gl_zfix.value)
 		zfix = 0;
 
-	call->texture = tx ? tx->bindless_handle : greytexture->bindless_handle;
-	call->fullbright = fb ? fb->bindless_handle : blacktexture->bindless_handle;
-	call->flags =
+	flags =
 		(t != NULL && t->type == TEXTYPE_CUTOUT)
 		| (zfix << 1)
 		| ((fb != NULL) << 2)
 		| (((GLuint) gl_clipcontrol_able) << 31)
 	;
-	call->alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
+	alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
+
+	if (gl_bindless_able)
+	{
+		bmodel_bindless_gpu_call_t *call = &bmodel_calls.bindless.params[num_bmodel_calls];
+		call->flags = flags;
+		call->alpha = alpha;
+		call->texture = tx ? tx->bindless_handle : greytexture->bindless_handle;
+		call->fullbright = fb ? fb->bindless_handle : blacktexture->bindless_handle;
+	}
+	else
+	{
+		bmodel_bound_gpu_call_t *call = &bmodel_calls.bound.params[num_bmodel_calls];
+		gltexture_t **textures = bmodel_calls.bound.textures[num_bmodel_calls];
+		call->flags = flags;
+		call->alpha = alpha;
+		call->baseinstance = first_instance;
+		call->padding = 0;
+		textures[0] = tx ? tx : greytexture;
+		textures[1] = fb ? fb : blacktexture;
+	}
 
 	SDL_assert (num_instances > 0);
 	SDL_assert (num_instances <= MAX_BMODEL_INSTANCES);
-	remap->src = index;
-	remap->inst = first_instance * MAX_BMODEL_INSTANCES + (num_instances - 1);
+	bmodel_call_remap[num_bmodel_calls].src = index;
+	bmodel_call_remap[num_bmodel_calls].inst = first_instance * MAX_BMODEL_INSTANCES + (num_instances - 1);
+
+	++num_bmodel_calls;
 }
 
 typedef enum {

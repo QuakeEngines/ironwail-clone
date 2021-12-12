@@ -317,10 +317,15 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 #define WORLD_CALLDATA_BUFFER \
 "struct Call\n"\
 "{\n"\
-"	uvec2	txhandle;\n"\
-"	uvec2	fbhandle;\n"\
 "	uint	flags;\n"\
 "	float	wateralpha;\n"\
+"#if BINDLESS\n"\
+"	uvec2	txhandle;\n"\
+"	uvec2	fbhandle;\n"\
+"#else\n"\
+"	int		baseinstance;\n"\
+"	int		padding;\n"\
+"#endif // BINDLESS\n"\
 "};\n"\
 "const uint\n"\
 "	CF_USE_ALPHA_TEST = 1u,\n"\
@@ -333,6 +338,12 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "{\n"\
 "	Call call_data[];\n"\
 "};\n"\
+"\n"\
+"#if BINDLESS\n"\
+"	#define GET_INSTANCE_ID(call) (gl_BaseInstanceARB + gl_InstanceID)\n"\
+"#else\n"\
+"	#define GET_INSTANCE_ID(call) (call.baseinstance + gl_InstanceID)\n"\
+"#endif\n"\
 
 ////////////////////////////////////////////////////////////////
 
@@ -369,10 +380,8 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "#if BINDLESS\n"\
 "	#extension GL_ARB_shader_draw_parameters : require\n"\
 "	#define DRAW_ID			gl_DrawIDARB\n"\
-"	#define INSTANCE_ID		(gl_BaseInstanceARB + gl_InstanceID)\n"\
 "#else\n"\
 "	#define DRAW_ID			0\n"\
-"	#define INSTANCE_ID		gl_InstanceID\n"\
 "#endif\n"\
 "\n"\
 
@@ -402,7 +411,8 @@ BINDLESS_VERTEX_HEADER
 "void main()\n"
 "{\n"
 "	Call call = call_data[DRAW_ID];\n"
-"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	int instance_id = GET_INSTANCE_ID(call);\n"
+"	Instance instance = instance_data[instance_id];\n"
 "	out_pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
@@ -411,7 +421,7 @@ BINDLESS_VERTEX_HEADER
 "	out_lmuv = in_uv.zw;\n"
 "	out_depth = gl_Position.w;\n"
 "	out_coord = (gl_Position.xy / gl_Position.w * 0.5 + 0.5) * vec2(LIGHT_TILES_X, LIGHT_TILES_Y);\n"
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"	out_drawinstance = ivec2(DRAW_ID, instance_id);\n"
 "	vec4 styles = textureLod(LightmapStyles, in_uv.zw, 0.);\n"
 "	out_styles.x = GetLightStyle(int(styles.x * 255. + .5));\n"
 "	if (styles.y > 0.5)\n"
@@ -563,6 +573,7 @@ NOISE_FUNCTIONS
 
 static const char water_vertex_shader[] =
 FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
 BINDLESS_VERTEX_HEADER
@@ -573,11 +584,13 @@ BINDLESS_VERTEX_HEADER
 "\n"
 "void main()\n"
 "{\n"
-"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	Call call = call_data[DRAW_ID];\n"
+"	int instance_id = GET_INSTANCE_ID(call);\n"
+"	Instance instance = instance_data[instance_id];\n"
 "	gl_Position = ViewProj * vec4(Transform(in_pos, instance), 1.0);\n"
 "	out_uv = in_uv.xy;\n"
 "	out_fogdist = gl_Position.w;\n"
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"	out_drawinstance = ivec2(DRAW_ID, instance_id);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -631,6 +644,7 @@ NOISE_FUNCTIONS
 
 static const char skystencil_vertex_shader[] =
 FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
 BINDLESS_VERTEX_HEADER
@@ -639,9 +653,11 @@ BINDLESS_VERTEX_HEADER
 "\n"
 "void main()\n"
 "{\n"
-"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	Call call = call_data[DRAW_ID];\n"
+"	int instance_id = GET_INSTANCE_ID(call);\n"
+"	Instance instance = instance_data[instance_id];\n"
 "	gl_Position = ViewProj * vec4(Transform(in_pos, instance), 1.0);\n"
-"	out_drawinstance = ivec2(DRAW_ID, INSTANCE_ID);\n"
+"	out_drawinstance = ivec2(DRAW_ID, instance_id);\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -652,6 +668,7 @@ BINDLESS_VERTEX_HEADER
 
 static const char sky_layers_vertex_shader[] =
 FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
 BINDLESS_VERTEX_HEADER
@@ -661,7 +678,9 @@ BINDLESS_VERTEX_HEADER
 "\n"
 "void main()\n"
 "{\n"
-"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	Call call = call_data[DRAW_ID];\n"
+"	int instance_id = GET_INSTANCE_ID(call);\n"
+"	Instance instance = instance_data[instance_id];\n"
 "	vec3 pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
 "	out_dir = pos - EyePos;\n"
@@ -712,6 +731,7 @@ WORLD_CALLDATA_BUFFER
 
 static const char sky_cubemap_vertex_shader[] =
 FRAMEDATA_BUFFER
+WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
 BINDLESS_VERTEX_HEADER
@@ -720,7 +740,9 @@ BINDLESS_VERTEX_HEADER
 "\n"
 "void main()\n"
 "{\n"
-"	Instance instance = instance_data[INSTANCE_ID];\n"
+"	Call call = call_data[DRAW_ID];\n"
+"	int instance_id = GET_INSTANCE_ID(call);\n"
+"	Instance instance = instance_data[instance_id];\n"
 "	vec3 pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
 "	out_dir.x = -(pos.y - EyePos.y);\n"
