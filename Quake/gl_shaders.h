@@ -1362,7 +1362,7 @@ static const char palette_init_compute_shader[] =
 "\n"
 PALETTE_BUFFER
 "\n"
-"layout(rg8ui, binding=0) uniform writeonly uimage3D PaletteLUT;\n"
+"layout(r8ui, binding=0) uniform writeonly uimage3D PaletteLUT;\n"
 "\n"
 "float ColorDistanceSquared(uvec3 c0, uvec3 c1)\n"
 "{\n"
