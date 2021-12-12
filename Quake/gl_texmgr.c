@@ -1609,7 +1609,7 @@ static GLenum	currenttexunit = GL_TEXTURE0_ARB;
 GL_SelectTexture
 ================
 */
-void GL_SelectTexture (GLenum texunit)
+static void GL_SelectTexture (GLenum texunit)
 {
 	if (texunit == currenttexunit)
 		return;

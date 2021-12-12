@@ -121,7 +121,6 @@ int TexMgr_PadConditional (int s);
 
 // TEXTURE BINDING & TEXTURE UNIT SWITCHING
 
-void GL_SelectTexture (GLenum texunit);
 qboolean GL_Bind (GLenum texunit, gltexture_t *texture);
 qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle);
 void GL_DeleteNativeTexture (GLuint texnum);
