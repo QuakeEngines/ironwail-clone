@@ -403,7 +403,7 @@ BINDLESS_VERTEX_HEADER
 "layout(location=0) flat out ivec2 out_drawinstance; // x = draw; y = instance\n"
 "layout(location=1) out vec3 out_pos;\n"
 "layout(location=2) out vec2 out_uv;\n"
-"layout(location=3) out vec2 out_lmuv;\n"
+"layout(location=3) centroid out vec2 out_lmuv;\n"
 "layout(location=4) out float out_depth;\n"
 "layout(location=5) noperspective out vec2 out_coord;\n"
 "layout(location=6) flat out vec4 out_styles;\n"
