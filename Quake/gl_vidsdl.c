@@ -62,7 +62,7 @@ typedef struct {
 
 #define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
 #define MIN_GL_VERSION_MAJOR				4
-#define MIN_GL_VERSION_MINOR				4
+#define MIN_GL_VERSION_MINOR				3
 #define MIN_GL_VERSION						MAKE_GL_VERSION(MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR)
 #define MIN_GL_VERSION_STR					QS_STRINGIFY(MIN_GL_VERSION_MAJOR)"."QS_STRINGIFY(MIN_GL_VERSION_MINOR)
 
@@ -104,6 +104,7 @@ qboolean	scr_skipupdate;
 
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
+qboolean gl_buffer_storage_able = false;
 qboolean gl_bindless_able = false;
 qboolean gl_clipcontrol_able = false;
 float gl_max_anisotropy; //johnfitz
@@ -126,6 +127,12 @@ typedef struct glfunc_t {
 static const glfunc_t gl_core_functions[] =
 {
 	QGL_CORE_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	{NULL, NULL}
+};
+
+static const glfunc_t gl_arb_buffer_storage_functions[] =
+{
+	QGL_ARB_buffer_storage_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
 	{NULL, NULL}
 };
 
@@ -1046,6 +1053,12 @@ static void GL_CheckExtensions (void)
 		gl_max_anisotropy = 1;
 		Con_Warning ("texture_filter_anisotropic not supported\n");
 	}
+
+	gl_buffer_storage_able =
+		!COM_CheckParm ("-nobufferstorage") &&
+		GL_FindExtension ("GL_ARB_buffer_storage") &&
+		GL_InitFunctions (gl_arb_buffer_storage_functions, false)
+	;
 
 	gl_bindless_able =
 		!COM_CheckParm ("-nobindless") &&

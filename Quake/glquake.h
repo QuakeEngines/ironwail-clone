@@ -114,6 +114,7 @@ extern	cvar_t	gl_nocolors;
 extern	cvar_t	gl_playermip;
 
 extern int		gl_stencilbits;
+extern	qboolean	gl_buffer_storage_able;
 extern	qboolean	gl_bindless_able;
 extern	qboolean	gl_clipcontrol_able;
 
@@ -133,7 +134,6 @@ extern	qboolean	gl_clipcontrol_able;
 	x(GLboolean,	UnmapBuffer, (GLenum target))\
 	x(void*,		MapBufferRange, (GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access))\
 	x(void,			FlushMappedBufferRange, (GLenum target, GLintptr offset, GLsizeiptr length))\
-	x(void,			BufferStorage, (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags))\
 	x(GLsync,		FenceSync, (GLenum condition, GLbitfield flags))\
 	x(void,			DeleteSync, (GLsync sync))\
 	x(GLenum,		ClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout))\
@@ -197,6 +197,9 @@ extern	qboolean	gl_clipcontrol_able;
 	x(void,			SamplerParameterf, (GLuint sampler, GLenum pname, GLfloat param))\
 	x(void,			BindSampler, (GLuint unit, GLuint sampler))\
 
+#define QGL_ARB_buffer_storage_FUNCTIONS(x)\
+	x(void,			BufferStorage, (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags))\
+
 #define QGL_ARB_bindless_texture_FUNCTIONS(x)\
 	x(GLuint64,		GetTextureHandleARB, (GLuint texture))\
 	x(GLuint64,		GetTextureSamplerHandleARB, (GLuint texture, GLuint sampler))\
@@ -210,6 +213,7 @@ extern	qboolean	gl_clipcontrol_able;
 
 #define QGL_ALL_FUNCTIONS(x)\
 	QGL_CORE_FUNCTIONS(x)\
+	QGL_ARB_buffer_storage_FUNCTIONS(x)\
 	QGL_ARB_bindless_texture_FUNCTIONS(x)\
 	QGL_ARB_clip_control_FUNCTIONS(x)\
 

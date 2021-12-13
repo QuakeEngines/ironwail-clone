@@ -632,10 +632,17 @@ static void GL_AllocDynamicBuffers (void)
 		GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
 		q_snprintf (name, sizeof(name), "dynamic buffer %d", i);
 		GL_ObjectLabelFunc (GL_BUFFER, buf->handle, -1, name);
-		GL_BufferStorageFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, flags);
-		buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
-		if (!buf->ptr)
-			Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %zu bytes", dynabuf_size);
+		if (gl_buffer_storage_able)
+		{
+			GL_BufferStorageFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, flags);
+			buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
+			if (!buf->ptr)
+				Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %zu bytes", dynabuf_size);
+		}
+		else
+		{
+			GL_BufferDataFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, GL_STREAM_DRAW);
+		}
 	}
 
 	dynabuf_offset = 0;
@@ -727,8 +734,11 @@ GL_DynamicBuffersEndFrame
 void GL_DynamicBuffersEndFrame (void)
 {
 	dynabuf_t *buf = &dynabufs[dynabuf_idx];
-	SDL_assert (!buf->fence);
-	buf->fence = GL_FenceSyncFunc (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+	if (buf->ptr)
+	{
+		SDL_assert (!buf->fence);
+		buf->fence = GL_FenceSyncFunc (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+	}
 
 	if (++dynabuf_idx == countof(dynabufs))
 		dynabuf_idx = 0;
@@ -742,6 +752,8 @@ GL_Upload
 */
 void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs)
 {
+	dynabuf_t *buf;
+
 	if (dynabuf_offset + numbytes > dynabuf_size)
 	{
 		dynabuf_size = dynabuf_offset + numbytes;
@@ -749,9 +761,16 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf
 		GL_AllocDynamicBuffers ();
 	}
 
-	memcpy (dynabufs[dynabuf_idx].ptr + dynabuf_offset, data, numbytes);
+	buf = &dynabufs[dynabuf_idx];
+	if (buf->ptr)
+		memcpy (buf->ptr + dynabuf_offset, data, numbytes);
+	else
+	{
+		GL_BindBuffer (target, buf->handle);
+		GL_BufferSubDataFunc (target, dynabuf_offset, numbytes, data);
+	}
 
-	*outbuf = dynabufs[dynabuf_idx].handle;
+	*outbuf = buf->handle;
 	*outofs = (GLbyte*) dynabuf_offset;
 
 	dynabuf_offset += (numbytes + ssbo_align) & ~ssbo_align;
