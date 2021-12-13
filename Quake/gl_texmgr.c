@@ -1738,7 +1738,7 @@ void GLPalette_CreateResources (void)
 	glGenTextures (1, &gl_palette_lut);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_3D, gl_palette_lut);
 	GL_ObjectLabelFunc (GL_TEXTURE, gl_palette_lut, -1, "palette lut");
-	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_R8UI, 256, 256, 256, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
+	GL_TexImage3DFunc (GL_TEXTURE_3D, 0, GL_R8UI, 128, 128, 128, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, NULL);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 0);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1768,10 +1768,10 @@ void GLPalette_Update (void)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
 	GL_BufferSubDataFunc (GL_SHADER_STORAGE_BUFFER, 0, 256 * sizeof (GLuint), d_8to24table);
 
-	for (i = 0; i < 256; i++)
+	for (i = 0; i < 128; i++)
 	{
 		GL_Uniform1iFunc (0, i << 16);
-		GL_DispatchComputeFunc (1, 256, 1);
+		GL_DispatchComputeFunc (1, 128, 1);
 	}
 
 	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);

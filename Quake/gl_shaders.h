@@ -228,7 +228,7 @@ NOISE_FUNCTIONS
 "	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
 "#endif // PALETTIZE == 1\n"
 "#if PALETTIZE\n"
-"	ivec3 clr = ivec3(clamp(out_fragcolor.rgb, 0., 1.) * 255. + 0.5);\n"
+"	ivec3 clr = ivec3(clamp(out_fragcolor.rgb, 0., 1.) * 127. + 0.5);\n"
 "	uint remap = Palette[texelFetch(PaletteLUT, clr, 0).x];\n"
 "	out_fragcolor.rgb = vec3(UnpackRGB8(remap)) * (1./255.);\n"
 "#endif // PALETTIZE\n"
@@ -1356,7 +1356,7 @@ LIGHT_CLUSTER_IMAGE("writeonly")
 ////////////////////////////////////////////////////////////////
 
 static const char palette_init_compute_shader[] =
-"layout(local_size_x=256) in;\n"
+"layout(local_size_x=128) in;\n"
 "\n"
 "layout(location=0) uniform int Offset;\n"
 "\n"
@@ -1380,12 +1380,13 @@ PALETTE_BUFFER
 "void main()\n"
 "{\n"
 "	uvec3 gid = gl_GlobalInvocationID + UnpackRGB8(uint(Offset));\n"
+"	uvec3 target = (gid << 1) + (gid >> 6);\n"
 "	int bestidx = 0;\n"
 "	float bestdist = 1e+32;\n"
 "	for (int i = 0; i < 256; i++)\n"
 "	{\n"
-"		uvec3 clr = UnpackRGB8(Palette[i]);\n"
-"		float dist = ColorDistanceSquared(clr, gid);\n"
+"		uvec3 candidate = UnpackRGB8(Palette[i]);\n"
+"		float dist = ColorDistanceSquared(target, candidate);\n"
 "		if (dist < bestdist)\n"
 "		{\n"
 "			bestidx = i;\n"
