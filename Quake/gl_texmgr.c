@@ -1674,14 +1674,17 @@ GL_BindNative
 */
 qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle)
 {
+	GLuint index = texunit - GL_TEXTURE0;
 	SDL_assert(texunit >= GL_TEXTURE0);
-	SDL_assert(texunit < GL_TEXTURE0 + countof(currenttexture));
 
-	if (handle == currenttexture[texunit - GL_TEXTURE0])
-		return false;
+	if (index < countof (currenttexture))
+	{
+		if (currenttexture[index] == handle)
+			return false;
+		currenttexture[index] = handle;
+	}
 
 	GL_SelectTexture (texunit);
-	currenttexture[texunit - GL_TEXTURE0] = handle;
 	glBindTexture (type, handle);
 
 	return true;
