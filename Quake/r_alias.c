@@ -73,8 +73,7 @@ typedef struct aliasinstance_s {
 struct ibuf_s {
 	int			count;
 	entity_t	*ent;
-	gltexture_t	*texture;
-	gltexture_t	*fullbright;
+	gltexture_t	*textures[2];
 
 	struct {
 		vec4_t	fog;
@@ -303,6 +302,9 @@ void R_FlushAliasInstances (void)
 	GLuint		buf;
 	GLbyte		*ofs;
 	size_t		ibuf_size;
+	GLuint		buffers[3];
+	GLintptr	offsets[3];
+	GLsizeiptr	sizes[3];
 
 	if (!ibuf.count)
 		return;
@@ -325,12 +327,19 @@ void R_FlushAliasInstances (void)
 
 	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, ibuf_size);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 2, model->meshvbo, model->vboxyzofs, sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 3, model->meshvbo, model->vbostofs, sizeof (meshst_t) * paliashdr->numverts_vbo);
 
-	GL_Bind (GL_TEXTURE0, ibuf.texture);
-	GL_Bind (GL_TEXTURE1, ibuf.fullbright);
+	buffers[0] = buf;
+	buffers[1] = model->meshvbo;
+	buffers[2] = model->meshvbo;
+	offsets[0] = (GLintptr) ofs;
+	offsets[1] = model->vboxyzofs;
+	offsets[2] = model->vbostofs;
+	sizes[0] = ibuf_size;
+	sizes[1] = sizeof (meshxyz_t) * paliashdr->numverts_vbo * paliashdr->numposes;
+	sizes[2] = sizeof (meshst_t) * paliashdr->numverts_vbo;
+	GL_BindBuffersRange (GL_SHADER_STORAGE_BUFFER, 1, 3, buffers, offsets, sizes);
+
+	GL_BindTextures (0, 2, ibuf.textures);
 
 	GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, model->meshindexesvbo);
 	GL_DrawElementsInstancedFunc (GL_TRIANGLES, paliashdr->numindexes, GL_UNSIGNED_SHORT, (void *)(intptr_t)model->vboindexofs, ibuf.count);
@@ -458,8 +467,8 @@ static void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 	{
 		if (ibuf.count == countof(ibuf.inst) ||
 			ibuf.ent->model != e->model ||
-			ibuf.texture != tx ||
-			ibuf.fullbright != fb)
+			ibuf.textures[0] != tx ||
+			ibuf.textures[1] != fb)
 		{
 			R_FlushAliasInstances ();
 		}
@@ -467,9 +476,9 @@ static void R_DrawAliasModel_Real (entity_t *e, qboolean showtris)
 
 	if (!ibuf.count)
 	{
-		ibuf.ent        = e;
-		ibuf.texture    = tx;
-		ibuf.fullbright = fb;
+		ibuf.ent         = e;
+		ibuf.textures[0] = tx;
+		ibuf.textures[1] = fb;
 	}
 
 	instance = &ibuf.inst[ibuf.count++];

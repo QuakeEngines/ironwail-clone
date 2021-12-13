@@ -123,6 +123,7 @@ int TexMgr_PadConditional (int s);
 
 qboolean GL_Bind (GLenum texunit, gltexture_t *texture);
 qboolean GL_BindNative (GLenum texunit, GLenum type, GLuint handle);
+void GL_BindTextures (GLuint first, GLsizei count, gltexture_t **textures);
 void GL_DeleteNativeTexture (GLuint texnum);
 void GL_ClearBindings (void);
 

@@ -105,6 +105,7 @@ qboolean	scr_skipupdate;
 qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
 qboolean gl_buffer_storage_able = false;
+qboolean gl_multi_bind_able = false;
 qboolean gl_bindless_able = false;
 qboolean gl_clipcontrol_able = false;
 float gl_max_anisotropy; //johnfitz
@@ -133,6 +134,12 @@ static const glfunc_t gl_core_functions[] =
 static const glfunc_t gl_arb_buffer_storage_functions[] =
 {
 	QGL_ARB_buffer_storage_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
+	{NULL, NULL}
+};
+
+static const glfunc_t gl_arb_multi_bind_functions[] =
+{
+	QGL_ARB_multi_bind_FUNCTIONS(QGL_REGISTER_NAMED_FUNC)
 	{NULL, NULL}
 };
 
@@ -1058,6 +1065,12 @@ static void GL_CheckExtensions (void)
 		!COM_CheckParm ("-nobufferstorage") &&
 		GL_FindExtension ("GL_ARB_buffer_storage") &&
 		GL_InitFunctions (gl_arb_buffer_storage_functions, false)
+	;
+
+	gl_multi_bind_able =
+		!COM_CheckParm ("-nomultibind") &&
+		GL_FindExtension ("GL_ARB_multi_bind") &&
+		GL_InitFunctions (gl_arb_multi_bind_functions, false)
 	;
 
 	gl_bindless_able =

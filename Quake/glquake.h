@@ -115,6 +115,7 @@ extern	cvar_t	gl_playermip;
 
 extern int		gl_stencilbits;
 extern	qboolean	gl_buffer_storage_able;
+extern	qboolean	gl_multi_bind_able;
 extern	qboolean	gl_bindless_able;
 extern	qboolean	gl_clipcontrol_able;
 
@@ -199,6 +200,12 @@ extern	qboolean	gl_clipcontrol_able;
 #define QGL_ARB_buffer_storage_FUNCTIONS(x)\
 	x(void,			BufferStorage, (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags))\
 
+#define QGL_ARB_multi_bind_FUNCTIONS(x)\
+	x(void,			BindBuffersRange, (GLenum target, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizeiptr *sizes))\
+	x(void,			BindTextures, (GLuint first, GLsizei count, const GLuint *textures))\
+	x(void,			BindSamplers, (GLuint first, GLsizei count, const GLuint *samplers))\
+	x(void,			BindImageTextures, (GLuint first, GLsizei count, const GLuint *textures))\
+
 #define QGL_ARB_bindless_texture_FUNCTIONS(x)\
 	x(GLuint64,		GetTextureHandleARB, (GLuint texture))\
 	x(GLuint64,		GetTextureSamplerHandleARB, (GLuint texture, GLuint sampler))\
@@ -213,6 +220,7 @@ extern	qboolean	gl_clipcontrol_able;
 #define QGL_ALL_FUNCTIONS(x)\
 	QGL_CORE_FUNCTIONS(x)\
 	QGL_ARB_buffer_storage_FUNCTIONS(x)\
+	QGL_ARB_multi_bind_FUNCTIONS(x)\
 	QGL_ARB_bindless_texture_FUNCTIONS(x)\
 	QGL_ARB_clip_control_FUNCTIONS(x)\
 
@@ -518,6 +526,7 @@ void Sky_LoadSkyBox (const char *name);
 
 void GL_BindBuffer (GLenum target, GLuint buffer);
 void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);
+void GL_BindBuffersRange (GLenum target, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizeiptr *sizes);
 void GL_DeleteBuffer (GLuint buffer);
 void GL_ClearBufferBindings (void);
 

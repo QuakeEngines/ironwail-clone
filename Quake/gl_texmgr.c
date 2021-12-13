@@ -1635,6 +1635,40 @@ qboolean GL_Bind (GLenum texunit, gltexture_t *texture)
 
 /*
 ================
+GL_BindTextures
+
+Wrapper around glBindTextures with fallback
+if ARB_multi_bind is not present
+================
+*/
+void GL_BindTextures (GLuint first, GLsizei count, gltexture_t **textures)
+{
+	GLuint handles[8];
+	GLsizei i;
+
+	if (gl_multi_bind_able && count < countof (handles))
+	{
+		for (i = 0; i < count; i++)
+		{
+			gltexture_t *tex = textures[i];
+			if (!tex)
+				tex = nulltexture;
+			tex->visframe = r_framecount;
+			handles[i] = tex->texnum;
+			if (i + first < countof (currenttexture))
+				currenttexture[i] = tex->texnum;
+		}
+		GL_BindTexturesFunc (first, count, handles);
+	}
+	else
+	{
+		for (i = 0; i < count; i++)
+			GL_Bind (GL_TEXTURE0 + first + i, textures[i]);
+	}
+}
+
+/*
+================
 GL_BindNative
 ================
 */

@@ -535,6 +535,38 @@ void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr of
 
 /*
 ====================
+GL_BindBuffersRange
+
+glBindBuffersRange wrapper with fallback
+if ARB_multi_bind is not present
+====================
+*/
+void GL_BindBuffersRange (GLenum target, GLuint first, GLsizei count, const GLuint *buffers, const GLintptr *offsets, const GLsizeiptr *sizes)
+{
+	GLsizei i;
+	if (gl_multi_bind_able)
+	{
+		if (target == GL_SHADER_STORAGE_BUFFER)
+		{
+			for (i = 0; i < count && first + i < countof (ssbo_ranges); i++)
+			{
+				bufferrange_t *range = &ssbo_ranges[first + i];
+				range->buffer = buffers[first + i];
+				range->offset = offsets[first + i];
+				range->size   = sizes[first + i];
+			}
+		}
+		GL_BindBuffersRangeFunc (target, first, count, buffers, offsets, sizes);
+	}
+	else
+	{
+		for (i = 0; i < count; i++)
+			GL_BindBufferRange (target, first + i, buffers[i], offsets[i], sizes[i]);
+	}
+}
+
+/*
+====================
 GL_DeleteBuffer
 ====================
 */
