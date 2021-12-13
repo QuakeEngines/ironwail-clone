@@ -125,19 +125,29 @@ static qboolean Chart_Add (chart_t *chart, int w, int h, int *outx, int *outy)
 		Sys_Error ("Chart_Add: block too large %dx%d, max is %dx%d", w, h, chart->width, chart->height);
 
 	// advance horizontally, reversing direction at the edges
-	x = chart->x;
-	chart->x += chart->reverse ? -w : w;
-	if (chart->x < 0)
+	if (chart->reverse)
 	{
-		x = 0;
-		chart->x = w;
-		chart->reverse = false;
-	}
-	else if (chart->x > chart->width)
-	{
-		x = chart->width - w;
+		if (chart->x < w)
+		{
+			chart->x = 0;
+			chart->reverse = false;
+			goto forward;
+		}
+	reverse:
+		x = chart->x - w;
 		chart->x = x;
-		chart->reverse = true;
+	}
+	else
+	{
+		if (chart->x + w > chart->width)
+		{
+			chart->x = chart->width;
+			chart->reverse = true;
+			goto reverse;
+		}
+	forward:
+		x = chart->x;
+		chart->x += w;
 	}
 
 	// find lowest unoccupied vertical position
