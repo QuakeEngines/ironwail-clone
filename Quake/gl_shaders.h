@@ -381,7 +381,8 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "	#extension GL_ARB_shader_draw_parameters : require\n"\
 "	#define DRAW_ID			gl_DrawIDARB\n"\
 "#else\n"\
-"	#define DRAW_ID			0\n"\
+"	layout(location=0) uniform int DrawID;\n"\
+"	#define DRAW_ID			DrawID\n"\
 "#endif\n"\
 "\n"\
 

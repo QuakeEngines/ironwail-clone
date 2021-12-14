@@ -383,10 +383,13 @@ static void R_FlushBModelCalls (void)
 	else
 	{
 		int i;
+
+		GL_Upload (GL_SHADER_STORAGE_BUFFER, &bmodel_calls.bound.params, sizeof (bmodel_calls.bound.params[0]) * num_bmodel_calls, &buf, &ofs);
+		GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof (bmodel_calls.bound.params[0]) * num_bmodel_calls);
+
 		for (i = 0; i < num_bmodel_calls; i++)
 		{
-			GL_Upload (GL_SHADER_STORAGE_BUFFER, &bmodel_calls.bound.params[i], sizeof (bmodel_calls.bound.params[i]), &buf, &ofs);
-			GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr)ofs, sizeof (bmodel_calls.bound.params[i]));
+			GL_Uniform1iFunc (0, i);
 			GL_BindTextures (0, 2, bmodel_calls.bound.textures[i]);
 			GL_DrawElementsIndirectFunc (GL_TRIANGLES, GL_UNSIGNED_INT, (const byte *)(i * sizeof (bmodel_draw_indirect_t)));
 		}
