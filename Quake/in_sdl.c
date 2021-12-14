@@ -23,11 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #if defined(SDL_FRAMEWORK) || defined(NO_SDL_CONFIG)
-#if defined(USE_SDL2)
 #include <SDL2/SDL.h>
-#else
-#include <SDL/SDL.h>
-#endif
 #else
 #include "SDL.h"
 #endif
@@ -59,10 +55,8 @@ cvar_t	joy_exponent_move = { "joy_exponent_move", "3", CVAR_ARCHIVE };
 cvar_t	joy_swapmovelook = { "joy_swapmovelook", "0", CVAR_ARCHIVE };
 cvar_t	joy_enable = { "joy_enable", "1", CVAR_ARCHIVE };
 
-#if defined(USE_SDL2)
 static SDL_JoystickID joy_active_instaceid = -1;
 static SDL_GameController *joy_active_controller = NULL;
-#endif
 
 static qboolean	no_mouse = false;
 
@@ -71,10 +65,6 @@ static int buttonremap[] =
 	K_MOUSE1,
 	K_MOUSE3,	/* right button		*/
 	K_MOUSE2,	/* middle button	*/
-#if !defined(USE_SDL2)	/* mousewheel up/down not counted as buttons in SDL2 */
-	K_MWHEELUP,
-	K_MWHEELDOWN,
-#endif
 	K_MOUSE4,
 	K_MOUSE5
 };
@@ -95,39 +85,27 @@ static int SDLCALL IN_FilterMouseEvents (const SDL_Event *event)
 	return 1;
 }
 
-#if defined(USE_SDL2)
 static int SDLCALL IN_SDL2_FilterMouseEvents (void *userdata, SDL_Event *event)
 {
 	return IN_FilterMouseEvents (event);
 }
-#endif
 
 static void IN_BeginIgnoringMouseEvents(void)
 {
-#if defined(USE_SDL2)
 	SDL_EventFilter currentFilter = NULL;
 	void *currentUserdata = NULL;
 	SDL_GetEventFilter(&currentFilter, &currentUserdata);
 
 	if (currentFilter != IN_SDL2_FilterMouseEvents)
 		SDL_SetEventFilter(IN_SDL2_FilterMouseEvents, NULL);
-#else
-	if (SDL_GetEventFilter() != IN_FilterMouseEvents)
-		SDL_SetEventFilter(IN_FilterMouseEvents);
-#endif
 }
 
 static void IN_EndIgnoringMouseEvents(void)
 {
-#if defined(USE_SDL2)
 	SDL_EventFilter currentFilter;
 	void *currentUserdata;
 	if (SDL_GetEventFilter(&currentFilter, &currentUserdata) == SDL_TRUE)
 		SDL_SetEventFilter(NULL, NULL);
-#else
-	if (SDL_GetEventFilter() != NULL)
-		SDL_SetEventFilter(NULL);
-#endif
 }
 
 #ifdef MACOS_X_ACCELERATION_HACK
@@ -211,26 +189,10 @@ void IN_Activate (void)
 		IN_DisableOSXMouseAccel();
 #endif
 
-#if defined(USE_SDL2)
 	if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0)
 	{
 		Con_Printf("WARNING: SDL_SetRelativeMouseMode(SDL_TRUE) failed.\n");
 	}
-#else
-	if (SDL_WM_GrabInput(SDL_GRAB_QUERY) != SDL_GRAB_ON)
-	{
-		SDL_WM_GrabInput(SDL_GRAB_ON);
-		if (SDL_WM_GrabInput(SDL_GRAB_QUERY) != SDL_GRAB_ON)
-			Con_Printf("WARNING: SDL_WM_GrabInput(SDL_GRAB_ON) failed.\n");
-	}
-
-	if (SDL_ShowCursor(SDL_QUERY) != SDL_DISABLE)
-	{
-		SDL_ShowCursor(SDL_DISABLE);
-		if (SDL_ShowCursor(SDL_QUERY) != SDL_DISABLE)
-			Con_Printf("WARNING: SDL_ShowCursor(SDL_DISABLE) failed.\n");
-	}
-#endif
 
 	IN_EndIgnoringMouseEvents();
 
@@ -250,23 +212,7 @@ void IN_Deactivate (qboolean free_cursor)
 
 	if (free_cursor)
 	{
-#if defined(USE_SDL2)
 		SDL_SetRelativeMouseMode(SDL_FALSE);
-#else
-		if (SDL_WM_GrabInput(SDL_GRAB_QUERY) != SDL_GRAB_OFF)
-		{
-			SDL_WM_GrabInput(SDL_GRAB_OFF);
-			if (SDL_WM_GrabInput(SDL_GRAB_QUERY) != SDL_GRAB_OFF)
-				Con_Printf("WARNING: SDL_WM_GrabInput(SDL_GRAB_OFF) failed.\n");
-		}
-
-		if (SDL_ShowCursor(SDL_QUERY) != SDL_ENABLE)
-		{
-			SDL_ShowCursor(SDL_ENABLE);
-			if (SDL_ShowCursor(SDL_QUERY) != SDL_ENABLE)
-				Con_Printf("WARNING: SDL_ShowCursor(SDL_ENABLE) failed.\n");
-		}
-#endif
 	}
 
 	/* discard all mouse events when input is deactivated */
@@ -275,7 +221,6 @@ void IN_Deactivate (qboolean free_cursor)
 
 void IN_StartupJoystick (void)
 {
-#if defined(USE_SDL2)
 	int i;
 	int nummappings;
 	char controllerdb[MAX_OSPATH];
@@ -330,30 +275,22 @@ void IN_StartupJoystick (void)
 			Con_Warning("joystick missing controller mappings: %s\n", joyname != NULL ? joyname : "NULL" );
 		}
 	}
-#endif
 }
 
 void IN_ShutdownJoystick (void)
 {
-#if defined(USE_SDL2)
 	SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
-#endif
 }
 
 void IN_Init (void)
 {
 	textmode = Key_TextEntry();
 
-#if !defined(USE_SDL2)
-	SDL_EnableUNICODE (textmode);
-	if (SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL) == -1)
-		Con_Printf("Warning: SDL_EnableKeyRepeat() failed.\n");
-#else
 	if (textmode)
 		SDL_StartTextInput();
 	else
 		SDL_StopTextInput();
-#endif
+
 	if (safemode || COM_CheckParm("-nomouse"))
 	{
 		no_mouse = true;
@@ -395,7 +332,6 @@ void IN_MouseMotion(int dx, int dy)
 	total_dy += dy;
 }
 
-#if defined(USE_SDL2)
 typedef struct joyaxis_s
 {
 	float x;
@@ -579,7 +515,6 @@ static void IN_JoyKeyEvent(qboolean wasdown, qboolean isdown, int key, double *t
 		}
 	}
 }
-#endif
 
 /*
 ================
@@ -590,7 +525,6 @@ Emit key events for game controller buttons, including emulated buttons for anal
 */
 void IN_Commands (void)
 {
-#if defined(USE_SDL2)
 	joyaxisstate_t newaxisstate;
 	int i;
 	const float stickthreshold = 0.9;
@@ -637,7 +571,6 @@ void IN_Commands (void)
 	IN_JoyKeyEvent(joy_axisstate.axisvalue[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] > triggerthreshold, newaxisstate.axisvalue[SDL_CONTROLLER_AXIS_TRIGGERRIGHT] > triggerthreshold, K_RTRIGGER, &joy_emulatedkeytimer[9]);
 	
 	joy_axisstate = newaxisstate;
-#endif
 }
 
 /*
@@ -647,7 +580,6 @@ IN_JoyMove
 */
 void IN_JoyMove (usercmd_t *cmd)
 {
-#if defined(USE_SDL2)
 	float	speed;
 	joyaxis_t moveRaw, moveDeadzone, moveEased;
 	joyaxis_t lookRaw, lookDeadzone, lookEased;
@@ -695,7 +627,6 @@ void IN_JoyMove (usercmd_t *cmd)
 		cl.viewangles[PITCH] = cl_maxpitch.value;
 	if (cl.viewangles[PITCH] < cl_minpitch.value)
 		cl.viewangles[PITCH] = cl_minpitch.value;
-#endif
 }
 
 void IN_MouseMove(usercmd_t *cmd)
@@ -753,11 +684,6 @@ void IN_UpdateInputMode (void)
 	if (textmode != want_textmode)
 	{
 		textmode = want_textmode;
-#if !defined(USE_SDL2)
-		SDL_EnableUNICODE(textmode);
-		if (in_debugkeys.value)
-			Con_Printf("SDL_EnableUNICODE %d time: %g\n", textmode, Sys_DoubleTime());
-#else
 		if (textmode)
 		{
 			SDL_StartTextInput();
@@ -770,87 +696,9 @@ void IN_UpdateInputMode (void)
 			if (in_debugkeys.value)
 				Con_Printf("SDL_StopTextInput time: %g\n", Sys_DoubleTime());
 		}
-#endif
 	}
 }
 
-#if !defined(USE_SDL2)
-static inline int IN_SDL_KeysymToQuakeKey(SDLKey sym)
-{
-	if (sym > SDLK_SPACE && sym < SDLK_DELETE)
-		return sym;
-
-	switch (sym)
-	{
-	case SDLK_TAB: return K_TAB;
-	case SDLK_RETURN: return K_ENTER;
-	case SDLK_ESCAPE: return K_ESCAPE;
-	case SDLK_SPACE: return K_SPACE;
-
-	case SDLK_BACKSPACE: return K_BACKSPACE;
-	case SDLK_UP: return K_UPARROW;
-	case SDLK_DOWN: return K_DOWNARROW;
-	case SDLK_LEFT: return K_LEFTARROW;
-	case SDLK_RIGHT: return K_RIGHTARROW;
-
-	case SDLK_LALT: return K_ALT;
-	case SDLK_RALT: return K_ALT;
-	case SDLK_LCTRL: return K_CTRL;
-	case SDLK_RCTRL: return K_CTRL;
-	case SDLK_LSHIFT: return K_SHIFT;
-	case SDLK_RSHIFT: return K_SHIFT;
-
-	case SDLK_F1: return K_F1;
-	case SDLK_F2: return K_F2;
-	case SDLK_F3: return K_F3;
-	case SDLK_F4: return K_F4;
-	case SDLK_F5: return K_F5;
-	case SDLK_F6: return K_F6;
-	case SDLK_F7: return K_F7;
-	case SDLK_F8: return K_F8;
-	case SDLK_F9: return K_F9;
-	case SDLK_F10: return K_F10;
-	case SDLK_F11: return K_F11;
-	case SDLK_F12: return K_F12;
-	case SDLK_INSERT: return K_INS;
-	case SDLK_DELETE: return K_DEL;
-	case SDLK_PAGEDOWN: return K_PGDN;
-	case SDLK_PAGEUP: return K_PGUP;
-	case SDLK_HOME: return K_HOME;
-	case SDLK_END: return K_END;
-
-	case SDLK_NUMLOCK: return K_KP_NUMLOCK;
-	case SDLK_KP_DIVIDE: return K_KP_SLASH;
-	case SDLK_KP_MULTIPLY: return K_KP_STAR;
-	case SDLK_KP_MINUS:return K_KP_MINUS;
-	case SDLK_KP7: return K_KP_HOME;
-	case SDLK_KP8: return K_KP_UPARROW;
-	case SDLK_KP9: return K_KP_PGUP;
-	case SDLK_KP_PLUS: return K_KP_PLUS;
-	case SDLK_KP4: return K_KP_LEFTARROW;
-	case SDLK_KP5: return K_KP_5;
-	case SDLK_KP6: return K_KP_RIGHTARROW;
-	case SDLK_KP1: return K_KP_END;
-	case SDLK_KP2: return K_KP_DOWNARROW;
-	case SDLK_KP3: return K_KP_PGDN;
-	case SDLK_KP_ENTER: return K_KP_ENTER;
-	case SDLK_KP0: return K_KP_INS;
-	case SDLK_KP_PERIOD: return K_KP_DEL;
-
-	case SDLK_LMETA: return K_COMMAND;
-	case SDLK_RMETA: return K_COMMAND;
-
-	case SDLK_BREAK: return K_PAUSE;
-	case SDLK_PAUSE: return K_PAUSE;
-
-	case SDLK_WORLD_18: return '~'; // the '²' key
-
-	default: return 0;
-	}
-}
-#endif
-
-#if defined(USE_SDL2)
 static inline int IN_SDL2_ScancodeToQuakeKey(SDL_Scancode scancode)
 {
 	switch (scancode)
@@ -971,31 +819,20 @@ static inline int IN_SDL2_ScancodeToQuakeKey(SDL_Scancode scancode)
 	default: return 0;
 	}
 }
-#endif
 
-#if defined(USE_SDL2)
 static void IN_DebugTextEvent(SDL_Event *event)
 {
 	Con_Printf ("SDL_TEXTINPUT '%s' time: %g\n", event->text.text, Sys_DoubleTime());
 }
-#endif
 
 static void IN_DebugKeyEvent(SDL_Event *event)
 {
 	const char *eventtype = (event->key.state == SDL_PRESSED) ? "SDL_KEYDOWN" : "SDL_KEYUP";
-#if defined(USE_SDL2)
 	Con_Printf ("%s scancode: '%s' keycode: '%s' time: %g\n",
 		eventtype,
 		SDL_GetScancodeName(event->key.keysym.scancode),
 		SDL_GetKeyName(event->key.keysym.sym),
 		Sys_DoubleTime());
-#else
-	Con_Printf ("%s sym: '%s' unicode: %04x time: %g\n",
-		eventtype,
-		SDL_GetKeyName(event->key.keysym.sym),
-		(int)event->key.keysym.unicode,
-		Sys_DoubleTime());
-#endif
 }
 
 void IN_SendKeyEvents (void)
@@ -1008,24 +845,12 @@ void IN_SendKeyEvents (void)
 	{
 		switch (event.type)
 		{
-#if defined(USE_SDL2)
 		case SDL_WINDOWEVENT:
 			if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)
 				S_UnblockSound();
 			else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST)
 				S_BlockSound();
 			break;
-#else
-		case SDL_ACTIVEEVENT:
-			if (event.active.state & (SDL_APPINPUTFOCUS|SDL_APPACTIVE))
-			{
-				if (event.active.gain)
-					S_UnblockSound();
-				else	S_BlockSound();
-			}
-			break;
-#endif
-#if defined(USE_SDL2)
 		case SDL_TEXTINPUT:
 			if (in_debugkeys.value)
 				IN_DebugTextEvent(&event);
@@ -1040,7 +865,6 @@ void IN_SendKeyEvents (void)
 						Char_Event (*ch);
 			}
 			break;
-#endif
 		case SDL_KEYDOWN:
 		case SDL_KEYUP:
 			down = (event.key.state == SDL_PRESSED);
@@ -1048,20 +872,10 @@ void IN_SendKeyEvents (void)
 			if (in_debugkeys.value)
 				IN_DebugKeyEvent(&event);
 
-#if defined(USE_SDL2)
 		// SDL2: we interpret the keyboard as the US layout, so keybindings
 		// are based on key position, not the label on the key cap.
 			key = IN_SDL2_ScancodeToQuakeKey(event.key.keysym.scancode);
-#else
-			key = IN_SDL_KeysymToQuakeKey(event.key.keysym.sym);
-#endif
-
 			Key_Event (key, down);
-
-#if !defined(USE_SDL2)
-			if (down && (event.key.keysym.unicode & ~0x7F) == 0)
-				Char_Event (event.key.keysym.unicode);
-#endif
 			break;
 
 		case SDL_MOUSEBUTTONDOWN:
@@ -1076,7 +890,6 @@ void IN_SendKeyEvents (void)
 			Key_Event(buttonremap[event.button.button - 1], event.button.state == SDL_PRESSED);
 			break;
 
-#if defined(USE_SDL2)
 		case SDL_MOUSEWHEEL:
 			if (event.wheel.y > 0)
 			{
@@ -1089,13 +902,11 @@ void IN_SendKeyEvents (void)
 				Key_Event(K_MWHEELDOWN, false);
 			}
 			break;
-#endif
 
 		case SDL_MOUSEMOTION:
 			IN_MouseMotion(event.motion.xrel, event.motion.yrel);
 			break;
 
-#if defined(USE_SDL2)
 		case SDL_CONTROLLERDEVICEADDED:
 			if (joy_active_instaceid == -1)
 			{
@@ -1125,7 +936,6 @@ void IN_SendKeyEvents (void)
 		case SDL_CONTROLLERDEVICEREMAPPED:
 			Con_DPrintf("Ignoring SDL_CONTROLLERDEVICEREMAPPED\n");
 			break;
-#endif
 				
 		case SDL_QUIT:
 			CL_Disconnect ();

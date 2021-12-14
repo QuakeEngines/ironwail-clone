@@ -27,11 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "bgmusic.h"
 #include "resource.h"
 #if defined(SDL_FRAMEWORK) || defined(NO_SDL_CONFIG)
-#if defined(USE_SDL2)
 #include <SDL2/SDL.h>
-#else
-#include <SDL/SDL.h>
-#endif
 #else
 #include "SDL.h"
 #endif
@@ -79,12 +75,8 @@ static int		nummodes;
 
 static qboolean	vid_initialized = false;
 
-#if defined(USE_SDL2)
 static SDL_Window	*draw_context;
 static SDL_GLContext	gl_context;
-#else
-static SDL_Surface	*draw_context;
-#endif
 
 static qboolean	vid_locked = false; //johnfitz
 static qboolean	vid_changed = false;
@@ -199,13 +191,9 @@ VID_GetCurrentWidth
 */
 static int VID_GetCurrentWidth (void)
 {
-#if defined(USE_SDL2)
 	int w = 0, h = 0;
 	SDL_GetWindowSize(draw_context, &w, &h);
 	return w;
-#else
-	return draw_context->w;
-#endif
 }
 
 /*
@@ -215,13 +203,9 @@ VID_GetCurrentHeight
 */
 static int VID_GetCurrentHeight (void)
 {
-#if defined(USE_SDL2)
 	int w = 0, h = 0;
 	SDL_GetWindowSize(draw_context, &w, &h);
 	return h;
-#else
-	return draw_context->h;
-#endif
 }
 
 /*
@@ -231,7 +215,6 @@ VID_GetCurrentRefreshRate
 */
 static int VID_GetCurrentRefreshRate (void)
 {
-#if defined(USE_SDL2)
 	SDL_DisplayMode mode;
 	int current_display;
 	
@@ -241,10 +224,6 @@ static int VID_GetCurrentRefreshRate (void)
 		return DEFAULT_REFRESHRATE;
 	
 	return mode.refresh_rate;
-#else
-	// SDL1.2 doesn't support refresh rates
-	return DEFAULT_REFRESHRATE;
-#endif
 }
 
 
@@ -255,12 +234,8 @@ VID_GetCurrentBPP
 */
 static int VID_GetCurrentBPP (void)
 {
-#if defined(USE_SDL2)
 	const Uint32 pixelFormat = SDL_GetWindowPixelFormat(draw_context);
 	return SDL_BITSPERPIXEL(pixelFormat);
-#else
-	return draw_context->format->BitsPerPixel;
-#endif
 }
 
 /*
@@ -272,11 +247,7 @@ returns true if we are in regular fullscreen or "desktop fullscren"
 */
 static qboolean VID_GetFullscreen (void)
 {
-#if defined(USE_SDL2)
 	return (SDL_GetWindowFlags(draw_context) & SDL_WINDOW_FULLSCREEN) != 0;
-#else
-	return (draw_context->flags & SDL_FULLSCREEN) != 0;
-#endif
 }
 
 /*
@@ -288,11 +259,7 @@ returns true if we are specifically in "desktop fullscreen" mode
 */
 static qboolean VID_GetDesktopFullscreen (void)
 {
-#if defined(USE_SDL2)
 	return (SDL_GetWindowFlags(draw_context) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
-#else
-	return false;
-#endif
 }
 
 /*
@@ -302,14 +269,7 @@ VID_GetVSync
 */
 static qboolean VID_GetVSync (void)
 {
-#if defined(USE_SDL2)
 	return SDL_GL_GetSwapInterval() == 1;
-#else
-	int swap_control;
-	if (SDL_GL_GetAttribute(SDL_GL_SWAP_CONTROL, &swap_control) == 0)
-		return swap_control > 0;
-	return false;
-#endif
 }
 
 /*
@@ -321,11 +281,7 @@ used by pl_win.c
 */
 void *VID_GetWindow (void)
 {
-#if defined(USE_SDL2)
 	return draw_context;
-#else
-	return NULL;
-#endif
 }
 
 /*
@@ -335,11 +291,7 @@ VID_HasMouseOrInputFocus
 */
 qboolean VID_HasMouseOrInputFocus (void)
 {
-#if defined(USE_SDL2)
 	return (SDL_GetWindowFlags(draw_context) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS)) != 0;
-#else
-	return (SDL_GetAppState() & (SDL_APPMOUSEFOCUS | SDL_APPINPUTFOCUS)) != 0;
-#endif
 }
 
 /*
@@ -349,15 +301,9 @@ VID_IsMinimized
 */
 qboolean VID_IsMinimized (void)
 {
-#if defined(USE_SDL2)
 	return !(SDL_GetWindowFlags(draw_context) & SDL_WINDOW_SHOWN);
-#else
-	/* SDL_APPACTIVE in SDL 1.x means "not minimized" */
-	return !(SDL_GetAppState() & SDL_APPACTIVE);
-#endif
 }
 
-#if defined(USE_SDL2)
 /*
 ================
 VID_SDL2_GetDisplayMode
@@ -390,7 +336,6 @@ static SDL_DisplayMode *VID_SDL2_GetDisplayMode(int width, int height, int refre
 	}
 	return NULL;
 }
-#endif /* USE_SDL2 */
 
 /*
 ================
@@ -409,18 +354,8 @@ static qboolean VID_ValidMode (int width, int height, int refreshrate, int bpp, 
 	if (height < 200)
 		return false;
 
-#if defined(USE_SDL2)
 	if (fullscreen && VID_SDL2_GetDisplayMode(width, height, refreshrate, bpp) == NULL)
 		bpp = 0;
-#else
-	{
-		Uint32 flags = DEFAULT_SDL_FLAGS;
-		if (fullscreen)
-			flags |= SDL_FULLSCREEN;
-
-		bpp = SDL_VideoModeOK(width, height, bpp, flags);
-	}
-#endif
 
 	switch (bpp)
 	{
@@ -446,9 +381,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	Uint32	flags;
 	char		caption[50];
 	int		depthbits, stencilbits;
-#if defined(USE_SDL2)
 	int		previous_display;
-#endif
 
 	// so Con_Printfs don't mess us up by forcing vid and snd updates
 	temp = scr_disabled_for_loading;
@@ -468,7 +401,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 
 	q_snprintf(caption, sizeof(caption), "QuakeSpasm " QUAKESPASM_VER_STRING);
 
-#if defined(USE_SDL2)
 	/* Create the window if needed, hidden */
 	if (!draw_context)
 	{
@@ -566,35 +498,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	gl_swap_control = true;
 	if (SDL_GL_SetSwapInterval ((vid_vsync.value) ? 1 : 0) == -1)
 		gl_swap_control = false;
-
-#else /* !defined(USE_SDL2) */
-
-	flags = DEFAULT_SDL_FLAGS;
-	if (fullscreen)
-		flags |= SDL_FULLSCREEN;
-	if (vid_borderless.value)
-		flags |= SDL_NOFRAME;
-	
-	gl_swap_control = true;
-	if (SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, (vid_vsync.value) ? 1 : 0) == -1)
-		gl_swap_control = false;
-
-	bpp = SDL_VideoModeOK(width, height, bpp, flags);
-
-	draw_context = SDL_SetVideoMode(width, height, bpp, flags);
-	if (!draw_context) { // scale back SDL_GL_DEPTH_SIZE
-		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
-		draw_context = SDL_SetVideoMode(width, height, bpp, flags);
-	}
-	if (!draw_context) { // scale back SDL_GL_STENCIL_SIZE
-		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
-		draw_context = SDL_SetVideoMode(width, height, bpp, flags);
-		if (!draw_context)
-			Sys_Error ("Couldn't set video mode");
-	}
-
-	SDL_WM_SetCaption(caption, caption);
-#endif /* !defined(USE_SDL2) */
 
 	vid.width = VID_GetCurrentWidth();
 	vid.height = VID_GetCurrentHeight();
@@ -987,24 +890,12 @@ static void GL_CheckExtensions (void)
 	//
 	if (!gl_swap_control)
 	{
-#if defined(USE_SDL2)
 		Con_Warning ("vertical sync not supported (SDL_GL_SetSwapInterval failed)\n");
-#else
-		Con_Warning ("vertical sync not supported (SDL_GL_SetAttribute failed)\n");
-#endif
 	}
-#if defined(USE_SDL2)
 	else if ((swap_control = SDL_GL_GetSwapInterval()) == -1)
-#else
-	else if (SDL_GL_GetAttribute(SDL_GL_SWAP_CONTROL, &swap_control) == -1)
-#endif
 	{
 		gl_swap_control = false;
-#if defined(USE_SDL2)
 		Con_Warning ("vertical sync not supported (SDL_GL_GetSwapInterval failed)\n");
-#else
-		Con_Warning ("vertical sync not supported (SDL_GL_GetAttribute failed)\n");
-#endif
 	}
 	else if ((vid_vsync.value && swap_control != 1) || (!vid_vsync.value && swap_control != 0))
 	{
@@ -1013,11 +904,7 @@ static void GL_CheckExtensions (void)
 	}
 	else
 	{
-#if defined(USE_SDL2)
 		Con_SafePrintf("FOUND: SDL_GL_SetSwapInterval\n");
-#else
-		Con_SafePrintf("FOUND: SDL_GL_SWAP_CONTROL\n");
-#endif
 	}
 
 	// anisotropic filtering
@@ -1303,11 +1190,7 @@ void GL_EndRendering (void)
 
 	if (!scr_skipupdate)
 	{
-#if defined(USE_SDL2)
 		SDL_GL_SwapWindow(draw_context);
-#else
-		SDL_GL_SwapBuffers();
-#endif
 	}
 }
 
@@ -1318,9 +1201,7 @@ void	VID_Shutdown (void)
 	{
 		SDL_QuitSubSystem(SDL_INIT_VIDEO);
 		draw_context = NULL;
-#if defined(USE_SDL2)
 		gl_context = NULL;
-#endif
 		PL_VID_Shutdown();
 	}
 }
@@ -1408,7 +1289,6 @@ VID_InitModelist
 */
 static void VID_InitModelist (void)
 {
-#if defined(USE_SDL2)
 	const int sdlmodes = SDL_GetNumDisplayModes(0);
 	int i;
 
@@ -1428,60 +1308,6 @@ static void VID_InitModelist (void)
 			nummodes++;
 		}
 	}
-#else /* !defined(USE_SDL2) */
-	SDL_PixelFormat	format;
-	SDL_Rect	**modes;
-	Uint32		flags;
-	int		i, j, k, originalnummodes, existingmode;
-	int		bpps[] = {16, 24, 32}; // enumerate >8 bpp modes
-
-	originalnummodes = nummodes = 0;
-	memset(&format, 0, sizeof(format));
-
-	// enumerate fullscreen modes
-	flags = DEFAULT_SDL_FLAGS | SDL_FULLSCREEN;
-	for (i = 0; i < (int)(sizeof(bpps)/sizeof(bpps[0])); i++)
-	{
-		if (nummodes >= MAX_MODE_LIST)
-			break;
-
-		format.BitsPerPixel = bpps[i];
-		modes = SDL_ListModes(&format, flags);
-
-		if (modes == (SDL_Rect **)0 || modes == (SDL_Rect **)-1)
-			continue;
-
-		for (j = 0; modes[j]; j++)
-		{
-			if (modes[j]->w > MAXWIDTH || modes[j]->h > MAXHEIGHT || nummodes >= MAX_MODE_LIST)
-				continue;
-
-			modelist[nummodes].width = modes[j]->w;
-			modelist[nummodes].height = modes[j]->h;
-			modelist[nummodes].bpp = bpps[i];
-			modelist[nummodes].refreshrate = DEFAULT_REFRESHRATE;
-
-			for (k=originalnummodes, existingmode = 0 ; k < nummodes ; k++)
-			{
-				if ((modelist[nummodes].width == modelist[k].width)   &&
-				    (modelist[nummodes].height == modelist[k].height) &&
-				    (modelist[nummodes].bpp == modelist[k].bpp))
-				{
-					existingmode = 1;
-					break;
-				}
-			}
-
-			if (!existingmode)
-			{
-				nummodes++;
-			}
-		}
-	}
-
-	if (nummodes == originalnummodes)
-		Con_SafePrintf ("No fullscreen DIB modes found\n");
-#endif /* !defined(USE_SDL2) */
 }
 
 /*
@@ -1536,7 +1362,6 @@ void	VID_Init (void)
 	if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
 		Sys_Error("Couldn't init SDL video: %s", SDL_GetError());
 
-#if defined(USE_SDL2)
 	{
 		SDL_DisplayMode mode;
 		if (SDL_GetDesktopDisplayMode(0, &mode) != 0)
@@ -1547,15 +1372,6 @@ void	VID_Init (void)
 		display_refreshrate = mode.refresh_rate;
 		display_bpp = SDL_BITSPERPIXEL(mode.format);
 	}
-#else
-	{
-		const SDL_VideoInfo *info = SDL_GetVideoInfo();
-		display_width = info->current_w;
-		display_height = info->current_h;
-		display_refreshrate = DEFAULT_REFRESHRATE;
-		display_bpp = info->vfmt->BitsPerPixel;
-	}
-#endif
 
 	Cvar_SetValueQuick (&vid_bpp, (float)display_bpp);
 
@@ -1646,17 +1462,9 @@ void	VID_Init (void)
 	vid.colormap = host_colormap;
 	vid.fullbright = 256 - LittleLong (*((int *)vid.colormap + 2048));
 
-#if !defined(USE_SDL2)
-	// set window icon
-	PL_SetWindowIcon();
-#endif
-
 	VID_SetMode (width, height, refreshrate, bpp, fullscreen);
 
-#if defined(USE_SDL2)
-	// set window icon
 	PL_SetWindowIcon();
-#endif
 
 	GL_Init ();
 	GL_SetupState ();
@@ -1687,24 +1495,18 @@ void	VID_Toggle (void)
 	// keep all the mode changing code in one place.
 	static qboolean vid_toggle_works = false;
 	qboolean toggleWorked;
-#if defined(USE_SDL2)
 	Uint32 flags = 0;
-#endif
 
 	S_ClearBuffer ();
 
 	if (!vid_toggle_works)
 		goto vrestart;
 
-#if defined(USE_SDL2)
 	if (!VID_GetFullscreen()) {
 		flags = vid_desktopfullscreen.value ? SDL_WINDOW_FULLSCREEN_DESKTOP : SDL_WINDOW_FULLSCREEN;
 	}
 
 	toggleWorked = SDL_SetWindowFullscreen(draw_context, flags) == 0;
-#else
-	toggleWorked = SDL_WM_ToggleFullScreen(draw_context) == 1;
-#endif
 
 	if (toggleWorked)
 	{
