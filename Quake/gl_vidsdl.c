@@ -94,7 +94,6 @@ viddef_t	vid;				// global video state
 modestate_t	modestate = MS_UNINIT;
 qboolean	scr_skipupdate;
 
-qboolean gl_swap_control = false; //johnfitz
 qboolean gl_anisotropy_able = false; //johnfitz
 qboolean gl_buffer_storage_able = false;
 qboolean gl_multi_bind_able = false;
@@ -260,16 +259,6 @@ returns true if we are specifically in "desktop fullscreen" mode
 static qboolean VID_GetDesktopFullscreen (void)
 {
 	return (SDL_GetWindowFlags(draw_context) & SDL_WINDOW_FULLSCREEN_DESKTOP) == SDL_WINDOW_FULLSCREEN_DESKTOP;
-}
-
-/*
-====================
-VID_GetVSync
-====================
-*/
-static qboolean VID_GetVSync (void)
-{
-	return SDL_GL_GetSwapInterval() == 1;
 }
 
 /*
@@ -495,10 +484,6 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		}
 	}
 
-	gl_swap_control = true;
-	if (SDL_GL_SetSwapInterval ((vid_vsync.value) ? 1 : 0) == -1)
-		gl_swap_control = false;
-
 	vid.width = VID_GetCurrentWidth();
 	vid.height = VID_GetCurrentHeight();
 	vid.refreshrate = VID_GetCurrentRefreshRate();
@@ -535,6 +520,41 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	vid_changed = false;
 
 	return true;
+}
+
+/*
+=================
+VID_ApplyVSync
+=================
+*/
+static void VID_ApplyVSync (void)
+{
+	const int MAX_INTERVAL = 4;
+	int interval = (int) vid_vsync.value;
+	if (abs(interval) > MAX_INTERVAL)
+	{
+		Con_SafePrintf ("VSync interval %d too high, clamping to %d\n", abs(interval), MAX_INTERVAL);
+		interval = interval < 0 ? -MAX_INTERVAL : MAX_INTERVAL;
+	}
+	if (SDL_GL_SetSwapInterval (interval) != 0)
+	{
+		if (interval == 0)
+			Con_SafePrintf ("Could not disable vsync\n");
+		else
+			Con_SafePrintf ("Could not set vsync interval to %d\n", interval);
+	}
+}
+
+/*
+=================
+VID_VSync_f
+
+Called when vid_vsync changes
+=================
+*/
+static void VID_VSync_f (cvar_t *cvar)
+{
+	VID_ApplyVSync ();
 }
 
 /*
@@ -872,8 +892,6 @@ GL_CheckExtensions
 */
 static void GL_CheckExtensions (void)
 {
-	int swap_control;
-
 	GL_InitFunctions (gl_core_functions, true);
 
 #ifdef NDEBUG
@@ -884,27 +902,6 @@ static void GL_CheckExtensions (void)
 		GL_DebugMessageCallbackFunc (&GL_DebugCallback, NULL);
 		glEnable (GL_DEBUG_OUTPUT);
 		glEnable (GL_DEBUG_OUTPUT_SYNCHRONOUS);
-	}
-
-	// swap control
-	//
-	if (!gl_swap_control)
-	{
-		Con_Warning ("vertical sync not supported (SDL_GL_SetSwapInterval failed)\n");
-	}
-	else if ((swap_control = SDL_GL_GetSwapInterval()) == -1)
-	{
-		gl_swap_control = false;
-		Con_Warning ("vertical sync not supported (SDL_GL_GetSwapInterval failed)\n");
-	}
-	else if ((vid_vsync.value && swap_control != 1) || (!vid_vsync.value && swap_control != 0))
-	{
-		gl_swap_control = false;
-		Con_Warning ("vertical sync not supported (swap_control doesn't match vid_vsync)\n");
-	}
-	else
-	{
-		Con_SafePrintf("FOUND: SDL_GL_SetSwapInterval\n");
 	}
 
 	// anisotropic filtering
@@ -1346,7 +1343,7 @@ void	VID_Init (void)
 	Cvar_SetCallback (&vid_height, VID_Changed_f);
 	Cvar_SetCallback (&vid_refreshrate, VID_Changed_f);
 	Cvar_SetCallback (&vid_bpp, VID_Changed_f);
-	Cvar_SetCallback (&vid_vsync, VID_Changed_f);
+	Cvar_SetCallback (&vid_vsync, VID_VSync_f);
 	Cvar_SetCallback (&vid_fsaa, VID_Changed_f);
 	Cvar_SetCallback (&vid_desktopfullscreen, VID_Changed_f);
 	Cvar_SetCallback (&vid_borderless, VID_Changed_f);
@@ -1463,6 +1460,7 @@ void	VID_Init (void)
 	vid.fullbright = 256 - LittleLong (*((int *)vid.colormap + 2048));
 
 	VID_SetMode (width, height, refreshrate, bpp, fullscreen);
+	VID_ApplyVSync ();
 
 	PL_SetWindowIcon();
 
@@ -1554,7 +1552,6 @@ void VID_SyncCvars (void)
 		Cvar_SetQuick (&vid_fullscreen, VID_GetFullscreen() ? "1" : "0");
 		// don't sync vid_desktopfullscreen, it's a user preference that
 		// should persist even if we are in windowed mode.
-		Cvar_SetQuick (&vid_vsync, VID_GetVSync() ? "1" : "0");
 	}
 
 	vid_changed = false;
@@ -2009,10 +2006,7 @@ static void VID_MenuDraw (void)
 			break;
 		case VID_OPT_VSYNC:
 			M_Print (16, y, "     Vertical sync");
-			if (gl_swap_control)
-				M_DrawCheckbox (184, y, (int)vid_vsync.value);
-			else
-				M_Print (184, y, "N/A");
+			M_DrawCheckbox (184, y, (int)vid_vsync.value);
 			break;
 		case VID_OPT_TEST:
 			y += 8; //separate the test and apply items
