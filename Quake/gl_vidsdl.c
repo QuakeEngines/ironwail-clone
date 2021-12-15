@@ -56,12 +56,6 @@ typedef struct {
 	int			bpp;
 } vmode_t;
 
-typedef enum {
-	VIDCHANGE_UNKNOWN	= 1 << 0,
-	VIDCHANGE_MODE		= 1 << 1,
-	VIDCHANGE_AA		= 1 << 2,
-} vidchange_t;
-
 #define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
 #define MIN_GL_VERSION_MAJOR				4
 #define MIN_GL_VERSION_MINOR				3
@@ -85,7 +79,7 @@ static SDL_Window	*draw_context;
 static SDL_GLContext	gl_context;
 
 static qboolean	vid_locked = false; //johnfitz
-static vidchange_t vid_changed = 0;
+static qboolean vid_changed = false;
 
 static void VID_Menu_Init (void); //johnfitz
 static void VID_Menu_f (void); //johnfitz
@@ -526,7 +520,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	vid.recalc_refdef = 1;
 
 // no pending changes
-	vid_changed = 0;
+	vid_changed = false;
 
 	return true;
 }
@@ -567,47 +561,30 @@ static void VID_VSync_f (cvar_t *cvar)
 }
 
 /*
+=================
+VID_FSAA_f
+
+Called when vid_fsaa changes
+=================
+*/
+static void VID_FSAA_f (cvar_t *cvar)
+{
+	if (!host_initialized)
+		return;
+	GL_DeleteFrameBuffers ();
+	GL_CreateFrameBuffers ();
+}
+
+/*
 ===================
 VID_Changed_f -- kristian -- notify us that a value has changed that requires a vid_restart
 ===================
 */
 void VID_Changed_f (cvar_t *var)
 {
-	static const struct
-	{
-		const char		*name;
-		vidchange_t		change;
-	}
-	latched_vars[] =
-	{
-		{"vid_width",				VIDCHANGE_MODE},
-		{"vid_height",				VIDCHANGE_MODE},
-		{"vid_refreshrate",			VIDCHANGE_MODE},
-		{"vid_bpp",					VIDCHANGE_MODE},
-		{"vid_fullscreen",			VIDCHANGE_MODE},
-		{"vid_desktopfullscreen",	VIDCHANGE_MODE},
-		{"vid_borderless",			VIDCHANGE_MODE},
-		{"vid_fsaa",				VIDCHANGE_AA},
-	};
-	int i;
-
 	if (vid_initialized)
 		Con_SafePrintf ("%s will be applied after a vid_restart\n", var->name);
-
-	for (i = 0; i < countof (latched_vars); i++)
-	{
-		if (!Q_strcmp (var->name, latched_vars[i].name))
-		{
-			vid_changed |= latched_vars[i].change;
-			break;
-		}
-	}
-
-	if (i == countof (latched_vars))
-	{
-		Sys_Printf ("Warning: unknown latched cvar %s\n", var->name);
-		vid_changed |= VIDCHANGE_UNKNOWN;
-	}
+	vid_changed = true;
 }
 
 /*
@@ -619,7 +596,6 @@ static void VID_Restart (void)
 {
 	int width, height, refreshrate, bpp;
 	qboolean fullscreen;
-	vidchange_t changed;
 
 	if (vid_locked || !vid_changed)
 		return;
@@ -629,40 +605,31 @@ static void VID_Restart (void)
 	refreshrate = (int)vid_refreshrate.value;
 	bpp = (int)vid_bpp.value;
 	fullscreen = vid_fullscreen.value ? true : false;
-	changed = vid_changed;
 
 //
 // validate new mode
 //
-	if (changed & VIDCHANGE_MODE)
+	if (!VID_ValidMode (width, height, refreshrate, bpp, fullscreen))
 	{
-		if (!VID_ValidMode (width, height, refreshrate, bpp, fullscreen))
-		{
-			Con_Printf ("%dx%dx%d %dHz %s is not a valid mode\n",
-					width, height, bpp, refreshrate, fullscreen? "fullscreen" : "windowed");
-			return;
-		}
+		Con_Printf ("%dx%dx%d %dHz %s is not a valid mode\n",
+				width, height, bpp, refreshrate, fullscreen? "fullscreen" : "windowed");
+		return;
 	}
 	
-	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
-		GL_DeleteFrameBuffers ();
+	GL_DeleteFrameBuffers ();
 
 //
 // set new mode
 //
-	if (changed & VIDCHANGE_MODE)
-	{
-		VID_SetMode (width, height, refreshrate, bpp, fullscreen);
+	VID_SetMode (width, height, refreshrate, bpp, fullscreen);
 
-		//conwidth and conheight need to be recalculated
-		vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
-		vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
-		vid.conwidth &= 0xFFFFFFF8;
-		vid.conheight = vid.conwidth * vid.height / vid.width;
-	}
+	//conwidth and conheight need to be recalculated
+	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
+	vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
+	vid.conwidth &= 0xFFFFFFF8;
+	vid.conheight = vid.conwidth * vid.height / vid.width;
 
-	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
-		GL_CreateFrameBuffers ();
+	GL_CreateFrameBuffers ();
 //
 // keep cvars in line with actual mode
 //
@@ -1376,7 +1343,7 @@ void	VID_Init (void)
 	Cvar_SetCallback (&vid_refreshrate, VID_Changed_f);
 	Cvar_SetCallback (&vid_bpp, VID_Changed_f);
 	Cvar_SetCallback (&vid_vsync, VID_VSync_f);
-	Cvar_SetCallback (&vid_fsaa, VID_Changed_f);
+	Cvar_SetCallback (&vid_fsaa, VID_FSAA_f);
 	Cvar_SetCallback (&vid_desktopfullscreen, VID_Changed_f);
 	Cvar_SetCallback (&vid_borderless, VID_Changed_f);
 
@@ -1589,7 +1556,7 @@ void VID_SyncCvars (void)
 		// should persist even if we are in windowed mode.
 	}
 
-	vid_changed = 0;
+	vid_changed = false;
 }
 
 //==========================================================================
