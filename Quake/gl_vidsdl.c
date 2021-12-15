@@ -56,6 +56,13 @@ typedef struct {
 	int			bpp;
 } vmode_t;
 
+typedef enum {
+	VIDCHANGE_UNKNOWN	= 1 << 0,
+	VIDCHANGE_MODE		= 1 << 1,
+	VIDCHANGE_AA		= 1 << 2,
+	VIDCHANGE_ANISO		= 1 << 3,
+} vidchange_t;
+
 #define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
 #define MIN_GL_VERSION_MAJOR				4
 #define MIN_GL_VERSION_MINOR				3
@@ -79,7 +86,7 @@ static SDL_Window	*draw_context;
 static SDL_GLContext	gl_context;
 
 static qboolean	vid_locked = false; //johnfitz
-static qboolean	vid_changed = false;
+static vidchange_t vid_changed = 0;
 
 static void VID_Menu_Init (void); //johnfitz
 static void VID_Menu_f (void); //johnfitz
@@ -163,6 +170,9 @@ cvar_t		vid_borderless = {"vid_borderless", "0", CVAR_ARCHIVE}; // QuakeSpasm
 
 cvar_t		vid_gamma = {"gamma", "1", CVAR_ARCHIVE}; //johnfitz -- moved here from view.c
 cvar_t		vid_contrast = {"contrast", "1", CVAR_ARCHIVE}; //QuakeSpasm, MarkV
+
+extern cvar_t gl_texture_anisotropy;
+void TexMgr_Anisotropy_f (cvar_t *var);
 
 //==========================================================================
 //
@@ -517,7 +527,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	vid.recalc_refdef = 1;
 
 // no pending changes
-	vid_changed = false;
+	vid_changed = 0;
 
 	return true;
 }
@@ -564,9 +574,42 @@ VID_Changed_f -- kristian -- notify us that a value has changed that requires a 
 */
 void VID_Changed_f (cvar_t *var)
 {
+	static const struct
+	{
+		const char		*name;
+		vidchange_t		change;
+	}
+	latched_vars[] =
+	{
+		{"vid_width",				VIDCHANGE_MODE},
+		{"vid_height",				VIDCHANGE_MODE},
+		{"vid_refreshrate",			VIDCHANGE_MODE},
+		{"vid_bpp",					VIDCHANGE_MODE},
+		{"vid_fullscreen",			VIDCHANGE_MODE},
+		{"vid_desktopfullscreen",	VIDCHANGE_MODE},
+		{"vid_borderless",			VIDCHANGE_MODE},
+		{"vid_fsaa",				VIDCHANGE_AA},
+		{"gl_texture_anisotropy",	VIDCHANGE_ANISO},
+	};
+	int i;
+
 	if (vid_initialized)
 		Con_SafePrintf ("%s will be applied after a vid_restart\n", var->name);
-	vid_changed = true;
+
+	for (i = 0; i < countof (latched_vars); i++)
+	{
+		if (!Q_strcmp (var->name, latched_vars[i].name))
+		{
+			vid_changed |= latched_vars[i].change;
+			break;
+		}
+	}
+
+	if (i == countof (latched_vars))
+	{
+		Sys_Printf ("Warning: unknown latched cvar %s\n", var->name);
+		vid_changed |= VIDCHANGE_UNKNOWN;
+	}
 }
 
 /*
@@ -578,6 +621,7 @@ static void VID_Restart (void)
 {
 	int width, height, refreshrate, bpp;
 	qboolean fullscreen;
+	vidchange_t changed;
 
 	if (vid_locked || !vid_changed)
 		return;
@@ -587,55 +631,44 @@ static void VID_Restart (void)
 	refreshrate = (int)vid_refreshrate.value;
 	bpp = (int)vid_bpp.value;
 	fullscreen = vid_fullscreen.value ? true : false;
+	changed = vid_changed;
 
 //
 // validate new mode
 //
-	if (!VID_ValidMode (width, height, refreshrate, bpp, fullscreen))
+	if (changed & VIDCHANGE_MODE)
 	{
-		Con_Printf ("%dx%dx%d %dHz %s is not a valid mode\n",
-				width, height, bpp, refreshrate, fullscreen? "fullscreen" : "windowed");
-		return;
+		if (!VID_ValidMode (width, height, refreshrate, bpp, fullscreen))
+		{
+			Con_Printf ("%dx%dx%d %dHz %s is not a valid mode\n",
+					width, height, bpp, refreshrate, fullscreen? "fullscreen" : "windowed");
+			return;
+		}
 	}
 	
-// ericw -- OS X, SDL1: textures, VBO's invalid after mode change
-//          OS X, SDL2: still valid after mode change
-// To handle both cases, delete all GL objects (textures, VBO, GLSL) now.
-// We must not interleave deleting the old objects with creating new ones, because
-// one of the new objects could be given the same ID as an invalid handle
-// which is later deleted.
-
-	TexMgr_DeleteTextureObjects ();
-	GLPalette_DeleteResources ();
-	GLLight_DeleteResources ();
-	GL_DeleteFrameBuffers ();
-	GL_DeleteShaders ();
-	GL_DeleteBModelBuffers ();
-	GLMesh_DeleteVertexBuffers ();
-	GL_DeleteDynamicBuffers ();
-	GL_DeleteVertexArraysFunc (1, &globalvao);
-	globalvao = 0;
-	GL_ClearBufferBindings ();
-	GL_ClearBindings ();
+	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
+		GL_DeleteFrameBuffers ();
+	if (changed & VIDCHANGE_ANISO)
+		TexMgr_DeleteTextureObjects ();
 
 //
 // set new mode
 //
-	VID_SetMode (width, height, refreshrate, bpp, fullscreen);
+	if (changed & VIDCHANGE_MODE)
+	{
+		VID_SetMode (width, height, refreshrate, bpp, fullscreen);
 
-	GL_Init ();
-	TexMgr_ReloadImages ();
-	GLPalette_Update ();
-	GL_BuildBModelVertexBuffer ();
-	GL_BuildBModelMarkBuffers ();
-	GLMesh_LoadVertexBuffers ();
-	GL_SetupState ();
+		//conwidth and conheight need to be recalculated
+		vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
+		vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
+		vid.conwidth &= 0xFFFFFFF8;
+		vid.conheight = vid.conwidth * vid.height / vid.width;
+	}
 
-	//conwidth and conheight need to be recalculated
-	vid.conwidth = (scr_conwidth.value > 0) ? (int)scr_conwidth.value : (scr_conscale.value > 0) ? (int)(vid.width/scr_conscale.value) : vid.width;
-	vid.conwidth = CLAMP (320, vid.conwidth, vid.width);
-	vid.conwidth &= 0xFFFFFFF8;
-	vid.conheight = vid.conwidth * vid.height / vid.width;
+	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
+		GL_CreateFrameBuffers ();
+	if (changed & VIDCHANGE_ANISO)
+		TexMgr_ReloadImages ();
 //
 // keep cvars in line with actual mode
 //
@@ -944,6 +977,7 @@ static void GL_CheckExtensions (void)
 		gl_max_anisotropy = 1;
 		Con_Warning ("texture_filter_anisotropic not supported\n");
 	}
+	Cvar_SetValueQuick (&gl_texture_anisotropy, CLAMP (1.f, gl_texture_anisotropy.value, gl_max_anisotropy));
 
 	gl_buffer_storage_able =
 		!COM_CheckParm ("-nobufferstorage") &&
@@ -1318,15 +1352,19 @@ void	VID_Init (void)
 	int		p, width, height, refreshrate, bpp;
 	int		display_width, display_height, display_refreshrate, display_bpp;
 	qboolean	fullscreen;
-	const char	*read_vars[] = { "vid_fullscreen",
-					 "vid_width",
-					 "vid_height",
-					 "vid_refreshrate",
-					 "vid_bpp",
-					 "vid_vsync",
-					 "vid_fsaa",
-					 "vid_desktopfullscreen",
-					 "vid_borderless"};
+	const char	*read_vars[] =
+	{
+		"vid_fullscreen",
+		"vid_width",
+		"vid_height",
+		"vid_refreshrate",
+		"vid_bpp",
+		"vid_vsync",
+		"vid_fsaa",
+		"vid_desktopfullscreen",
+		"vid_borderless",
+		"gl_texture_anisotropy",
+	};
 #define num_readvars	( sizeof(read_vars)/sizeof(read_vars[0]) )
 
 	Cvar_RegisterVariable (&vid_fullscreen); //johnfitz
@@ -1347,7 +1385,10 @@ void	VID_Init (void)
 	Cvar_SetCallback (&vid_fsaa, VID_Changed_f);
 	Cvar_SetCallback (&vid_desktopfullscreen, VID_Changed_f);
 	Cvar_SetCallback (&vid_borderless, VID_Changed_f);
-	
+
+	Cvar_RegisterVariable (&gl_texture_anisotropy);
+	Cvar_SetCallback (&gl_texture_anisotropy, &TexMgr_Anisotropy_f);
+
 	Cmd_AddCommand ("vid_unlock", VID_Unlock); //johnfitz
 	Cmd_AddCommand ("vid_restart", VID_Restart); //johnfitz
 	Cmd_AddCommand ("vid_test", VID_Test); //johnfitz
@@ -1554,7 +1595,7 @@ void VID_SyncCvars (void)
 		// should persist even if we are in windowed mode.
 	}
 
-	vid_changed = false;
+	vid_changed = 0;
 }
 
 //==========================================================================

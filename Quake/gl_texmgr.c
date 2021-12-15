@@ -30,9 +30,9 @@ const int	gl_alpha_format = GL_RGBA;
 
 static cvar_t	r_softemu = {"r_softemu", "0", CVAR_ARCHIVE};
 static cvar_t	gl_texturemode = {"gl_texturemode", "", CVAR_ARCHIVE};
-static cvar_t	gl_texture_anisotropy = {"gl_texture_anisotropy", "8", CVAR_ARCHIVE};
 static cvar_t	gl_max_size = {"gl_max_size", "0", CVAR_NONE};
 static cvar_t	gl_picmip = {"gl_picmip", "0", CVAR_NONE};
+cvar_t			gl_texture_anisotropy = {"gl_texture_anisotropy", "8", CVAR_ARCHIVE};
 GLint			gl_max_texture_size;
 
 softemu_t		softemu;
@@ -249,8 +249,11 @@ static void TexMgr_TextureMode_f (cvar_t *var)
 TexMgr_Anisotropy_f -- called when gl_texture_anisotropy changes
 ===============
 */
-static void TexMgr_Anisotropy_f (cvar_t *var)
+void TexMgr_Anisotropy_f (cvar_t *var)
 {
+	if (!host_initialized)
+		return;
+
 	if (gl_texture_anisotropy.value < 1)
 	{
 		Cvar_SetQuick (&gl_texture_anisotropy, "1");
@@ -695,8 +698,6 @@ void TexMgr_Init (void)
 
 	Cvar_RegisterVariable (&gl_max_size);
 	Cvar_RegisterVariable (&gl_picmip);
-	Cvar_RegisterVariable (&gl_texture_anisotropy);
-	Cvar_SetCallback (&gl_texture_anisotropy, &TexMgr_Anisotropy_f);
 	gl_texturemode.string = glmodes[glmode_idx].name;
 	Cvar_RegisterVariable (&gl_texturemode);
 	Cvar_SetCallback (&gl_texturemode, &TexMgr_TextureMode_f);
