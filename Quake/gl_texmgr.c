@@ -52,8 +52,6 @@ unsigned int d_8to24table_conchars[256];
 unsigned int d_8to24table_shirt[256];
 unsigned int d_8to24table_pants[256];
 
-extern void VID_Changed_f (cvar_t *var);
-
 /*
 ================================================================================
 
@@ -264,24 +262,11 @@ void TexMgr_Anisotropy_f (cvar_t *var)
 	}
 	else
 	{
+		gltexture_t	*glt;
 		if (gl_bindless_able)
-		{
-			VID_Changed_f (var);
-		}
-		else
-		{
-			gltexture_t	*glt;
-			for (glt = active_gltextures; glt; glt = glt->next)
-			{
-			/*  TexMgr_SetFilterModes (glt);*/
-				if (glt->flags & TEXPREF_MIPMAP) {
-				GL_Bind (GL_TEXTURE0, glt);
-				glTexParameterf(glt->target, GL_TEXTURE_MAG_FILTER, glmodes[glmode_idx].magfilter);
-				glTexParameterf(glt->target, GL_TEXTURE_MIN_FILTER, glmodes[glmode_idx].minfilter);
-				glTexParameterf(glt->target, GL_TEXTURE_MAX_ANISOTROPY_EXT, gl_texture_anisotropy.value);
-				}
-			}
-		}
+			TexMgr_CreateSamplers ();
+		for (glt = active_gltextures; glt; glt = glt->next)
+			TexMgr_SetFilterModes (glt);
 	}
 }
 

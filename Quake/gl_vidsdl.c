@@ -60,7 +60,6 @@ typedef enum {
 	VIDCHANGE_UNKNOWN	= 1 << 0,
 	VIDCHANGE_MODE		= 1 << 1,
 	VIDCHANGE_AA		= 1 << 2,
-	VIDCHANGE_ANISO		= 1 << 3,
 } vidchange_t;
 
 #define MAKE_GL_VERSION(major, minor)		(((major) << 16) | (minor))
@@ -589,7 +588,6 @@ void VID_Changed_f (cvar_t *var)
 		{"vid_desktopfullscreen",	VIDCHANGE_MODE},
 		{"vid_borderless",			VIDCHANGE_MODE},
 		{"vid_fsaa",				VIDCHANGE_AA},
-		{"gl_texture_anisotropy",	VIDCHANGE_ANISO},
 	};
 	int i;
 
@@ -648,8 +646,6 @@ static void VID_Restart (void)
 	
 	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
 		GL_DeleteFrameBuffers ();
-	if (changed & VIDCHANGE_ANISO)
-		TexMgr_DeleteTextureObjects ();
 
 //
 // set new mode
@@ -667,8 +663,6 @@ static void VID_Restart (void)
 
 	if (changed & (VIDCHANGE_MODE|VIDCHANGE_AA))
 		GL_CreateFrameBuffers ();
-	if (changed & VIDCHANGE_ANISO)
-		TexMgr_ReloadImages ();
 //
 // keep cvars in line with actual mode
 //
