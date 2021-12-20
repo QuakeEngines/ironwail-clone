@@ -1798,8 +1798,4 @@ void GLPalette_Update (void)
 	}
 
 	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
-
-	// Sync here to avoid including the cost of this potentially lengthy computation
-	// in the per-frame fence wait timeout (in GL_DynamicBuffersBeginFrame)
-	glFinish ();
 }
