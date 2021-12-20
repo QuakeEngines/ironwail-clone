@@ -747,8 +747,12 @@ GL_DynamicBuffersBeginFrame
 */
 void GL_DynamicBuffersBeginFrame (void)
 {
+	dynabuf_t *prev_buf = &dynabufs[(dynabuf_idx + DYNABUF_FRAMES - 1) % DYNABUF_FRAMES];
 	dynabuf_t *buf = &dynabufs[dynabuf_idx];
 	size_t i, num_garbage_bufs;
+
+	if (prev_buf->fence)
+		GL_WaitSyncFunc (prev_buf->fence, 0, GL_TIMEOUT_IGNORED);
 
 	if (buf->fence)
 	{
@@ -776,11 +780,9 @@ GL_DynamicBuffersEndFrame
 void GL_DynamicBuffersEndFrame (void)
 {
 	dynabuf_t *buf = &dynabufs[dynabuf_idx];
-	if (buf->ptr)
-	{
-		SDL_assert (!buf->fence);
-		buf->fence = GL_FenceSyncFunc (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-	}
+
+	SDL_assert (!buf->fence);
+	buf->fence = GL_FenceSyncFunc (GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 
 	if (++dynabuf_idx == countof(dynabufs))
 		dynabuf_idx = 0;
