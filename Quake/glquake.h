@@ -535,6 +535,7 @@ void GL_DeleteDynamicBuffers (void);
 void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs);
 void GL_DynamicBuffersBeginFrame (void);
 void GL_DynamicBuffersEndFrame (void);
+void GL_AddGarbageBuffer (GLuint handle);
 
 void GL_PostProcess (void);
 

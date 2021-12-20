@@ -638,6 +638,16 @@ static size_t		dynabuf_size = 8 * 1024 * 1024;
 
 /*
 ====================
+GL_AddGarbageBuffer
+====================
+*/
+void GL_AddGarbageBuffer (GLuint handle)
+{
+	VEC_PUSH (dynabufs[dynabuf_idx].garbage, handle);
+}
+
+/*
+====================
 GL_AllocDynamicBuffers
 ====================
 */
@@ -657,7 +667,7 @@ static void GL_AllocDynamicBuffers (void)
 				GL_BindBuffer (GL_ARRAY_BUFFER, buf->handle);
 				GL_UnmapBufferFunc (GL_ARRAY_BUFFER);
 			}
-			VEC_PUSH (dynabufs[dynabuf_idx].garbage, buf->handle);
+			GL_AddGarbageBuffer (buf->handle);
 		}
 
 		GL_GenBuffersFunc (1, &buf->handle);
