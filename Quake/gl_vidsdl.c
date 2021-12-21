@@ -722,13 +722,36 @@ GL_Info_f -- johnfitz
 static void GL_Info_f (void)
 {
 	int i;
-	Con_SafePrintf ("GL_VENDOR:     %s\n", gl_vendor);
-	Con_SafePrintf ("GL_RENDERER:   %s\n", gl_renderer);
-	Con_SafePrintf ("GL_VERSION:    %s\n", gl_version);
+	Con_Printf ("GL_VENDOR:     %s\n", gl_vendor);
+	Con_Printf ("GL_RENDERER:   %s\n", gl_renderer);
+	Con_Printf ("GL_VERSION:    %s\n", gl_version);
 
-	Con_SafePrintf ("GL_EXTENSIONS: %d\n", gl_num_extensions);
-	for (i = 0; i < gl_num_extensions; i++)
-		Con_Printf("%3d. %s\n", i + 1, GL_GetStringiFunc (GL_EXTENSIONS, i));
+	Con_Printf ("GL_EXTENSIONS: %d\n", gl_num_extensions);
+
+	if (Cmd_Argc () >= 2)
+	{
+		const char *filter = Cmd_Argv (1);
+		int filterlen = strlen (filter);
+		int count = 0;
+		for (i = 0; i < gl_num_extensions; i++)
+		{
+			const char *ext = (const char *) GL_GetStringiFunc (GL_EXTENSIONS, i);
+			const char *match = q_strcasestr (ext, filter);
+			if (match)
+			{
+				Con_Printf ("%3d. %.*s", i + 1, match - ext, ext);
+				Con_Printf ("\x02%.*s", filterlen, match);
+				Con_Printf ("%s\n", match + filterlen);
+				count++;
+			}
+		}
+		Con_Printf ("%3d extensions containing \"%s\"\n", count, filter);
+	}
+	else
+	{
+		for (i = 0; i < gl_num_extensions; i++)
+			Con_Printf("%3d. %s\n", i + 1, GL_GetStringiFunc (GL_EXTENSIONS, i));
+	}
 }
 
 /*
