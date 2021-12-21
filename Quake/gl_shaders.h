@@ -330,8 +330,7 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "const uint\n"\
 "	CF_USE_ALPHA_TEST = 1u,\n"\
 "	CF_USE_POLYGON_OFFSET = 2u,\n"\
-"	CF_USE_FULLBRIGHT = 4u,\n"\
-"	CF_REVERSED_Z = 1u << 31\n"\
+"	CF_USE_FULLBRIGHT = 4u\n"\
 ";\n"\
 "\n"\
 "layout(std430, binding=1) restrict readonly buffer CallBuffer\n"\
@@ -421,8 +420,13 @@ BINDLESS_VERTEX_HEADER
 "	Instance instance = instance_data[instance_id];\n"
 "	out_pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(out_pos, 1.0);\n"
+"#if REVERSED_Z\n"
+"	const float ZBIAS = -1./1024;\n"
+"#else\n"
+"	const float ZBIAS =  1./1024;\n"
+"#endif\n"
 "	if ((call.flags & CF_USE_POLYGON_OFFSET) != 0u)\n"
-"		gl_Position.z += uintBitsToFloat(floatBitsToUint(1./1024.) ^ (call.flags & CF_REVERSED_Z));\n"
+"		gl_Position.z += ZBIAS;\n"
 "	out_uv = in_uv.xy;\n"
 "	out_lmuv = in_uv.zw;\n"
 "	out_depth = gl_Position.w;\n"

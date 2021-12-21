@@ -468,7 +468,6 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 		(t != NULL && t->type == TEXTYPE_CUTOUT)
 		| (zfix << 1)
 		| ((fb != NULL) << 2)
-		| (((GLuint) gl_clipcontrol_able) << 31)
 	;
 	alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
 

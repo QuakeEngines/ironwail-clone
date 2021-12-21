@@ -80,8 +80,10 @@ static GLuint GL_CreateShader (GLenum type, const char *source, const char *extr
 	q_snprintf (header, sizeof (header),
 		"#version 430\n"
 		"\n"
-		"#define BINDLESS %d\n",
-		gl_bindless_able
+		"#define BINDLESS %d\n"
+		"#define REVERSED_Z %d\n",
+		gl_bindless_able,
+		gl_clipcontrol_able
 	);
 	strings[numstrings++] = header;
 
