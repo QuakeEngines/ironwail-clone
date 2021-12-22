@@ -387,7 +387,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 		depthbits = 16;
 	else
 		depthbits = 24;
-	stencilbits = 0;
+	stencilbits = 8;
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, depthbits);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, stencilbits);
 
@@ -511,10 +511,12 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 // fix the leftover Alt from any Alt-Tab or the like that switched us away
 	ClearAllStates ();
 
-	Con_SafePrintf ("Video mode: %dx%dx%d %dHz\n",
+	Con_SafePrintf ("Video mode: %dx%dx%d Z%d S%d %dHz\n",
 				VID_GetCurrentWidth(),
 				VID_GetCurrentHeight(),
 				VID_GetCurrentBPP(),
+				depthbits,
+				gl_stencilbits,
 				VID_GetCurrentRefreshRate());
 
 	vid.recalc_refdef = 1;
