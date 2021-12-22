@@ -1147,6 +1147,7 @@ static void GL_Init (void)
 	GL_BindVertexArrayFunc (globalvao);
 
 	glGetIntegerv (GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &ssbo_align);
+	ssbo_align = q_max (ssbo_align, 16);
 	--ssbo_align;
 
 #ifdef __APPLE__
