@@ -497,6 +497,7 @@ typedef struct glframebufs_s {
 
 	struct {
 		GLuint		color_tex;
+		GLuint		depth_stencil_tex;
 		GLuint		fbo;
 	}				composite;
 } glframebufs_t;

@@ -197,9 +197,15 @@ void GL_CreateFrameBuffers (void)
 	glGetIntegerv (GL_MAX_DEPTH_TEXTURE_SAMPLES, &framebufs.max_depth_tex_samples);
 	framebufs.max_samples = q_min (framebufs.max_color_tex_samples, framebufs.max_depth_tex_samples);
 
-	/* main framebuffer (color only) */
+	/* main framebuffer (color + depth + stencil) */
 	framebufs.composite.color_tex = GL_CreateFBOAttachment (color_format, 1, GL_NEAREST, "composite colors");
-	framebufs.composite.fbo = GL_CreateFBO (GL_TEXTURE_2D, framebufs.composite.color_tex, 0, 0, "composite fbo");
+	framebufs.composite.depth_stencil_tex = GL_CreateFBOAttachment (depth_format, 1, GL_NEAREST, "composite depth/stencil");
+	framebufs.composite.fbo = GL_CreateFBO (GL_TEXTURE_2D,
+		framebufs.composite.color_tex,
+		framebufs.composite.depth_stencil_tex,
+		framebufs.composite.depth_stencil_tex,
+		"composite fbo"
+	);
 
 	/* scene framebuffer (color + depth + stencil, potentially multisampled) */
 	framebufs.scene.samples = Q_nextPow2 ((int) q_max (1.f, vid_fsaa.value));
@@ -245,6 +251,7 @@ void GL_DeleteFrameBuffers (void)
 	GL_DeleteNativeTexture (framebufs.resolved_scene.color_tex);
 	GL_DeleteNativeTexture (framebufs.scene.depth_stencil_tex);
 	GL_DeleteNativeTexture (framebufs.scene.color_tex);
+	GL_DeleteNativeTexture (framebufs.composite.depth_stencil_tex);
 	GL_DeleteNativeTexture (framebufs.composite.color_tex);
 
 	memset (&framebufs, 0, sizeof (framebufs));
@@ -706,8 +713,20 @@ R_SetupGL
 */
 void R_SetupGL (void)
 {
-	GL_BindFramebufferFunc (GL_FRAMEBUFFER, framebufs.scene.fbo);
-	glViewport (0, 0, r_refdef.vrect.width / r_refdef.scale, r_refdef.vrect.height / r_refdef.scale);
+	qboolean msaa = framebufs.scene.samples > 1;
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value);
+	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
+
+	if (direct)
+	{
+		GL_BindFramebufferFunc (GL_FRAMEBUFFER, postprocess ? framebufs.composite.fbo : 0u);
+		glViewport (glx + r_refdef.vrect.x, gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height, r_refdef.vrect.width, r_refdef.vrect.height);
+	}
+	else
+	{
+		GL_BindFramebufferFunc (GL_FRAMEBUFFER, framebufs.scene.fbo);
+		glViewport (0, 0, r_refdef.vrect.width / r_refdef.scale, r_refdef.vrect.height / r_refdef.scale);
+	}
 }
 
 /*
@@ -1015,10 +1034,14 @@ or possibly as a perforance boost on slow graphics cards.
 void R_WarpScaleView (void)
 {
 	int srcx, srcy, srcw, srch;
+	float smax, tmax;
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 	qboolean msaa = framebufs.scene.samples > 1;
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value);
 
-	// copied from R_SetupGL()
+	if (direct)
+		return;
+
 	srcx = glx + r_refdef.vrect.x;
 	srcy = gly + glheight - r_refdef.vrect.y - r_refdef.vrect.height;
 	srcw = r_refdef.vrect.width / r_refdef.scale;
@@ -1038,27 +1061,20 @@ void R_WarpScaleView (void)
 	GL_BindFramebufferFunc (GL_FRAMEBUFFER, postprocess ? framebufs.composite.fbo : 0);
 	glViewport (srcx, srcy, r_refdef.vrect.width, r_refdef.vrect.height);
 
-	if (water_warp || (v_blend[3] && gl_polyblend.value))
-	{
-		float smax = srcw/(float)vid.width;
-		float tmax = srch/(float)vid.height;
+	smax = srcw/(float)vid.width;
+	tmax = srch/(float)vid.height;
 
-		GL_UseProgram (glprogs.warpscale[water_warp]);
-		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+	GL_UseProgram (glprogs.warpscale[water_warp]);
+	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 
-		GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
-		if (v_blend[3] && gl_polyblend.value)
-			GL_Uniform4fvFunc (1, 1, v_blend);
-		else
-			GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
-		GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
-		glDrawArrays (GL_TRIANGLES, 0, 3);
-	}
+	GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
+	if (v_blend[3] && gl_polyblend.value)
+		GL_Uniform4fvFunc (1, 1, v_blend);
 	else
-	{
-		GL_BindFramebufferFunc (GL_READ_FRAMEBUFFER, msaa ? framebufs.resolved_scene.fbo : framebufs.scene.fbo);
-		GL_BlitFramebufferFunc (0, 0, srcw, srch, srcx, srcy, srcx + r_refdef.vrect.width, srcy + r_refdef.vrect.height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-	}
+		GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
+	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
+
+	glDrawArrays (GL_TRIANGLES, 0, 3);
 
 	GL_EndGroup ();
 }
