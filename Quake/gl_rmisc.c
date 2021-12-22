@@ -756,7 +756,7 @@ void GL_DynamicBuffersBeginFrame (void)
 
 	if (buf->fence)
 	{
-		GLuint64 timeout = 5ull * 1000 * 1000 * 1000; // 5 seconds
+		GLuint64 timeout = 1ull * 1000 * 1000 * 1000; // 1 second
 		GLenum result = GL_ClientWaitSyncFunc (buf->fence, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
 		if (result == GL_TIMEOUT_EXPIRED)
 			glFinish ();
