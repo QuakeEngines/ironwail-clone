@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern cvar_t r_flatlightstyles; //johnfitz
 extern cvar_t r_lerplightstyles;
+extern cvar_t r_dynamic;
 
 /*
 ==================
@@ -57,7 +58,7 @@ void R_AnimateLight (void)
 		//johnfitz -- r_flatlightstyles
 		if (r_flatlightstyles.value == 2)
 			k = n = cl_lightstyle[j].peak - 'a';
-		else if (r_flatlightstyles.value == 1)
+		else if (r_flatlightstyles.value == 1 || !r_dynamic.value)
 			k = n = cl_lightstyle[j].average - 'a';
 		else
 		{
