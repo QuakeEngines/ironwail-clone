@@ -164,8 +164,12 @@ cvar_t		vid_borderless = {"vid_borderless", "0", CVAR_ARCHIVE}; // QuakeSpasm
 cvar_t		vid_gamma = {"gamma", "1", CVAR_ARCHIVE}; //johnfitz -- moved here from view.c
 cvar_t		vid_contrast = {"contrast", "1", CVAR_ARCHIVE}; //QuakeSpasm, MarkV
 
-extern cvar_t gl_texture_anisotropy;
 void TexMgr_Anisotropy_f (cvar_t *var);
+extern cvar_t gl_texture_anisotropy;
+extern cvar_t gl_texturemode;
+extern cvar_t r_particles;
+extern cvar_t r_dynamic;
+extern cvar_t scr_showfps;
 
 //==========================================================================
 //
@@ -1597,6 +1601,15 @@ enum {
 	VID_OPT_REFRESHRATE,
 	VID_OPT_FULLSCREEN,
 	VID_OPT_VSYNC,
+	VID_OPT_FSAA,
+	VID_OPT_SCALE,
+	VID_OPT_ANISO,
+	VID_OPT_TEXFILTER,
+	VID_OPT_PARTICLES,
+	VID_OPT_WATERWARP,
+	VID_OPT_DLIGHTS,
+	VID_OPT_SOFTEMU,
+	VID_OPT_SHOWFPS,
 	VID_OPT_TEST,
 	VID_OPT_APPLY,
 	VIDEO_OPTIONS_ITEMS
@@ -1866,6 +1879,153 @@ static void VID_Menu_ChooseNextRate (int dir)
 
 /*
 ================
+VID_Menu_ChooseNextAA
+
+chooses next AA level in order, then updates vid_fsaa cvar
+================
+*/
+static void VID_Menu_ChooseNextAA (int dir)
+{
+	int samples = Q_nextPow2 ((int)vid_fsaa.value);
+
+	if (dir < 0)
+		samples <<= 1;
+	else
+		samples >>= 1;
+
+	Cvar_SetValueQuick (&vid_fsaa, CLAMP (1, samples, framebufs.max_samples));
+}
+
+/*
+================
+VID_Menu_ChooseNextAnisotropy
+
+chooses next anisotropy level in order, then updates gl_texture_anisotropy cvar
+================
+*/
+static void VID_Menu_ChooseNextAnisotropy (int dir)
+{
+	int aniso = Q_nextPow2 ((int)gl_texture_anisotropy.value);
+
+	if (dir < 0)
+		aniso <<= 1;
+	else
+		aniso >>= 1;
+
+	Cvar_SetValueQuick (&gl_texture_anisotropy, CLAMP (1, aniso, gl_max_anisotropy));
+}
+
+/*
+================
+VID_Menu_ChooseNextScale
+
+chooses next scale in order, then updates r_scale cvar
+================
+*/
+static void VID_Menu_ChooseNextScale (int dir)
+{
+	int scale = r_scale.value - dir;
+
+	Cvar_SetValueQuick (&r_scale, CLAMP (1, scale, 4));
+}
+
+static const char *const texfilters[][2] =
+{
+	{"gl_nearest_mipmap_linear", "Classic"},
+	{"gl_linear_mipmap_linear", "Smooth"},
+};
+
+/*
+================
+VID_Menu_ChooseNextTexFilter
+
+chooses next texture filter, then updates gl_texturemode cvar
+================
+*/
+static void VID_Menu_ChooseNextTexFilter (void)
+{
+	const char *filter = gl_texturemode.string;
+	int i;
+
+	for (i = 0; i < countof (texfilters); i++)
+	{
+		if (!q_strcasecmp (filter, texfilters[i][0]))
+		{
+			filter = texfilters[(i + 1) % countof (texfilters)][0];
+			break;
+		}
+	}
+	if (i == countof (texfilters))
+		filter = texfilters[0][0];
+
+	Cvar_SetQuick (&gl_texturemode, filter);
+}
+
+/*
+================
+VID_Menu_GetTexFilterDesc
+================
+*/
+static const char *VID_Menu_GetTexFilterDesc (void)
+{
+	const char *current = Cvar_VariableString ("gl_texturemode");
+	int i;
+	for (i = 0; i < countof (texfilters); i++)
+		if (!q_strcasecmp (current, texfilters[i][0]))
+			return texfilters[i][1];
+	return "";
+}
+
+/*
+================
+VID_Menu_GetSoftEmuDesc
+================
+*/
+static const char *VID_Menu_GetSoftEmuDesc (void)
+{
+	switch (softemu)
+	{
+	case SOFTEMU_COARSE: return "Strong";
+	case SOFTEMU_FINE: return "Subtle";
+	case SOFTEMU_OFF: return "Off";
+	default: return "";
+	}
+}
+
+/*
+================
+VID_Menu_GetWaterWarpDesc
+================
+*/
+static const char *VID_Menu_GetWaterWarpDesc (void)
+{
+	switch ((int)r_waterwarp.value)
+	{
+	case 0: return "Off";
+	case 1: return "Classic";
+	case 2: return "glQuake";
+	default: return "";
+	}
+}
+
+/*
+================
+VID_Menu_GetParticlesDesc
+================
+*/
+static const char *VID_Menu_GetParticlesDesc (void)
+{
+	switch ((int)r_particles.value)
+	{
+	case 0: return "Off";
+	case 1: return "glQuake";
+	case 2: return "Classic";
+	default: return "";
+	}
+}
+
+/*
+================
 VID_MenuKey
 ================
 */
@@ -1913,6 +2073,33 @@ static void VID_MenuKey (int key)
 		case VID_OPT_VSYNC:
 			Cbuf_AddText ("toggle vid_vsync\n"); // kristian
 			break;
+		case VID_OPT_FSAA:
+			VID_Menu_ChooseNextAA (1);
+			break;
+		case VID_OPT_SCALE:
+			VID_Menu_ChooseNextScale (1);
+			break;
+		case VID_OPT_ANISO:
+			VID_Menu_ChooseNextAnisotropy (1);
+			break;
+		case VID_OPT_TEXFILTER:
+			VID_Menu_ChooseNextTexFilter ();
+			break;
+		case VID_OPT_PARTICLES:
+			Cbuf_AddText ("cycle r_particles 1 2 0\n");
+			break;
+		case VID_OPT_WATERWARP:
+			Cbuf_AddText ("cycle r_waterwarp 2 1 0\n");
+			break;
+		case VID_OPT_DLIGHTS:
+			Cbuf_AddText ("toggle r_dynamic\n");
+			break;
+		case VID_OPT_SOFTEMU:
+			Cbuf_AddText ("cycle r_softemu 2 1 0 0\n");
+			break;
+		case VID_OPT_SHOWFPS:
+			Cbuf_AddText ("toggle scr_showfps\n");
+			break;
 		default:
 			break;
 		}
@@ -1936,6 +2123,33 @@ static void VID_MenuKey (int key)
 			break;
 		case VID_OPT_VSYNC:
 			Cbuf_AddText ("toggle vid_vsync\n");
+			break;
+		case VID_OPT_FSAA:
+			VID_Menu_ChooseNextAA (-1);
+			break;
+		case VID_OPT_SCALE:
+			VID_Menu_ChooseNextScale (-1);
+			break;
+		case VID_OPT_ANISO:
+			VID_Menu_ChooseNextAnisotropy (-1);
+			break;
+		case VID_OPT_TEXFILTER:
+			VID_Menu_ChooseNextTexFilter ();
+			break;
+		case VID_OPT_PARTICLES:
+			Cbuf_AddText ("cycle r_particles 0 2 1\n");
+			break;
+		case VID_OPT_WATERWARP:
+			Cbuf_AddText ("cycle r_waterwarp 0 1 2\n");
+			break;
+		case VID_OPT_DLIGHTS:
+			Cbuf_AddText ("toggle r_dynamic\n");
+			break;
+		case VID_OPT_SOFTEMU:
+			Cbuf_AddText ("cycle r_softemu 0 1 2 2\n");
+			break;
+		case VID_OPT_SHOWFPS:
+			Cbuf_AddText ("toggle scr_showfps\n");
 			break;
 		default:
 			break;
@@ -1963,6 +2177,33 @@ static void VID_MenuKey (int key)
 		case VID_OPT_VSYNC:
 			Cbuf_AddText ("toggle vid_vsync\n");
 			break;
+		case VID_OPT_FSAA:
+			VID_Menu_ChooseNextAA (1);
+			break;
+		case VID_OPT_SCALE:
+			VID_Menu_ChooseNextScale (1);
+			break;
+		case VID_OPT_ANISO:
+			VID_Menu_ChooseNextAnisotropy (1);
+			break;
+		case VID_OPT_TEXFILTER:
+			VID_Menu_ChooseNextTexFilter ();
+			break;
+		case VID_OPT_PARTICLES:
+			Cbuf_AddText ("cycle r_particles 0 2 1\n");
+			break;
+		case VID_OPT_WATERWARP:
+			Cbuf_AddText ("cycle r_waterwarp 0 1 2\n");
+			break;
+		case VID_OPT_DLIGHTS:
+			Cbuf_AddText ("toggle r_dynamic\n");
+			break;
+		case VID_OPT_SOFTEMU:
+			Cbuf_AddText ("cycle r_softemu 0 1 2 2\n");
+			break;
+		case VID_OPT_SHOWFPS:
+			Cbuf_AddText ("toggle scr_showfps\n");
+			break;
 		case VID_OPT_TEST:
 			Cbuf_AddText ("vid_test\n");
 			break;
@@ -1989,7 +2230,7 @@ VID_MenuDraw
 */
 static void VID_MenuDraw (void)
 {
-	int i, y;
+	int i, x0, x1, y;
 	qpic_t *p;
 	const char *title;
 
@@ -2011,42 +2252,81 @@ static void VID_MenuDraw (void)
 
 	y += 16;
 
+	x0 = 32;
+	x1 = x0 + 168;
+
 	// options
 	for (i = 0; i < VIDEO_OPTIONS_ITEMS; i++)
 	{
 		switch (i)
 		{
 		case VID_OPT_MODE:
-			M_Print (16, y, "        Video mode");
-			M_Print (184, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));
+			M_Print (x0, y, "        Video mode");
+			M_Print (x1, y, va("%ix%i", (int)vid_width.value, (int)vid_height.value));
 			break;
 		case VID_OPT_BPP:
-			M_Print (16, y, "       Color depth");
-			M_Print (184, y, va("%i", (int)vid_bpp.value));
+			M_Print (x0, y, "       Color depth");
+			M_Print (x1, y, va("%i", (int)vid_bpp.value));
 			break;
 		case VID_OPT_REFRESHRATE:
-			M_Print (16, y, "      Refresh rate");
-			M_Print (184, y, va("%i", (int)vid_refreshrate.value));
+			M_Print (x0, y, "      Refresh rate");
+			M_Print (x1, y, va("%i", (int)vid_refreshrate.value));
 			break;
 		case VID_OPT_FULLSCREEN:
-			M_Print (16, y, "        Fullscreen");
-			M_DrawCheckbox (184, y, (int)vid_fullscreen.value);
+			M_Print (x0, y, "        Fullscreen");
+			M_DrawCheckbox (x1, y, (int)vid_fullscreen.value);
 			break;
 		case VID_OPT_VSYNC:
-			M_Print (16, y, "     Vertical sync");
-			M_DrawCheckbox (184, y, (int)vid_vsync.value);
+			M_Print (x0, y, "     Vertical sync");
+			M_DrawCheckbox (x1, y, (int)vid_vsync.value);
+			break;
+		case VID_OPT_FSAA:
+			M_Print (x0, y, "      Antialiasing");
+			M_Print (x1, y, vid_fsaa.value >= 2.f ? va("%ix", (int)vid_fsaa.value) : "Off");
+			break;
+		case VID_OPT_SCALE:
+			M_Print (x0, y, "      Render scale");
+			M_Print (x1, y, r_scale.value >= 2.f ? va("1/%i", (int)r_scale.value) : "Off");
+			break;
+		case VID_OPT_ANISO:
+			M_Print (x0, y, "       Anisotropic");
+			M_Print (x1, y, gl_texture_anisotropy.value >= 2.f ? va("%ix", (int)gl_texture_anisotropy.value) : "Off");
+			break;
+		case VID_OPT_TEXFILTER:
+			M_Print (x0, y, "          Textures");
+			M_Print (x1, y, VID_Menu_GetTexFilterDesc ());
+			break;
+		case VID_OPT_PARTICLES:
+			M_Print (x0, y, "         Particles");
+			M_Print (x1, y, VID_Menu_GetParticlesDesc ());
+			break;
+		case VID_OPT_WATERWARP:
+			M_Print (x0, y, "     Underwater FX");
+			M_Print (x1, y, VID_Menu_GetWaterWarpDesc ());
+			break;
+		case VID_OPT_DLIGHTS:
+			M_Print (x0, y, "    Dynamic lights");
+			M_Print (x1, y, r_dynamic.value ? "On" : "Off");
+			break;
+		case VID_OPT_SOFTEMU:
+			M_Print (x0, y, "        8-bit mode");
+			M_Print (x1, y, VID_Menu_GetSoftEmuDesc ());
+			break;
+		case VID_OPT_SHOWFPS:
+			M_Print (x0, y, "          Show FPS");
+			M_Print (x1, y, scr_showfps.value ? "On" : "Off");
 			break;
 		case VID_OPT_TEST:
 			y += 8; //separate the test and apply items
-			M_Print (16, y, "      Test changes");
+			M_Print (x0, y, "      Test changes");
 			break;
 		case VID_OPT_APPLY:
-			M_Print (16, y, "     Apply changes");
+			M_Print (x0, y, "     Apply changes");
 			break;
 		}
 
 		if (video_options_cursor == i)
-			M_DrawCharacter (168, y, 12+((int)(realtime*4)&1));
+			M_DrawCharacter (x1 - 16, y, 12+((int)(realtime*4)&1));
 
 		y += 8;
 	}
