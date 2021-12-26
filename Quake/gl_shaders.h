@@ -212,6 +212,9 @@ PALETTE_BUFFER
 NOISE_FUNCTIONS
 "\n"
 "layout(location=0) uniform vec3 Params;\n"
+"#if PALETTIZE\n"
+"	layout(location=1) uniform vec4 BlendColor;\n"
+"#endif\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
 "\n"
@@ -231,6 +234,7 @@ NOISE_FUNCTIONS
 "	ivec3 clr = ivec3(clamp(out_fragcolor.rgb, 0., 1.) * 127. + 0.5);\n"
 "	uint remap = Palette[texelFetch(PaletteLUT, clr, 0).x];\n"
 "	out_fragcolor.rgb = vec3(UnpackRGB8(remap)) * (1./255.);\n"
+"	out_fragcolor.rgb = mix(out_fragcolor.rgb, BlendColor.rgb, BlendColor.a);\n"
 "#endif // PALETTIZE\n"
 "	out_fragcolor.rgb *= contrast;\n"
 "	out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(gamma)), 1.0);\n"

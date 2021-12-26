@@ -287,6 +287,8 @@ void GL_PostProcess (void)
 	GL_BindNative (GL_TEXTURE1, GL_TEXTURE_3D, gl_palette_lut);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
 	GL_Uniform3fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)), 1.f/r_refdef.scale);
+	if (softemu)
+		GL_Uniform4fvFunc (1, 1, v_blend);
 
 	glDrawArrays (GL_TRIANGLES, 0, 3);
 
@@ -714,7 +716,7 @@ R_SetupGL
 void R_SetupGL (void)
 {
 	qboolean msaa = framebufs.scene.samples > 1;
-	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value);
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value || softemu);
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 
 	if (direct)
@@ -1037,7 +1039,7 @@ void R_WarpScaleView (void)
 	float smax, tmax;
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 	qboolean msaa = framebufs.scene.samples > 1;
-	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value);
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value || softemu);
 
 	if (direct)
 		return;
@@ -1068,7 +1070,7 @@ void R_WarpScaleView (void)
 	GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 
 	GL_Uniform4fFunc (0, smax, tmax, water_warp ? 1.f/256.f : 0.f, cl.time);
-	if (v_blend[3] && gl_polyblend.value)
+	if (v_blend[3] && gl_polyblend.value && !softemu)
 		GL_Uniform4fvFunc (1, 1, v_blend);
 	else
 		GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
