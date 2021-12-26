@@ -155,6 +155,7 @@ int			scrap_allocated[MAX_SCRAPS][BLOCK_WIDTH];
 byte		scrap_texels[MAX_SCRAPS][BLOCK_WIDTH*BLOCK_HEIGHT]; //johnfitz -- removed *4 after BLOCK_HEIGHT
 qboolean	scrap_dirty;
 gltexture_t	*scrap_textures[MAX_SCRAPS]; //johnfitz
+gltexture_t	*winquakemenubg;
 
 
 /*
@@ -412,6 +413,25 @@ void Draw_NewGame (void)
 
 /*
 ===============
+Draw_CreateWinQuakeMenuBgTex
+===============
+*/
+static void Draw_CreateWinQuakeMenuBgTex (void)
+{
+	static unsigned winquakemenubg_pixels[4*2] =
+	{
+		0x00ffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu,
+		0xffffffffu, 0xffffffffu, 0x00ffffffu, 0xffffffffu,
+	};
+
+	winquakemenubg = TexMgr_LoadImage (NULL, "winquakemenubg", 4, 2, SRC_RGBA,
+		(byte*)winquakemenubg_pixels, "", (src_offset_t)winquakemenubg_pixels,
+		TEXPREF_ALPHA | TEXPREF_NEAREST | TEXPREF_PERSIST | TEXPREF_NOPICMIP
+	);
+}
+
+/*
+===============
 Draw_Init -- johnfitz -- rewritten
 ===============
 */
@@ -442,6 +462,8 @@ void Draw_Init (void)
 	pic_ins = Draw_MakePic ("ins", 8, 9, &pic_ins_data[0][0]);
 	pic_ovr = Draw_MakePic ("ovr", 8, 8, &pic_ovr_data[0][0]);
 	pic_nul = Draw_MakePic ("nul", 8, 8, &pic_nul_data[0][0]);
+
+	Draw_CreateWinQuakeMenuBgTex ();
 
 	// load game pics
 	Draw_LoadPics ();
@@ -743,25 +765,38 @@ Draw_FadeScreen -- johnfitz -- revised
 void Draw_FadeScreen (void)
 {
 	guivertex_t *verts;
+	float smax = 0.f, tmax = 0.f, s;
 
 	GL_SetCanvas (CANVAS_DEFAULT);
-	Draw_SetTexture (whitetexture);
-	if (softemu >= SOFTEMU_COARSE)
+	if (softemu >= SOFTEMU_BANDED)
 	{
+		Draw_SetTexture (whitetexture);
 		Draw_SetBlending (GLS_BLEND_MULTIPLY);
 		GL_SetCanvasColor (0.5f, 0.4f, 0.05f, 1.f);
 	}
+	else if (softemu == SOFTEMU_COARSE)
+	{
+		s = q_min((float)glwidth / 320.0, (float)glheight / 200.0);
+		s = CLAMP (1.0, scr_menuscale.value, s);
+		s = floor (s);
+		smax = glwidth / (winquakemenubg->width * s);
+		tmax = glheight / (winquakemenubg->height * s);
+		Draw_SetTexture (winquakemenubg);
+		Draw_SetBlending (GLS_BLEND_ALPHA);
+		GL_SetCanvasColor (0.f, 0.f, 0.f, 1.f);
+	}
 	else
 	{
+		Draw_SetTexture (whitetexture);
 		Draw_SetBlending (GLS_BLEND_ALPHA);
 		GL_SetCanvasColor (0.f, 0.f, 0.f, 0.5f);
 	}
 
 	verts = Draw_AllocQuad ();
-	Draw_SetVertex (verts++, 0,       0,        0.f, 0.f);
-	Draw_SetVertex (verts++, glwidth, 0,        0.f, 0.f);
-	Draw_SetVertex (verts++, glwidth, glheight, 0.f, 0.f);
-	Draw_SetVertex (verts++, 0,       glheight, 0.f, 0.f);
+	Draw_SetVertex (verts++, 0,       0,        0.f,  0.f);
+	Draw_SetVertex (verts++, glwidth, 0,        smax, 0.f);
+	Draw_SetVertex (verts++, glwidth, glheight, smax, tmax);
+	Draw_SetVertex (verts++, 0,       glheight, 0.f,  tmax);
 
 	Draw_SetBlending (GLS_BLEND_ALPHA);
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
