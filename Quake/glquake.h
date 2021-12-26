@@ -196,6 +196,16 @@ extern	qboolean	gl_clipcontrol_able;
 	x(void,			SamplerParameteri, (GLuint sampler, GLenum pname, GLint param))\
 	x(void,			SamplerParameterf, (GLuint sampler, GLenum pname, GLfloat param))\
 	x(void,			BindSampler, (GLuint unit, GLuint sampler))\
+	x(void,			GenQueries, (GLsizei n, GLuint *ids))\
+	x(void,			DeleteQueries, (GLsizei n, const GLuint *ids))\
+	x(void,			BeginQuery, (GLenum target, GLuint id))\
+	x(void,			EndQuery, (GLenum target))\
+	x(void,			GetQueryiv, (GLenum target, GLenum pname, GLint *params))\
+	x(void,			GetQueryObjectiv, (GLuint id, GLenum pname, GLint *params))\
+	x(void,			GetQueryObjectuiv, (GLuint id, GLenum pname, GLuint *params))\
+	x(void,			QueryCounter, (GLuint id, GLenum target))\
+	x(void,			GetQueryObjecti64v, (GLuint id, GLenum pname, GLint64 *params))\
+	x(void,			GetQueryObjectui64v, (GLuint id, GLenum pname, GLuint64 *params))\
 
 #define QGL_ARB_buffer_storage_FUNCTIONS(x)\
 	x(void,			BufferStorage, (GLenum target, GLsizeiptr size, const void *data, GLbitfield flags))\
