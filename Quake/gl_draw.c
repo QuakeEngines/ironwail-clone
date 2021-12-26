@@ -121,6 +121,7 @@ static canvastype currentcanvas = CANVAS_NONE; //johnfitz -- for GL_SetCanvas
 static float canvasoffset[2];
 static float canvasscale[2];
 static GLubyte canvascolor[4] = {255, 255, 255, 255};
+static unsigned canvasblend = GLS_BLEND_ALPHA;
 static gltexture_t *canvastexture = NULL;
 
 //==============================================================================
@@ -466,7 +467,7 @@ void Draw_Flush (void)
 		return;
 
 	GL_UseProgram (glprogs.gui);
-	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
+	GL_SetState (canvasblend | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(3));
 	GL_Bind (GL_TEXTURE0, canvastexture);
 
 	GL_Upload (GL_ARRAY_BUFFER, batchverts, sizeof(batchverts[0]) * 4 * numbatchquads, &buf, &ofs);
@@ -493,6 +494,19 @@ static void Draw_SetTexture (gltexture_t *tex)
 		return;
 	Draw_Flush ();
 	canvastexture = tex;
+}
+
+/*
+================
+Draw_SetBlending
+================
+*/
+static void Draw_SetBlending (unsigned blend)
+{
+	if (blend == canvasblend)
+		return;
+	Draw_Flush ();
+	canvasblend = blend;
 }
 
 /*
@@ -731,8 +745,17 @@ void Draw_FadeScreen (void)
 	guivertex_t *verts;
 
 	GL_SetCanvas (CANVAS_DEFAULT);
-	GL_SetCanvasColor (0.f, 0.f, 0.f, 0.5f);
 	Draw_SetTexture (whitetexture);
+	if (softemu >= SOFTEMU_COARSE)
+	{
+		Draw_SetBlending (GLS_BLEND_MULTIPLY);
+		GL_SetCanvasColor (0.5f, 0.4f, 0.05f, 1.f);
+	}
+	else
+	{
+		Draw_SetBlending (GLS_BLEND_ALPHA);
+		GL_SetCanvasColor (0.f, 0.f, 0.f, 0.5f);
+	}
 
 	verts = Draw_AllocQuad ();
 	Draw_SetVertex (verts++, 0,       0,        0.f, 0.f);
@@ -740,6 +763,7 @@ void Draw_FadeScreen (void)
 	Draw_SetVertex (verts++, glwidth, glheight, 0.f, 0.f);
 	Draw_SetVertex (verts++, 0,       glheight, 0.f, 0.f);
 
+	Draw_SetBlending (GLS_BLEND_ALPHA);
 	GL_SetCanvasColor (1.f, 1.f, 1.f, 1.f);
 
 	Sbar_Changed();

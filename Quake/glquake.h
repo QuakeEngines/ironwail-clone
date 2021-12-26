@@ -240,6 +240,7 @@ typedef enum {
 	GLS_BLEND_OPAQUE	= 0 << 2,
 	GLS_BLEND_ALPHA		= 1 << 2,
 	GLS_BLEND_ADD		= 2 << 2,
+	GLS_BLEND_MULTIPLY	= 3 << 2,
 	GLS_MASK_BLEND		= 3 << 2,
 
 	GLS_CULL_BACK		= 0 << 4,

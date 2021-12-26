@@ -1018,6 +1018,9 @@ static void GL_SetStateEx (unsigned mask, unsigned force)
 			case GLS_BLEND_ADD:
 				glBlendFunc(GL_ONE, GL_ONE);
 				break;
+			case GLS_BLEND_MULTIPLY:
+				glBlendFunc(GL_ZERO, GL_SRC_COLOR);
+				break;
 		}
 	}
 
