@@ -538,12 +538,12 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	case BP_SOLID:
 		texbegin = 0;
 		texend = TEXTYPE_CUTOUT;
-		program = glprogs.world[softemu == SOFTEMU_COARSE][0];
+		program = glprogs.world[q_max(0, softemu - 1)][0];
 		break;
 	case BP_ALPHATEST:
 		texbegin = TEXTYPE_CUTOUT;
 		texend = TEXTYPE_CUTOUT + 1;
-		program = glprogs.world[softemu == SOFTEMU_COARSE][1];
+		program = glprogs.world[q_max(0, softemu - 1)][1];
 		break;
 	case BP_SKYLAYERS:
 		texbegin = TEXTYPE_SKY;

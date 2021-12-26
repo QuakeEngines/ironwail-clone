@@ -1985,7 +1985,8 @@ static const char *VID_Menu_GetSoftEmuDesc (void)
 {
 	switch (softemu)
 	{
-	case SOFTEMU_COARSE: return "Strong";
+	case SOFTEMU_BANDED: return "Strong";
+	case SOFTEMU_COARSE: return "Balanced";
 	case SOFTEMU_FINE: return "Subtle";
 	case SOFTEMU_OFF: return "Off";
 	default: return "";
@@ -2095,7 +2096,7 @@ static void VID_MenuKey (int key)
 			Cbuf_AddText ("toggle r_dynamic\n");
 			break;
 		case VID_OPT_SOFTEMU:
-			Cbuf_AddText ("cycle r_softemu 2 1 0 0\n");
+			Cbuf_AddText ("cycle r_softemu 3 2 1 0 0\n");
 			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");
@@ -2146,7 +2147,7 @@ static void VID_MenuKey (int key)
 			Cbuf_AddText ("toggle r_dynamic\n");
 			break;
 		case VID_OPT_SOFTEMU:
-			Cbuf_AddText ("cycle r_softemu 0 1 2 2\n");
+			Cbuf_AddText ("cycle r_softemu 0 1 2 3 3\n");
 			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");
@@ -2199,7 +2200,7 @@ static void VID_MenuKey (int key)
 			Cbuf_AddText ("toggle r_dynamic\n");
 			break;
 		case VID_OPT_SOFTEMU:
-			Cbuf_AddText ("cycle r_softemu 0 1 2 2\n");
+			Cbuf_AddText ("cycle r_softemu 0 1 2 3 3\n");
 			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");

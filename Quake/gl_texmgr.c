@@ -199,7 +199,7 @@ static void TexMgr_TextureMode_f (cvar_t *var)
 {
 	int i;
 
-	if (softemu == SOFTEMU_COARSE)
+	if (softemu >= SOFTEMU_COARSE)
 	{
 		if (glmode_idx != 2) // nearest with linear mips
 		{
@@ -277,12 +277,8 @@ TexMgr_SoftEmu_f -- called when r_softemu changes
 */
 static void TexMgr_SoftEmu_f (cvar_t *var)
 {
-	if (!r_softemu.value)
-		softemu = SOFTEMU_OFF;
-	else if (r_softemu.value >= 2.f)
-		softemu = SOFTEMU_COARSE;
-	else
-		softemu = SOFTEMU_FINE;
+	softemu = (int)r_softemu.value;
+	softemu = CLAMP (0, softemu, SOFTEMU_NUMMODES - 1);
 
 	TexMgr_TextureMode_f (&gl_texturemode);
 }

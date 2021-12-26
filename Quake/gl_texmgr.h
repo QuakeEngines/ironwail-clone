@@ -91,6 +91,9 @@ typedef enum {
 	SOFTEMU_OFF,
 	SOFTEMU_FINE,		// screen-space dither
 	SOFTEMU_COARSE,		// world-space dither nearby, screen-space dither in the distance
+	SOFTEMU_BANDED,		// no dithering
+
+	SOFTEMU_NUMMODES,
 } softemu_t;
 extern softemu_t softemu;
 
