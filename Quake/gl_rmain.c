@@ -288,7 +288,12 @@ void GL_PostProcess (void)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
 	GL_Uniform3fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)), 1.f/r_refdef.scale);
 	if (softemu)
-		GL_Uniform4fvFunc (1, 1, v_blend);
+	{
+		if (v_blend[3] && gl_polyblend.value)
+			GL_Uniform4fvFunc (1, 1, v_blend);
+		else
+			GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
+	}
 
 	glDrawArrays (GL_TRIANGLES, 0, 3);
 
