@@ -466,7 +466,7 @@ void SCR_DrawFPS (void)
 		oldframecount = r_framecount;
 	}
 
-	if (scr_showfps.value && lastfps)
+	if (scr_showfps.value && lastfps && cls.state != ca_disconnected)
 	{
 		char	st[16];
 		int	x, y;
@@ -1127,10 +1127,10 @@ void SCR_UpdateScreen (void)
 		SCR_CheckDrawCenterString ();
 		Sbar_Draw ();
 		SCR_DrawDevStats (); //johnfitz
-		SCR_DrawFPS (); //johnfitz
 		SCR_DrawClock (); //johnfitz
 		SCR_DrawConsole ();
 		M_Draw ();
+		SCR_DrawFPS (); //johnfitz
 	}
 
 	Draw_Flush ();
