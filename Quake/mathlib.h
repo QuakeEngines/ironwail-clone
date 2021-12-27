@@ -37,6 +37,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 struct mplane_s;
 
 extern vec3_t vec3_origin;
+extern vec4_t vec4_origin;
 
 #define	nanmask		(255 << 23)	/* 7F800000 */
 #if 0	/* macro is violating strict aliasing rules */
