@@ -745,7 +745,7 @@ static void GL_Info_f (void)
 			const char *match = q_strcasestr (ext, filter);
 			if (match)
 			{
-				Con_Printf ("%3d. %.*s", i + 1, match - ext, ext);
+				Con_Printf ("%3d. %.*s", i + 1, (int)(match - ext), ext);
 				Con_Printf ("\x02%.*s", filterlen, match);
 				Con_Printf ("%s\n", match + filterlen);
 				count++;

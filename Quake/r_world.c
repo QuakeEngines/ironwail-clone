@@ -528,7 +528,7 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 
 	if (count > countof(bmodel_instances))
 	{
-		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, countof(bmodel_instances));
+		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, (int)countof(bmodel_instances));
 		count = countof(bmodel_instances);
 	}
 
@@ -657,7 +657,7 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 
 	if (count > countof(bmodel_instances))
 	{
-		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, countof(bmodel_instances));
+		Con_DWarning ("bmodel instance overflow: %d > %d\n", count, (int)countof(bmodel_instances));
 		count = countof(bmodel_instances);
 	}
 
