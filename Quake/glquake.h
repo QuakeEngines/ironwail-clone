@@ -480,6 +480,7 @@ typedef struct glprogs_s {
 	GLuint		cull_mark;
 	GLuint		cluster_lights;
 	GLuint		palette_init;
+	GLuint		palette_postprocess;
 } glprogs_t;
 
 extern glprogs_t glprogs;
@@ -524,7 +525,8 @@ void GLLight_DeleteResources (void);
 
 void GLPalette_CreateResources (void);
 void GLPalette_DeleteResources (void);
-void GLPalette_Update (void);
+void GLPalette_UpdateLookupTable (void);
+int GLPalette_Postprocess (void);
 
 void GL_MakeAliasModelDisplayLists (qmodel_t *m, aliashdr_t *hdr);
 

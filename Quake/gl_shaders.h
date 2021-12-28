@@ -212,9 +212,6 @@ PALETTE_BUFFER
 NOISE_FUNCTIONS
 "\n"
 "layout(location=0) uniform vec3 Params;\n"
-"#if PALETTIZE\n"
-"	layout(location=1) uniform vec4 BlendColor;\n"
-"#endif\n"
 "\n"
 "layout(location=0) out vec4 out_fragcolor;\n"
 "\n"
@@ -234,10 +231,10 @@ NOISE_FUNCTIONS
 "	ivec3 clr = ivec3(clamp(out_fragcolor.rgb, 0., 1.) * 127. + 0.5);\n"
 "	uint remap = Palette[texelFetch(PaletteLUT, clr, 0).x];\n"
 "	out_fragcolor.rgb = vec3(UnpackRGB8(remap)) * (1./255.);\n"
-"	out_fragcolor.rgb = mix(out_fragcolor.rgb, BlendColor.rgb, BlendColor.a);\n"
-"#endif // PALETTIZE\n"
+"#else\n"
 "	out_fragcolor.rgb *= contrast;\n"
 "	out_fragcolor = vec4(pow(out_fragcolor.rgb, vec3(gamma)), 1.0);\n"
+"#endif // PALETTIZE\n"
 "}\n";
 
 ////////////////////////////////////////////////////////////////
@@ -1456,4 +1453,38 @@ PALETTE_BUFFER
 "		}\n"
 "	}\n"
 "	imageStore(PaletteLUT, ivec3(gid), uvec4(bestidx, 0, 0, 0));\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+//
+// Palette postprocess (color blending, gamma, contrast)
+//
+////////////////////////////////////////////////////////////////
+
+static const char palette_postprocess_compute_shader[] =
+"layout(local_size_x=64) in;\n"
+"\n"
+"layout(location=0) uniform vec2 GammmaContrast;\n"
+"layout(location=1) uniform vec4 BlendColor;\n"
+"\n"
+PALETTE_BUFFER
+"\n"
+"layout(std430, binding=1) restrict writeonly buffer DstPaletteBuffer\n"
+"{\n"
+"	uint DstPalette[256];\n"
+"};\n"
+"\n"
+"void main()\n"
+"{\n"
+"	float gamma = GammmaContrast.x;\n"
+"	float contrast = GammmaContrast.y;\n"
+"	uint idx = gl_GlobalInvocationID.x;\n"
+"	if (idx >= 256u)\n"
+"		return;\n"
+"	vec3 color = vec3(UnpackRGB8(Palette[idx])) * (1./255.);\n"
+"	color = mix(color, BlendColor.rgb, BlendColor.a);\n"
+"	color *= contrast;\n"
+"	color = pow(color, vec3(gamma));\n"
+"	uvec3 dst = uvec3(clamp(color, 0., 1.) * 255. + .5);\n"
+"	DstPalette[idx] = dst.r | (dst.g << 8) | (dst.b << 16) | 0xff000000u;\n"
 "}\n";

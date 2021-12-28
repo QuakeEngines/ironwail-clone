@@ -632,7 +632,7 @@ void TexMgr_LoadPalette (void)
 
 	Hunk_FreeToLowMark (mark);
 
-	GLPalette_Update ();
+	GLPalette_UpdateLookupTable ();
 }
 
 /*
@@ -1730,8 +1730,26 @@ void GL_ClearBindings(void)
 */
 
 GLuint gl_palette_lut;
-GLuint gl_palette_buffer;
+GLuint gl_palette_buffer[2]; // original + postprocessed
+
 static unsigned int cached_palette[256];
+static float cached_gamma;
+static float cached_contrast;
+static vec4_t cached_blendcolor;
+
+/*
+================
+GLPalette_DeleteResources
+================
+*/
+static void GLPalette_InvalidateRemapped (void)
+{
+	int i;
+	cached_gamma = -1.f;
+	cached_contrast = -1.f;
+	for (i = 0; i < 4; i++)
+		cached_blendcolor[i] = -1.f;
+}
 
 /*
 ================
@@ -1741,10 +1759,11 @@ GLPalette_DeleteResources
 void GLPalette_DeleteResources (void)
 {
 	GL_DeleteNativeTexture (gl_palette_lut);
-	GL_DeleteBuffer (gl_palette_buffer);
+	GL_DeleteBuffer (gl_palette_buffer[1]);
+	GL_DeleteBuffer (gl_palette_buffer[0]);
 	gl_palette_lut = 0;
-	gl_palette_buffer = 0;
-	memset (cached_palette, 0, sizeof (cached_palette));
+	gl_palette_buffer[0] = 0;
+	gl_palette_buffer[1] = 0;
 }
 
 /*
@@ -1754,6 +1773,8 @@ GLPalette_CreateResources
 */
 void GLPalette_CreateResources (void)
 {
+	int i;
+
 	glGenTextures (1, &gl_palette_lut);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_3D, gl_palette_lut);
 	GL_ObjectLabelFunc (GL_TEXTURE, gl_palette_lut, -1, "palette lut");
@@ -1763,28 +1784,35 @@ void GLPalette_CreateResources (void)
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri (GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 
-	GL_GenBuffersFunc (1, &gl_palette_buffer);
-	GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_palette_buffer);
-	GL_ObjectLabelFunc (GL_BUFFER, gl_palette_buffer, -1, "palette buffer");
-	GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, 256 * sizeof (GLuint), NULL, GL_STATIC_DRAW);
+	GL_GenBuffersFunc (2, gl_palette_buffer);
+	for (i = 0; i < 2; i++)
+	{
+		GL_BindBuffer (GL_SHADER_STORAGE_BUFFER, gl_palette_buffer[i]);
+		GL_ObjectLabelFunc (GL_BUFFER, gl_palette_buffer[i], -1, i ? "src palette buffer" : "remapped palette buffer");
+		GL_BufferDataFunc (GL_SHADER_STORAGE_BUFFER, 256 * sizeof (GLuint), NULL, GL_STATIC_DRAW);
+	}
+
+	memset (cached_palette, 0, sizeof (cached_palette));
+	GLPalette_InvalidateRemapped ();
 }
 
 /*
 ================
-GLPalette_Update
+GLPalette_UpdateLookupTable
 ================
 */
-void GLPalette_Update (void)
+void GLPalette_UpdateLookupTable (void)
 {
 	int i;
 
 	if (!memcmp (cached_palette, d_8to24table, sizeof (cached_palette)))
 		return;
 	memcpy (cached_palette, d_8to24table, sizeof (cached_palette));
+	GLPalette_InvalidateRemapped ();
 
 	GL_UseProgramFunc (glprogs.palette_init);
 	GL_BindImageTextureFunc (0, gl_palette_lut, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_R8UI);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer, 0, 256 * sizeof (GLuint));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer[0], 0, 256 * sizeof (GLuint));
 	GL_BufferSubDataFunc (GL_SHADER_STORAGE_BUFFER, 0, 256 * sizeof (GLuint), d_8to24table);
 
 	for (i = 0; i < 128; i++)
@@ -1794,4 +1822,55 @@ void GLPalette_Update (void)
 	}
 
 	GL_MemoryBarrierFunc (GL_TEXTURE_FETCH_BARRIER_BIT);
+}
+
+/*
+================
+GLPalette_Postprocess
+
+Applies viewblend, gamma, and contrast if needed
+
+Returns index of palette buffer to use:
+0 = original palette
+1 = postprocessed palette
+================
+*/
+int GLPalette_Postprocess (void)
+{
+	const float *blend;
+	
+	if (!softemu)
+		return 0;
+
+	blend = (v_blend[3] && gl_polyblend.value) ? v_blend : vec4_origin;
+
+	/* can we use the original palette? */
+	if (vid_gamma.value == 1.f &&
+		vid_contrast.value == 1.f &&
+		blend[3] == 0.f)
+		return 0;
+
+	/* no change since last time? */
+	if (cached_gamma == vid_gamma.value &&
+		cached_contrast == vid_contrast.value &&
+		memcmp (cached_blendcolor, blend, 4 * sizeof (float)) == 0)
+		return 1;
+
+	cached_gamma = vid_gamma.value;
+	cached_contrast = vid_contrast.value;
+	memcpy (cached_blendcolor, blend, 4 * sizeof (float));
+
+	GL_BeginGroup ("Postprocess palette");
+
+	GL_UseProgram (glprogs.palette_postprocess);
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, gl_palette_buffer[0], 0, 256 * sizeof (GLuint));
+	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, gl_palette_buffer[1], 0, 256 * sizeof (GLuint));
+	GL_Uniform2fFunc (0, vid_gamma.value, q_min(2.0, q_max(1.0, vid_contrast.value)));
+	GL_Uniform4fvFunc (1, 1, blend);
+	GL_DispatchComputeFunc (256/64, 1, 1);
+	GL_MemoryBarrierFunc (GL_SHADER_STORAGE_BARRIER_BIT);
+
+	GL_EndGroup ();
+
+	return 1;
 }

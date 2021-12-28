@@ -282,6 +282,7 @@ void GL_CreateShaders (void)
 	glprogs.cull_mark = GL_CreateComputeProgram (cull_mark_compute_shader, "cull/mark");
 	glprogs.cluster_lights = GL_CreateComputeProgram (cluster_lights_compute_shader, "light cluster");
 	glprogs.palette_init = GL_CreateComputeProgram (palette_init_compute_shader, "palette init");
+	glprogs.palette_postprocess = GL_CreateComputeProgram (palette_postprocess_compute_shader, "palette postprocess");
 }
 
 /*
