@@ -466,7 +466,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 
 			SDL_GL_ResetAttributes();
 			gl_context = SDL_GL_CreateContext(draw_context);
-			version = gl_context ? glGetString(GL_VERSION) : NULL;
+			version = gl_context ? (const char *) glGetString(GL_VERSION) : NULL;
 			if (!version || sscanf(version, "%d.%d", &major, &minor) != 2)
 				major = minor = 0;
 
@@ -474,13 +474,13 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 				Sys_Error(
 					"This engine requires OpenGL %d.%d, but only version %d.%d was found.\n"
 					"Please make sure that your GPU (%s) meets the minimum requirements and that the graphics drivers are up to date.",
-					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, major, minor, glGetString(GL_RENDERER)
+					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, major, minor, (const char *) glGetString(GL_RENDERER)
 				);
 			else if (gl_context)
 				Sys_Error(
 					"Could not create OpenGL %d.%d context.\n"
 					"Please make sure that your GPU (%s) meets the minimum requirements and that the graphics drivers are up to date.",
-					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, glGetString(GL_RENDERER)
+					MIN_GL_VERSION_MAJOR, MIN_GL_VERSION_MINOR, (const char *) glGetString(GL_RENDERER)
 				);
 			else
 				Sys_Error(
