@@ -479,7 +479,6 @@ void Mod_LoadTextures (lump_t *l)
 	int			mark, fwidth, fheight;
 	char		filename[MAX_OSPATH], filename2[MAX_OSPATH], mapname[MAX_OSPATH];
 	byte		*data;
-	extern byte *hunk_base;
 //johnfitz
 
 	//johnfitz -- don't return early if no textures; still need to create dummy texture

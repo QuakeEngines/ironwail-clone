@@ -946,7 +946,6 @@ R_ShowTris -- johnfitz
 */
 void R_ShowTris (void)
 {
-	extern cvar_t r_particles;
 	int		*ofs;
 	entity_t **entlist = cl_sorted_visedicts;
 	entity_t *e;

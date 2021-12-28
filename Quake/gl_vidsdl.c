@@ -1027,7 +1027,6 @@ static void GL_SetStateEx (unsigned mask, unsigned force)
 	if (diff & GLS_MASK_CULL)
 	{
 		unsigned cull = mask & GLS_MASK_CULL;
-		qboolean force_cull = (force & GLS_MASK_CULL) != 0;
 		if (cull == GLS_CULL_NONE)
 		{
 			glDisable(GL_CULL_FACE);
@@ -1056,7 +1055,6 @@ static void GL_SetStateEx (unsigned mask, unsigned force)
 
 	if (diff & GLS_MASK_ATTRIBS)
 	{
-		unsigned attribs = mask & GLS_MASK_ATTRIBS;
 		int i;
 		for (i = 0; i < GLS_MAX_ATTRIBS; i++)
 		{
