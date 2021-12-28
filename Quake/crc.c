@@ -82,13 +82,14 @@ unsigned short CRC_Value(unsigned short crcvalue)
 }
 
 //johnfitz -- texture crc
-unsigned short CRC_Block (const byte *start, int count)
+unsigned short CRC_Block (const void *start, int count)
 {
 	unsigned short	crc;
+	const byte *ptr = (const byte *)start;
 
 	CRC_Init (&crc);
 	while (count--)
-		crc = (crc << 8) ^ crctable[(crc >> 8) ^ *start++];
+		crc = (crc << 8) ^ crctable[(crc >> 8) ^ *ptr++];
 
 	return crc;
 }
