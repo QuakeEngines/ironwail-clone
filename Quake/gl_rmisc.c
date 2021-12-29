@@ -551,9 +551,9 @@ void GL_BindBuffersRange (GLenum target, GLuint first, GLsizei count, const GLui
 			for (i = 0; i < count && first + i < countof (ssbo_ranges); i++)
 			{
 				bufferrange_t *range = &ssbo_ranges[first + i];
-				range->buffer = buffers[first + i];
-				range->offset = offsets[first + i];
-				range->size   = sizes[first + i];
+				range->buffer = buffers[i];
+				range->offset = offsets[i];
+				range->size   = sizes[i];
 			}
 		}
 		GL_BindBuffersRangeFunc (target, first, count, buffers, offsets, sizes);

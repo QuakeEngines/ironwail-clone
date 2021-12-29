@@ -1638,7 +1638,7 @@ void GL_BindTextures (GLuint first, GLsizei count, gltexture_t **textures)
 			tex->visframe = r_framecount;
 			handles[i] = tex->texnum;
 			if (i + first < countof (currenttexture))
-				currenttexture[i] = tex->texnum;
+				currenttexture[i + first] = tex->texnum;
 		}
 		GL_BindTexturesFunc (first, count, handles);
 	}
