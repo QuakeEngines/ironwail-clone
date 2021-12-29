@@ -236,9 +236,9 @@ void R_SetupAliasLighting (entity_t	*e)
 	R_LightPoint (lpos, &e->lightcache);
 
 	//add dlights
-	for (i=0; i<r_framedata.global.numlights; i++)
+	for (i=0; i<r_framedata.numlights; i++)
 	{
-		gpulight_t *l = &r_framedata.lights[i];
+		gpulight_t *l = &r_lightbuffer.lights[i];
 		VectorSubtract (e->origin, l->pos, dist);
 		add = DotProduct (dist, dist);
 		if (l->radius * l->radius > add)
@@ -323,7 +323,7 @@ void R_FlushAliasInstances (void)
 		state |= GLS_BLEND_ALPHA | GLS_NO_ZWRITE;
 	GL_SetState (state);
 
-	memcpy(ibuf.global.fog, r_framedata.global.fogdata, 4 * sizeof(float));
+	memcpy(ibuf.global.fog, r_framedata.fogdata, 4 * sizeof(float));
 
 	ibuf_size = sizeof(ibuf.global) + sizeof(ibuf.inst[0]) * ibuf.count;
 	GL_Upload (GL_SHADER_STORAGE_BUFFER, &ibuf.global, ibuf_size, &buf, &ofs);

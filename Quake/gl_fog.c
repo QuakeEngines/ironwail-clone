@@ -291,9 +291,10 @@ void Fog_SetupFrame (void)
 {
 	const float ExpAdjustment = 1.20112241f; // sqrt(log2(e))
 	float density = Fog_GetDensity();
-	memcpy(r_framedata.global.fogdata, Fog_GetColor(), 3 * sizeof(float));
-	r_framedata.global.fogdata[3] = density * (ExpAdjustment / 64.0f);
-	r_framedata.global.skyfog = density > 0.f ? skyfog : 0.f;
+	memcpy(r_framedata.fogdata, Fog_GetColor(), 3 * sizeof(float));
+	memcpy(r_framedata.skyfogdata, r_framedata.fogdata, 3 * sizeof(float));
+	r_framedata.fogdata[3] = density * (ExpAdjustment / 64.0f);
+	r_framedata.skyfogdata[3] = density > 0.f ? skyfog : 0.f;
 }
 
 /*
@@ -317,7 +318,7 @@ called after drawing stuff that should be fogged
 */
 void Fog_DisableGFog (void)
 {
-	memset(r_framedata.global.fogdata, 0, sizeof(r_framedata.global.fogdata));
+	memset(r_framedata.fogdata, 0, sizeof(r_framedata.fogdata));
 }
 
 //==============================================================================

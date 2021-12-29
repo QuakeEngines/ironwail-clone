@@ -276,6 +276,7 @@ void GL_SetState (unsigned mask);
 void GL_ResetState (void);
 
 extern GLint ssbo_align; // SSBO alignment - 1
+extern GLint ubo_align; // UBO alignment - 1
 
 //johnfitz -- anisotropic filtering
 #define	GL_TEXTURE_MAX_ANISOTROPY_EXT		0x84FE
@@ -372,21 +373,24 @@ typedef struct gpulight_s {
 	float	minlight;
 } gpulight_t;
 
-typedef struct gpuframedata_s {
-	struct {
-		float	viewproj[16];
-		float	lighstyles[MAX_LIGHTSTYLES];
-		float	fogdata[4];
-		vec3_t	eyepos;
-		float	skyfog;
-		float	time;
-		float	zlogscale;
-		float	zlogbias;
-		int		numlights;
-	} global;
+typedef struct gpulightbuffer_s {
+	float		lightstyles[MAX_LIGHTSTYLES];
 	gpulight_t	lights[MAX_DLIGHTS];
+} gpulightbuffer_t;
+
+typedef struct gpuframedata_s {
+	float	viewproj[16];
+	float	fogdata[4];
+	float	skyfogdata[4];
+	vec3_t	eyepos;
+	float	time;
+	float	zlogscale;
+	float	zlogbias;
+	int		numlights;
+	int		padding;
 } gpuframedata_t;
 
+extern gpulightbuffer_t r_lightbuffer;
 extern gpuframedata_t r_framedata;
 
 void R_AnimateLight (void);

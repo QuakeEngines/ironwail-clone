@@ -27,6 +27,8 @@ extern cvar_t r_flatlightstyles; //johnfitz
 extern cvar_t r_lerplightstyles;
 extern cvar_t r_dynamic;
 
+gpulightbuffer_t r_lightbuffer;
+
 /*
 ==================
 R_AnimateLight
@@ -52,7 +54,7 @@ void R_AnimateLight (void)
 		if (!cl_lightstyle[j].length)
 		{
 			d_lightstylevalue[j] = 256;
-			r_framedata.global.lighstyles[j] = 1.f;
+			r_lightbuffer.lightstyles[j] = 1.f;
 			continue;
 		}
 		//johnfitz -- r_flatlightstyles
@@ -73,12 +75,12 @@ void R_AnimateLight (void)
 		if (r_lerplightstyles.value < 2.f && abs(n - k) >= ('m' - 'a') / 2)
 			n = k;
 		d_lightstylevalue[j] = (int)(k*22 + (n-k)*22*f);
-		r_framedata.global.lighstyles[j] = (k + (n-k)*f) * (22.f/256.f);
+		r_lightbuffer.lightstyles[j] = (k + (n-k)*f) * (22.f/256.f);
 		//johnfitz
 	}
 
 	if (r_fullbright_cheatsafe)
-		r_framedata.global.lighstyles[0] = 1.f;
+		r_lightbuffer.lightstyles[0] = 1.f;
 }
 
 /*
@@ -136,7 +138,7 @@ void R_PushDlights (void)
 	GLbyte			*ofs;
 	gpu_cluster_inputs_t cluster_inputs;
 
-	r_framedata.global.numlights = 0;
+	r_framedata.numlights = 0;
 
 	if (r_dynamic.value)
 	{
@@ -160,7 +162,7 @@ void R_PushDlights (void)
 			if (cull)
 				continue;
 
-			out = &r_framedata.lights[r_framedata.global.numlights++];
+			out = &r_lightbuffer.lights[r_framedata.numlights++];
 			out->pos[0]   = l->origin[0];
 			out->pos[1]   = l->origin[1];
 			out->pos[2]   = l->origin[2];

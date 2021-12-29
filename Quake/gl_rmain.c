@@ -704,9 +704,9 @@ void R_SetFrustum (void)
 
 	logznear = log2f (NEARCLIP);
 	logzfar = log2f (gl_farclip.value);
-	memcpy (r_framedata.global.viewproj, r_matviewproj, 16 * sizeof (float));
-	r_framedata.global.zlogscale = LIGHT_TILES_Z / (logzfar - logznear);
-	r_framedata.global.zlogbias = -r_framedata.global.zlogscale * logznear;
+	memcpy (r_framedata.viewproj, r_matviewproj, 16 * sizeof (float));
+	r_framedata.zlogscale = LIGHT_TILES_Z / (logzfar - logznear);
+	r_framedata.zlogbias = -r_framedata.zlogscale * logznear;
 }
 
 /*
@@ -768,9 +768,12 @@ void R_UploadFrameData (void)
 	GLbyte	*ofs;
 	size_t	size;
 
-	size = sizeof(r_framedata.global) + sizeof(r_framedata.lights[0]) * q_max (r_framedata.global.numlights, 1); // avoid zero-length array
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &r_framedata, size, &buf, &ofs);
+	size = sizeof(r_lightbuffer.lightstyles) + sizeof(r_lightbuffer.lights[0]) * q_max (r_framedata.numlights, 1); // avoid zero-length array
+	GL_Upload (GL_SHADER_STORAGE_BUFFER, &r_lightbuffer, size, &buf, &ofs);
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 0, buf, (GLintptr)ofs, size);
+
+	GL_Upload (GL_UNIFORM_BUFFER, &r_framedata, sizeof (r_framedata), &buf, &ofs);
+	GL_BindBufferRange (GL_UNIFORM_BUFFER, 0, buf, (GLintptr)ofs, sizeof (r_framedata));
 }
 
 /*
@@ -783,10 +786,10 @@ void R_SetupView (void)
 	R_AnimateLight ();
 
 	r_framecount++;
-	r_framedata.global.time = cl.time;
-	r_framedata.global.eyepos[0] = r_refdef.vieworg[0];
-	r_framedata.global.eyepos[1] = r_refdef.vieworg[1];
-	r_framedata.global.eyepos[2] = r_refdef.vieworg[2];
+	r_framedata.eyepos[0] = r_refdef.vieworg[0];
+	r_framedata.eyepos[1] = r_refdef.vieworg[1];
+	r_framedata.eyepos[2] = r_refdef.vieworg[2];
+	r_framedata.time = cl.time;
 
 	Fog_SetupFrame (); //johnfitz
 

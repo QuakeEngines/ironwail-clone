@@ -489,14 +489,14 @@ void GL_BindBuffer (GLenum target, GLuint buffer)
 			cache = &current_draw_indirect_buffer;
 			break;
 		default:
-			Host_Error("GL_BindBuffer: unsupported target %d", (int)target);
-			return;
+			goto apply;
 	}
 
 	if (*cache != buffer)
 	{
 		*cache = buffer;
-		GL_BindBufferFunc (target, *cache);
+	apply:
+		GL_BindBufferFunc (target, buffer);
 	}
 }
 
@@ -519,17 +519,20 @@ glBindBufferRange wrapper
 */
 void GL_BindBufferRange (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)
 {
-	if (target == GL_SHADER_STORAGE_BUFFER && index < CACHED_BUFFER_RANGES)
+	if (target == GL_SHADER_STORAGE_BUFFER)
 	{
-		bufferrange_t *range = &ssbo_ranges[index];
-		if (range->buffer == buffer && range->offset == offset && range->size == size)
-			return;
-		range->buffer = buffer;
-		range->offset = offset;
-		range->size   = size;
+		if (index < CACHED_BUFFER_RANGES)
+		{
+			bufferrange_t *range = &ssbo_ranges[index];
+			if (range->buffer == buffer && range->offset == offset && range->size == size)
+				return;
+			range->buffer = buffer;
+			range->offset = offset;
+			range->size   = size;
+		}
+		current_shader_storage_buffer = buffer;
 	}
 
-	current_shader_storage_buffer = buffer;
 	GL_BindBufferRangeFunc (target, index, buffer, offset, size);
 }
 
@@ -798,11 +801,15 @@ GL_Upload
 */
 void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf, GLbyte **outofs)
 {
+	size_t align;
 	dynabuf_t *buf;
+
+	align = (target == GL_UNIFORM_BUFFER) ? ubo_align : ssbo_align;
+	dynabuf_offset = (dynabuf_offset + align) & ~align;
 
 	if (dynabuf_offset + numbytes > dynabuf_size)
 	{
-		dynabuf_size = dynabuf_offset + numbytes;
+		dynabuf_size = dynabuf_offset + ((numbytes + align) & ~align);
 		dynabuf_size += dynabuf_size >> 1;
 		GL_AllocDynamicBuffers ();
 	}
@@ -819,5 +826,5 @@ void GL_Upload (GLenum target, const void *data, size_t numbytes, GLuint *outbuf
 	*outbuf = buf->handle;
 	*outofs = (GLbyte*) dynabuf_offset;
 
-	dynabuf_offset += (numbytes + ssbo_align) & ~ssbo_align;
+	dynabuf_offset += numbytes;
 }

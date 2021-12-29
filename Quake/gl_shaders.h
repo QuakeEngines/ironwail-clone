@@ -244,6 +244,32 @@ NOISE_FUNCTIONS
 ////////////////////////////////////////////////////////////////
 
 #define FRAMEDATA_BUFFER \
+"layout(std140, binding=0) uniform FrameDataUBO\n"\
+"{\n"\
+"	mat4	ViewProj;\n"\
+"	vec4	Fog;\n"\
+"	vec4	SkyFog;\n"\
+"	vec4	EyePos; // w = Time\n"\
+"	uvec4	MiscParams; // NumLights, ZLogScale, ZLogBias, padding;\n"\
+"};\n"\
+"\n"\
+"#define Time		EyePos.w\n"\
+"#define ZLogScale	uintBitsToFloat(MiscParams.x)\n"\
+"#define ZLogBias	uintBitsToFloat(MiscParams.y)\n"\
+"#define NumLights	MiscParams.z\n"\
+"\n"\
+"vec3 ApplyFog(vec3 clr, float dist)\n"\
+"{\n"\
+"	dist *= Fog.w;\n"\
+"	float fog = exp2(-dist * dist);\n"\
+"	fog = clamp(fog, 0.0, 1.0);\n"\
+"	return mix(Fog.rgb, clr, fog);\n"\
+"}\n"\
+"\n"\
+
+////////////////////////////////////////////////////////////////
+
+#define LIGHT_BUFFER \
 "#define LIGHT_TILES_X " QS_STRINGIFY (LIGHT_TILES_X) "\n"\
 "#define LIGHT_TILES_Y " QS_STRINGIFY (LIGHT_TILES_Y) "\n"\
 "#define LIGHT_TILES_Z " QS_STRINGIFY (LIGHT_TILES_Z) "\n"\
@@ -257,28 +283,11 @@ NOISE_FUNCTIONS
 "	float	minlight;\n"\
 "};\n"\
 "\n"\
-"layout(std430, binding=0) restrict readonly buffer FrameDataBuffer\n"\
+"layout(std430, binding=0) restrict readonly buffer LightBuffer\n"\
 "{\n"\
-"	mat4	ViewProj;\n"\
 "	float	LightStyles[" QS_STRINGIFY (MAX_LIGHTSTYLES) "];\n"\
-"	vec3	FogColor;\n"\
-"	float	FogDensity;\n"\
-"	vec3	EyePos;\n"\
-"	float	SkyFog;\n"\
-"	float	Time;\n"\
-"	float	ZLogScale;\n"\
-"	float	ZLogBias;\n"\
-"	uint	NumLights;\n"\
 "	Light	Lights[];\n"\
 "};\n"\
-"\n"\
-"vec3 ApplyFog(vec3 clr, float dist)\n"\
-"{\n"\
-"	dist *= FogDensity;\n"\
-"	float fog = exp2(-dist * dist);\n"\
-"	fog = clamp(fog, 0.0, 1.0);\n"\
-"	return mix(FogColor, clr, fog);\n"\
-"}\n"\
 "\n"\
 "float GetLightStyle(int index)\n"\
 "{\n"\
@@ -394,6 +403,7 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 
 static const char world_vertex_shader[] =
 FRAMEDATA_BUFFER
+LIGHT_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
@@ -465,6 +475,7 @@ static const char world_fragment_shader[] =
 "layout(binding=2) uniform sampler2DArray LMTex;\n"
 "\n"
 FRAMEDATA_BUFFER
+LIGHT_BUFFER
 LIGHT_CLUSTER_IMAGE("readonly")
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
@@ -585,7 +596,7 @@ NOISE_FUNCTIONS
 "	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
 "	float luma = dot(out_fragcolor.rgb, vec3(.25, .625, .125));\n"
 "	float nearnoise = tri(whitenoise01(lmuv * lmsize)) * luma;\n"
-"	float farnoise = FogDensity > 0. ? SCREEN_SPACE_NOISE() : 0.;\n"
+"	float farnoise = Fog.w > 0. ? SCREEN_SPACE_NOISE() : 0.;\n"
 "	out_fragcolor.rgb += mix(nearnoise, farnoise, farblend) * PAL_NOISESCALE;\n"
 "	out_fragcolor.rgb *= out_fragcolor.rgb;\n"
 "#endif // DITHER == 1\n"
@@ -659,7 +670,7 @@ NOISE_FUNCTIONS
 "	result.a *= in_alpha;\n"
 "	out_fragcolor = result;\n"
 "#if DITHER\n"
-"	if (FogDensity > 0.)\n"
+"	if (Fog.w > 0.)\n"
 "	{\n"
 "		out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
 "		out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
@@ -714,7 +725,7 @@ BINDLESS_VERTEX_HEADER
 "	Instance instance = instance_data[instance_id];\n"
 "	vec3 pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
-"	out_dir = pos - EyePos;\n"
+"	out_dir = pos - EyePos.xyz;\n"
 "	out_dir.z *= 3.0; // flatten the sphere\n"
 "#if BINDLESS\n"
 "	out_samplers.xy = call.txhandle;\n"
@@ -752,7 +763,7 @@ WORLD_CALLDATA_BUFFER
 "	vec4 result = texture(SolidLayer, uv + Time / 16.0);\n"
 "	vec4 layer = texture(AlphaLayer, uv + Time / 8.0);\n"
 "	result.rgb = mix(result.rgb, layer.rgb, layer.a);\n"
-"	result.rgb = mix(result.rgb, FogColor, SkyFog);\n"
+"	result.rgb = mix(result.rgb, SkyFog.rgb, SkyFog.a);\n"
 "	out_fragcolor = result;\n"
 "}\n";
 
@@ -798,7 +809,7 @@ NOISE_FUNCTIONS
 "void main()\n"
 "{\n"
 "	out_fragcolor = texture(Skybox, in_dir);\n"
-"	out_fragcolor.rgb = mix(out_fragcolor.rgb, FogColor, SkyFog);\n"
+"	out_fragcolor.rgb = mix(out_fragcolor.rgb, SkyFog.rgb, SkyFog.a);\n"
 "#if DITHER\n"
 "	out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
 "	out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
@@ -1021,7 +1032,7 @@ NOISE_FUNCTIONS
 "	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
 "#if DITHER\n"
-"	if (FogDensity > 0.)\n"
+"	if (Fog.w > 0.)\n"
 "	{\n"
 "		out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
 "		out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
@@ -1076,7 +1087,7 @@ NOISE_FUNCTIONS
 "	result.rgb = ApplyFog(result.rgb, in_fogdist);\n"
 "	out_fragcolor = result;\n"
 "#if DITHER\n"
-"	if (FogDensity > 0.)\n"
+"	if (Fog.w > 0.)\n"
 "	{\n"
 "		out_fragcolor.rgb = sqrt(out_fragcolor.rgb);\n"
 "		out_fragcolor.rgb += SCREEN_SPACE_NOISE() * PAL_NOISESCALE;\n"
@@ -1276,6 +1287,7 @@ static const char cluster_lights_compute_shader[] =
 "layout(local_size_x=8, local_size_y=8, local_size_z=1) in;\n"
 "\n"
 FRAMEDATA_BUFFER
+LIGHT_BUFFER
 "\n"
 LIGHT_CLUSTER_IMAGE("writeonly")
 "\n"
