@@ -1892,7 +1892,7 @@ chooses next AA level in order, then updates vid_fsaa cvar
 */
 static void VID_Menu_ChooseNextAA (int dir)
 {
-	int samples = Q_nextPow2 ((int)vid_fsaa.value);
+	int samples = Q_nextPow2 (framebufs.scene.samples);
 
 	if (dir < 0)
 		samples <<= 1;
@@ -1911,7 +1911,7 @@ chooses next anisotropy level in order, then updates gl_texture_anisotropy cvar
 */
 static void VID_Menu_ChooseNextAnisotropy (int dir)
 {
-	int aniso = Q_nextPow2 ((int)gl_texture_anisotropy.value);
+	int aniso = Q_nextPow2 (q_max (1, (int)gl_texture_anisotropy.value));
 
 	if (dir < 0)
 		aniso <<= 1;
@@ -1930,7 +1930,7 @@ chooses next scale in order, then updates r_scale cvar
 */
 static void VID_Menu_ChooseNextScale (int dir)
 {
-	int scale = r_scale.value - dir;
+	int scale = r_refdef.scale - dir;
 
 	Cvar_SetValueQuick (&r_scale, CLAMP (1, scale, 4));
 }
@@ -2289,15 +2289,18 @@ static void VID_MenuDraw (void)
 			break;
 		case VID_OPT_FSAA:
 			M_Print (x0, y, "      Antialiasing");
-			M_Print (x1, y, vid_fsaa.value >= 2.f ? va("%ix", (int)vid_fsaa.value) : "Off");
+			M_Print (x1, y, framebufs.scene.samples >= 2 ? va("%ix", framebufs.scene.samples) : "Off");
 			break;
 		case VID_OPT_SCALE:
 			M_Print (x0, y, "      Render scale");
-			M_Print (x1, y, r_scale.value >= 2.f ? va("1/%i", (int)r_scale.value) : "Off");
+			M_Print (x1, y, r_refdef.scale >= 2 ? va("1/%i", r_refdef.scale) : "Off");
 			break;
 		case VID_OPT_ANISO:
 			M_Print (x0, y, "       Anisotropic");
-			M_Print (x1, y, gl_texture_anisotropy.value >= 2.f ? va("%ix", (int)gl_texture_anisotropy.value) : "Off");
+			M_Print (x1, y, gl_texture_anisotropy.value >= 2.f ?
+				va("%ix", q_min ((int)gl_texture_anisotropy.value, (int)gl_max_anisotropy)) :
+				"Off"
+			);
 			break;
 		case VID_OPT_TEXFILTER:
 			M_Print (x0, y, "          Textures");
