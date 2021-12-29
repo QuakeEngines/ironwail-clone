@@ -249,14 +249,12 @@ NOISE_FUNCTIONS
 "	mat4	ViewProj;\n"\
 "	vec4	Fog;\n"\
 "	vec4	SkyFog;\n"\
-"	vec4	EyePos; // w = Time\n"\
-"	uvec4	MiscParams; // NumLights, ZLogScale, ZLogBias, padding;\n"\
+"	vec3	EyePos;\n"\
+"	float	Time;\n"\
+"	float	ZLogScale;\n"\
+"	float	ZLogBias;\n"\
+"	uint	NumLights;\n"\
 "};\n"\
-"\n"\
-"#define Time		EyePos.w\n"\
-"#define ZLogScale	uintBitsToFloat(MiscParams.x)\n"\
-"#define ZLogBias	uintBitsToFloat(MiscParams.y)\n"\
-"#define NumLights	MiscParams.z\n"\
 "\n"\
 "vec3 ApplyFog(vec3 clr, float dist)\n"\
 "{\n"\
@@ -725,7 +723,7 @@ BINDLESS_VERTEX_HEADER
 "	Instance instance = instance_data[instance_id];\n"
 "	vec3 pos = Transform(in_pos, instance);\n"
 "	gl_Position = ViewProj * vec4(pos, 1.0);\n"
-"	out_dir = pos - EyePos.xyz;\n"
+"	out_dir = pos - EyePos;\n"
 "	out_dir.z *= 3.0; // flatten the sphere\n"
 "#if BINDLESS\n"
 "	out_samplers.xy = call.txhandle;\n"
