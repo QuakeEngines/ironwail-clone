@@ -183,8 +183,8 @@ void R_PushDlights (void)
 	memcpy (cluster_inputs.view_matrix, r_matview, 16 * sizeof (float));
 
 	GL_UseProgram (glprogs.cluster_lights);
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &cluster_inputs, sizeof (cluster_inputs), &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 1, buf, (GLintptr) ofs, sizeof (cluster_inputs));
+	GL_Upload (GL_UNIFORM_BUFFER, &cluster_inputs, sizeof (cluster_inputs), &buf, &ofs);
+	GL_BindBufferRange (GL_UNIFORM_BUFFER, 1, buf, (GLintptr) ofs, sizeof (cluster_inputs));
 	GL_BindImageTextureFunc (0, gl_lightclustertexture, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RG32UI);
 	GL_DispatchComputeFunc ((LIGHT_TILES_X+7)/8, (LIGHT_TILES_Y+7)/8, LIGHT_TILES_Z);
 	GL_MemoryBarrierFunc (GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);

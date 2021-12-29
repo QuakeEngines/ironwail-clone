@@ -47,8 +47,8 @@ static size_t gl_bmodel_cmdbuf_offset;
 
 typedef struct gpumark_frame_s {
 	vec4_t		frustum[4];
+	vec3_t		vieworg;
 	GLuint		oldskyleaf;
-	float		vieworg[3];
 	GLuint		framecount;
 	GLuint		padding[3];
 } gpumark_frame_t;
@@ -125,10 +125,10 @@ static void R_MarkVisSurfaces (byte* vis)
 		frame.frustum[i][2] = frustum[i].normal[2];
 		frame.frustum[i][3] = frustum[i].dist;
 	}
-	frame.oldskyleaf = r_oldskyleaf.value != 0.f;
 	frame.vieworg[0] = r_refdef.vieworg[0];
 	frame.vieworg[1] = r_refdef.vieworg[1];
 	frame.vieworg[2] = r_refdef.vieworg[2];
+	frame.oldskyleaf = r_oldskyleaf.value != 0.f;
 	frame.framecount = r_framecount;
 
 	vissize = (vissize + 3) & ~3; // round up to uint
@@ -145,8 +145,8 @@ static void R_MarkVisSurfaces (byte* vis)
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 4, gl_bmodel_leaf_buffer, 0, cl.worldmodel->numleafs * sizeof(bmodel_gpu_leaf_t));
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 5, gl_bmodel_marksurf_buffer, 0, cl.worldmodel->nummarksurfaces * sizeof(cl.worldmodel->marksurfaces[0]));
 	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 6, gl_bmodel_surf_buffer, 0, cl.worldmodel->numsurfaces * sizeof(bmodel_gpu_surf_t));
-	GL_Upload (GL_SHADER_STORAGE_BUFFER, &frame, sizeof(frame), &buf, &ofs);
-	GL_BindBufferRange (GL_SHADER_STORAGE_BUFFER, 7, buf, (GLintptr)ofs, sizeof(frame));
+	GL_Upload (GL_UNIFORM_BUFFER, &frame, sizeof(frame), &buf, &ofs);
+	GL_BindBufferRange (GL_UNIFORM_BUFFER, 1, buf, (GLintptr)ofs, sizeof(frame));
 
 	GL_DispatchComputeFunc ((cl.worldmodel->numleafs + 63) / 64, 1, 1);
 	GL_MemoryBarrierFunc (GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
