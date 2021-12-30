@@ -682,7 +682,7 @@ static void GL_AllocDynamicBuffers (void)
 			GL_BufferStorageFunc (GL_ARRAY_BUFFER, dynabuf_size, NULL, flags);
 			buf->ptr = GL_MapBufferRangeFunc (GL_ARRAY_BUFFER, 0, dynabuf_size, flags);
 			if (!buf->ptr)
-				Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %zu bytes", dynabuf_size);
+				Sys_Error ("GL_AllocDynamicBuffers: MapBufferRange failed on %" SDL_PRIu64 " bytes", (uint64_t)dynabuf_size);
 		}
 		else
 		{

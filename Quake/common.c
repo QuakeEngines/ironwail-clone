@@ -176,7 +176,7 @@ void Vec_Grow (void **pvec, size_t element_size, size_t count)
 		else
 			new_buffer = malloc (total_size);
 		if (!new_buffer)
-			Sys_Error ("Vec_Grow: failed to allocate %zu bytes\n", total_size);
+			Sys_Error ("Vec_Grow: failed to allocate %" SDL_PRIu64 " bytes\n", (uint64_t) total_size);
 
 		*pvec = 1 + (vec_header_t*)new_buffer;
 		VEC_HEADER(*pvec) = header;

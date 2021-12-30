@@ -104,7 +104,7 @@ static void Chart_Init (chart_t *chart, int width, int height)
 	{
 		chart->allocated = (int *)realloc (chart->allocated, sizeof (chart->allocated[0]) * width);
 		if (!chart->allocated)
-			Sys_Error ("Chart_Init: could not allocate %zd bytes", sizeof (chart->allocated[0]) * width);
+			Sys_Error ("Chart_Init: could not allocate %" SDL_PRIu64 " bytes", (uint64_t) (sizeof (chart->allocated[0]) * width));
 	}
 	memset (chart->allocated, 0, sizeof (chart->allocated[0]) * width);
 	chart->width = width;
@@ -348,7 +348,7 @@ static void GL_PackLitSurfaces (void)
 	lit_surf_order[1] = (int *) realloc (lit_surf_order[1], sizeof (lit_surf_order[1][0]) * VEC_SIZE (lit_surfs));
 
 	if (!lit_surf_order[0] || !lit_surf_order[1])
-		Sys_Error ("GL_PackLitSurfaces: out of memory (%zd surfs)", VEC_SIZE (lit_surfs));
+		Sys_Error ("GL_PackLitSurfaces: out of memory (%" SDL_PRIu64 " surfs)", (uint64_t) VEC_SIZE (lit_surfs));
 
 	for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
 		lit_surf_order[0][i] = i;

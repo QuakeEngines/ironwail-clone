@@ -1360,7 +1360,7 @@ static int PR_AllocStringSlot (void)
 	{
 		i = pr_firstfreeknownstring - pr_knownstrings;
 		if (i < 0 || i >= pr_maxknownstrings)
-			Sys_Error ("PR_AllocStringSlot failed: invalid free list index %ti/%i\n", i, pr_maxknownstrings);
+			Sys_Error ("PR_AllocStringSlot failed: invalid free list index %" SDL_PRIs64 "/%i\n", (int64_t)i, pr_maxknownstrings);
 		pr_firstfreeknownstring = (const char **) *pr_firstfreeknownstring;
 	}
 	else
