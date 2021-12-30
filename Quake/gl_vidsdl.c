@@ -590,7 +590,7 @@ VID_Changed_f -- kristian -- notify us that a value has changed that requires a 
 void VID_Changed_f (cvar_t *var)
 {
 	if (vid_initialized)
-		Con_SafePrintf ("%s will be applied after a vid_restart\n", var->name);
+		Con_SafePrintf ("%s %s will be applied after a vid_restart\n", var->name, var->string);
 	vid_changed = true;
 }
 
