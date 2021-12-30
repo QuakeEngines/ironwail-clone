@@ -449,6 +449,14 @@ void SCR_DrawFPS (void)
 	double	elapsed_time;
 	int	frames;
 
+	if (con_forcedup)
+	{
+		oldtime = realtime;
+		oldframecount = r_framecount;
+		lastfps = 0;
+		return;
+	}
+
 	elapsed_time = realtime - oldtime;
 	frames = r_framecount - oldframecount;
 
@@ -466,7 +474,7 @@ void SCR_DrawFPS (void)
 		oldframecount = r_framecount;
 	}
 
-	if (scr_showfps.value && lastfps && cls.state != ca_disconnected)
+	if (scr_showfps.value && lastfps)
 	{
 		char	st[16];
 		int	x, y;
