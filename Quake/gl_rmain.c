@@ -25,8 +25,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 qboolean	r_cache_thrash;		// compatability
 
-vec3_t		modelorg, r_entorigin;
-
 gpuframedata_t r_framedata;
 
 int			r_visframecount;	// bumped when going to a new PVS

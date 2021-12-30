@@ -47,9 +47,7 @@ typedef struct vrect_s
 
 typedef struct
 {
-	pixel_t		*buffer;	// invisible buffer
 	pixel_t		*colormap;	// 256 * VID_GRADES size
-	unsigned short	*colormap16;	// 256 * VID_GRADES size
 	int		fullbright;	// index of first fullbright color
 	int		rowbytes;	// may be > width if displayed in a window
 	int		width;
@@ -58,13 +56,9 @@ typedef struct
 	int		refreshrate;
 	int		numpages;
 	int		recalc_refdef;	// if true, recalc vid-based stuff
-	pixel_t		*conbuffer;
 	int		conrowbytes;
 	int		conwidth;
 	int		conheight;
-	int		maxwarpwidth;
-	int		maxwarpheight;
-	pixel_t		*direct;	// direct drawing to framebuffer, if not NULL
 } viddef_t;
 
 extern	viddef_t	vid;				// global video state

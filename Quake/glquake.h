@@ -67,7 +67,6 @@ typedef struct particle_s
 //====================================================
 
 extern	qboolean	r_cache_thrash;		// compatability
-extern	vec3_t		modelorg, r_entorigin;
 extern	int		r_visframecount;	// ??? what difs?
 extern	int		r_framecount;
 extern	mplane_t	frustum[4];
