@@ -359,7 +359,6 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "{\n"\
 "	vec4	mat[3];\n"\
 "	float	alpha;\n"\
-"	float	padding;\n"\
 "};\n"\
 "\n"\
 "layout(std430, binding=2) restrict readonly buffer InstanceBuffer\n"\
