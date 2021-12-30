@@ -435,9 +435,9 @@ typedef struct bmodel_draw_indirect_s {
 } bmodel_draw_indirect_t;
 
 typedef struct bmodel_gpu_leaf_s {
-	float		mins[3];
-	float		maxs[3];
+	vec3_t		mins;
 	GLuint		firstsurf;
+	vec3_t		maxs;
 	GLuint		surfcountsky; // bit 0=sky; bits 1..31=surfcount
 } bmodel_gpu_leaf_t;
 
