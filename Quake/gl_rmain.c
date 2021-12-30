@@ -221,7 +221,7 @@ void GL_CreateFrameBuffers (void)
 	/* resolved scene framebuffer (color only) */
 	if (framebufs.scene.samples > 1)
 	{
-		framebufs.resolved_scene.color_tex = GL_CreateFBOAttachment (color_format, 1, GL_LINEAR, "resolved scene colors");
+		framebufs.resolved_scene.color_tex = GL_CreateFBOAttachment (color_format, 1, GL_NEAREST, "resolved scene colors");
 		framebufs.resolved_scene.fbo = GL_CreateFBO (GL_TEXTURE_2D, framebufs.resolved_scene.color_tex, 0, 0, "resolved scene fbo");
 	}
 	else
@@ -1076,6 +1076,8 @@ void R_WarpScaleView (void)
 	else
 		GL_Uniform4fFunc (1, 0.f, 0.f, 0.f, 0.f);
 	GL_BindNative (GL_TEXTURE0, GL_TEXTURE_2D, msaa ? framebufs.resolved_scene.color_tex : framebufs.scene.color_tex);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, water_warp ? GL_LINEAR : GL_NEAREST);
+	glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, water_warp ? GL_LINEAR : GL_NEAREST);
 
 	glDrawArrays (GL_TRIANGLES, 0, 3);
 
