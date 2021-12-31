@@ -42,7 +42,6 @@ typedef byte pixel_t;
 typedef struct vrect_s
 {
 	int	x, y, width, height;
-	struct vrect_s	*pnext;
 } vrect_t;
 
 typedef struct
@@ -52,7 +51,6 @@ typedef struct
 	int		rowbytes;	// may be > width if displayed in a window
 	int		width;
 	int		height;
-	float		aspect;		// width / height -- < 0 is taller than wide
 	int		maxscale;		// maximum r_scale value, based on height
 	int		refreshrate;
 	int		numpages;
@@ -69,21 +67,15 @@ extern void (*vid_menukeyfn)(int key);
 extern void (*vid_menucmdfn)(void); //johnfitz
 
 void	VID_Init (void); //johnfitz -- removed palette from argument list
+void	VID_Shutdown (void); // Called at shutdown
 
-void	VID_Shutdown (void);
-// Called at shutdown
+void	VID_SyncCvars (void);
+void	VID_Toggle (void);
 
-void	VID_Update (vrect_t *rects);
-// flushes the given rectangles from the view buffer to the screen
-
-void VID_SyncCvars (void);
-
-void VID_Toggle (void);
-
-void *VID_GetWindow (void);
-qboolean VID_HasMouseOrInputFocus (void);
-qboolean VID_IsMinimized (void);
-void	VID_Lock (void);
+void		*VID_GetWindow (void);
+qboolean	VID_HasMouseOrInputFocus (void);
+qboolean	VID_IsMinimized (void);
+void		VID_Lock (void);
 
 #endif	/* __VID_DEFS_H */
 

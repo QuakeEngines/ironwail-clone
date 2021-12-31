@@ -126,13 +126,7 @@ extern vec3_t	r_origin, vpn, vright, vup;
 
 
 void R_Init (void);
-void R_InitTextures (void);
-void R_InitEfrags (void);
 void R_RenderView (void);		// must set r_refdef first
-void R_ViewChanged (vrect_t *pvrect, int lineadj, float aspect);
-								// called whenever r_refdef or vid change
-//void R_InitSky (struct texture_s *mt);	// called at level load
-
 void R_CheckEfrags (void); //johnfitz
 void R_AddEfrags (entity_t *ent);
 
@@ -158,11 +152,7 @@ void R_PushDlights (void);
 extern	int		reinit_surfcache;	// if 1, surface cache is currently empty and
 extern qboolean	r_cache_thrash;	// set if thrashing the surface cache
 
-int	D_SurfaceCacheForRes (int width, int height);
 void D_FlushCaches (void);
-void D_DeleteSurfaceCache (void);
-void D_InitCaches (void *buffer, int size);
-void R_SetVrect (vrect_t *pvrect, vrect_t *pvrectin, int lineadj);
 
 #endif	/* _QUAKE_RENDER_H */
 
