@@ -492,6 +492,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 
 	vid.width = VID_GetCurrentWidth();
 	vid.height = VID_GetCurrentHeight();
+	vid.maxscale = q_max (4, vid.height / 240);
 	vid.refreshrate = VID_GetCurrentRefreshRate();
 	vid.conwidth = vid.width & 0xFFFFFFF8;
 	vid.conheight = vid.conwidth * vid.height / vid.width;
@@ -1928,7 +1929,7 @@ static void VID_Menu_ChooseNextScale (int dir)
 {
 	int scale = r_refdef.scale - dir;
 
-	Cvar_SetValueQuick (&r_scale, CLAMP (1, scale, 4));
+	Cvar_SetValueQuick (&r_scale, CLAMP (1, scale, vid.maxscale));
 }
 
 static const char *const texfilters[][2] =
