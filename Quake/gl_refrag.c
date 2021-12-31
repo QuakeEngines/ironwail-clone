@@ -93,10 +93,9 @@ R_SplitEntityOnNode
 */
 void R_SplitEntityOnNode (mnode_t *node)
 {
-	efrag_t		*ef;
+	efrag_t		*ef, **leaf_efrags;
 	mplane_t	*splitplane;
-	mleaf_t		*leaf;
-	int			sides;
+	int			idx, sides;
 
 	if (node->contents == CONTENTS_SOLID)
 	{
@@ -110,15 +109,16 @@ void R_SplitEntityOnNode (mnode_t *node)
 		if (!r_pefragtopnode)
 			r_pefragtopnode = node;
 
-		leaf = (mleaf_t *)node;
+		idx = (mleaf_t *)node - cl.worldmodel->leafs;
+		leaf_efrags = &cl.worldmodel->leaf_efrags[idx];
 
 // grab an efrag off the free list
 		ef = R_GetEfrag();
 		ef->entity = r_addent;
 
 // set the leaf links
-		ef->leafnext = leaf->efrags;
-		leaf->efrags = ef;
+		ef->leafnext = *leaf_efrags;
+		*leaf_efrags = ef;
 
 		return;
 	}

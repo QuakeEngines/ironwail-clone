@@ -209,7 +209,6 @@ typedef struct mleaf_s
 
 // leaf specific
 	byte		*compressed_vis;
-	efrag_t		*efrags;
 
 	int			*firstmarksurface;
 	int			nummarksurfaces;
@@ -491,6 +490,7 @@ typedef struct qmodel_s
 	int			*marksurfaces;
 
 	soa_aabb_t	*soa_leafbounds;
+	efrag_t		**leaf_efrags;
 
 	hull_t		hulls[MAX_MAP_HULLS];
 

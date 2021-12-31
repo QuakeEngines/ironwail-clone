@@ -160,7 +160,7 @@ static void R_MarkVisSurfaces (byte* vis)
 R_AddStaticModelsSIMD
 ===============
 */
-void R_AddStaticModelsSIMD (byte *vis)
+void R_AddStaticModelsSIMD (const byte *vis)
 {
 	int			i, j;
 	int			numleafs = cl.worldmodel->numleafs;
@@ -168,7 +168,7 @@ void R_AddStaticModelsSIMD (byte *vis)
 
 	for (i = 0; i < numleafs; i += 8)
 	{
-		mleaf_t *leaf;
+		efrag_t **efrags;
 		int mask = vis[i>>3];
 		if (mask == 0)
 			continue;
@@ -177,9 +177,9 @@ void R_AddStaticModelsSIMD (byte *vis)
 		if (mask == 0)
 			continue;
 
-		for (j = 0, leaf = &cl.worldmodel->leafs[1 + i]; j < 8 && i + j < numleafs; j++, leaf++)
-			if ((mask & (1 << j)) && leaf->efrags)
-				R_StoreEfrags (&leaf->efrags);
+		for (j = 0, efrags = &cl.worldmodel->leaf_efrags[1 + i]; j < 8 && 1 + i + j < numleafs; j++, efrags++)
+			if ((mask & (1 << j)) && *efrags)
+				R_StoreEfrags (efrags);
 	}
 }
 #endif // defined(USE_SIMD)
@@ -189,14 +189,15 @@ void R_AddStaticModelsSIMD (byte *vis)
 R_AddStaticModels
 ===============
 */
-void R_AddStaticModels (byte* vis)
+void R_AddStaticModels (const byte* vis)
 {
 	int			i;
 	mleaf_t		*leaf;
+	efrag_t		**efrags;
 
-	for (i = 0, leaf = &cl.worldmodel->leafs[1]; i < cl.worldmodel->numleafs; i++, leaf++)
-		if (vis[i>>3] & (1<<(i&7)) && !R_CullBox(leaf->minmaxs, leaf->minmaxs + 3) && leaf->efrags)
-			R_StoreEfrags (&leaf->efrags);
+	for (i = 0, leaf = &cl.worldmodel->leafs[1], efrags = &cl.worldmodel->leaf_efrags[1]; 1 + i < cl.worldmodel->numleafs; i++, leaf++, efrags++)
+		if (vis[i>>3] & (1<<(i&7)) && *efrags && !R_CullBox(leaf->minmaxs, leaf->minmaxs + 3))
+			R_StoreEfrags (efrags);
 }
 
 /*

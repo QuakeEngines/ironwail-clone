@@ -1484,7 +1484,6 @@ void Mod_ProcessLeafs_S (dsleaf_t *in, int filelen)
 			out->compressed_vis = NULL;
 		else
 			out->compressed_vis = loadmodel->visdata + p;
-		out->efrags = NULL;
 
 		for (j=0 ; j<4 ; j++)
 			out->ambient_sound_level[j] = in->ambient_level[j];
@@ -1527,7 +1526,6 @@ void Mod_ProcessLeafs_L1 (dl1leaf_t *in, int filelen)
 			out->compressed_vis = NULL;
 		else
 			out->compressed_vis = loadmodel->visdata + p;
-		out->efrags = NULL;
 
 		for (j=0 ; j<4 ; j++)
 			out->ambient_sound_level[j] = in->ambient_level[j];
@@ -1570,7 +1568,6 @@ void Mod_ProcessLeafs_L2 (dl2leaf_t *in, int filelen)
 			out->compressed_vis = NULL;
 		else
 			out->compressed_vis = loadmodel->visdata + p;
-		out->efrags = NULL;
 
 		for (j=0 ; j<4 ; j++)
 			out->ambient_sound_level[j] = in->ambient_level[j];
@@ -1594,6 +1591,8 @@ void Mod_LoadLeafs (lump_t *l, int bsp2)
 		Mod_ProcessLeafs_L1 ((dl1leaf_t *)in, l->filelen);
 	else
 		Mod_ProcessLeafs_S  ((dsleaf_t *) in, l->filelen);
+
+	loadmodel->leaf_efrags = (efrag_t **) Hunk_AllocName (loadmodel->numleafs * sizeof (efrag_t *), "leaf efrags");
 }
 
 /*
