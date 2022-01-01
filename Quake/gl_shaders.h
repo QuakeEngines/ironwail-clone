@@ -643,8 +643,6 @@ static const char water_fragment_shader[] =
 "#endif\n"
 "\n"
 FRAMEDATA_BUFFER
-WORLD_CALLDATA_BUFFER
-WORLD_INSTANCEDATA_BUFFER
 NOISE_FUNCTIONS
 "\n"
 "layout(location=0) flat in float in_alpha;\n"
@@ -741,7 +739,6 @@ static const char sky_layers_fragment_shader[] =
 "#endif\n"
 "\n"
 FRAMEDATA_BUFFER
-WORLD_CALLDATA_BUFFER
 "\n"
 "layout(location=0) in vec3 in_dir;\n"
 "#if BINDLESS\n"
