@@ -1093,6 +1093,8 @@ void SCR_UpdateScreen (void)
 //
 	SCR_SetUpToDrawConsole ();
 
+	V_UpdateBlend (); //johnfitz -- V_UpdatePalette cleaned up and renamed
+
 	V_RenderView ();
 
 	GL_BeginGroup ("2D");
@@ -1142,8 +1144,6 @@ void SCR_UpdateScreen (void)
 	}
 
 	Draw_Flush ();
-
-	V_UpdateBlend (); //johnfitz -- V_UpdatePalette cleaned up and renamed
 
 	GL_EndGroup ();
 

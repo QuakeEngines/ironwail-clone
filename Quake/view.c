@@ -257,7 +257,7 @@ cshift_t	cshift_water = { {130,80,50}, 128 };
 cshift_t	cshift_slime = { {0,25,5}, 150 };
 cshift_t	cshift_lava = { {255,80,0}, 150 };
 
-float		v_blend[4];		// rgba 0.0 - 1.0
+float		v_blend[4];		// rgba 0.0 - 1.0; see note in V_PolyBlend for more info
 
 //johnfitz -- deleted BuildGammaTable(), V_CheckGamma(), gammatable[], and ramps[][]
 
@@ -535,18 +535,39 @@ void V_PolyBlend (void)
 	qboolean msaa = framebufs.scene.samples > 1;
 	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1;
 
-	// r_softemu active: viewblend is done through palette remapping
-	// r_softemu inactive:
-	//     warp/scale/msaa active: viewblend is performed in R_WarpScaleView
-	//     warp/scale/msaa inactive: viewblend is done here
-	if (!gl_polyblend.value || !v_blend[3] || softemu || !direct)
+	if (!gl_polyblend.value || !v_blend[3])
 		return;
+
+	if (softemu)
+	{
+		// If software emulation is active then it's best to perform the color shifting
+		// through palette remapping, which is consistent with the old software renderers
+		// and also avoids palettization artifacts (e.g. underwater).
+
+		// However, when a custom color shift is active (v_cshift), then the expectation is
+		// that the effect is applied before centerprints: the books in Arcane Dimensions
+		// use a black overlay to make the text easier to read, but rendering it at the end
+		// of the pipeline would have the opposite effect. In this case, we perform
+		// the color shifting here.
+		if (!cshift_empty.percent)
+			return;
+	}
+	else
+	{
+		// If we're already rendering to an intermediate FBO (for warp/scale/MSAA)
+		// then we can apply the color blending when blitting the intermediate texture
+		// (to save the memory bandwidth an extra full-screen alpha blend would consume)
+		if (!direct)
+			return;
+	}
 
 	GL_UseProgram (glprogs.viewblend);
 	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
 	GL_Uniform4fvFunc (0, 1, v_blend);
 
 	glDrawArrays (GL_TRIANGLES, 0, 3);
+
+	v_blend[3] = 0.f; // make sure this doesn't get applied again later in the pipeline
 }
 
 /*
