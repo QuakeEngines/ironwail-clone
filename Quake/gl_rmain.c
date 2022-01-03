@@ -715,7 +715,7 @@ R_SetupGL
 void R_SetupGL (void)
 {
 	qboolean msaa = framebufs.scene.samples > 1;
-	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value || softemu);
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1;
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 
 	if (direct)
@@ -1040,7 +1040,7 @@ void R_WarpScaleView (void)
 	float smax, tmax;
 	qboolean postprocess = vid_gamma.value != 1.f || vid_contrast.value != 1.f || softemu;
 	qboolean msaa = framebufs.scene.samples > 1;
-	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1 && (!v_blend[3] || !gl_polyblend.value || softemu);
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1;
 
 	if (direct)
 		return;

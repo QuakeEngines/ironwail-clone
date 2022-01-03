@@ -255,6 +255,7 @@ void GL_CreateShaders (void)
 	int palettize, dither, alphatest, warp;
 
 	glprogs.gui = GL_CreateProgram (gui_vertex_shader, gui_fragment_shader, "gui");
+	glprogs.viewblend = GL_CreateProgram (viewblend_vertex_shader, viewblend_fragment_shader, "viewblend");
 	for (warp = 0; warp < 2; warp++)
 		glprogs.warpscale[warp] = GL_CreateProgram (warpscale_vertex_shader, warpscale_fragment_shader, "view warp/scale|WARP %d", warp);
 	for (palettize = 0; palettize < 3; palettize++)

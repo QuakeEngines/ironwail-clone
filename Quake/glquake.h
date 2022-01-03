@@ -463,6 +463,7 @@ int R_LightPoint (vec3_t p, lightcache_t *cache);
 typedef struct glprogs_s {
 	/* 2d */
 	GLuint		gui;
+	GLuint		viewblend;
 	GLuint		warpscale[2];	// [warp]
 	GLuint		postprocess[3];	// [palettize:off/dithered/direct]
 

@@ -525,6 +525,31 @@ void V_UpdateBlend (void)
 }
 
 /*
+============
+V_PolyBlend -- johnfitz -- moved here from gl_rmain.c
+============
+*/
+void V_PolyBlend (void)
+{
+	extern qboolean water_warp;
+	qboolean msaa = framebufs.scene.samples > 1;
+	qboolean direct = !msaa && !water_warp && r_refdef.scale == 1;
+
+	// r_softemu active: viewblend is done through palette remapping
+	// r_softemu inactive:
+	//     warp/scale/msaa active: viewblend is performed in R_WarpScaleView
+	//     warp/scale/msaa inactive: viewblend is done here
+	if (!gl_polyblend.value || !v_blend[3] || softemu || !direct)
+		return;
+
+	GL_UseProgram (glprogs.viewblend);
+	GL_SetState (GLS_BLEND_ALPHA | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(0));
+	GL_Uniform4fvFunc (0, 1, v_blend);
+
+	glDrawArrays (GL_TRIANGLES, 0, 3);
+}
+
+/*
 ==============================================================================
 
 	VIEW RENDERING
@@ -855,6 +880,8 @@ void V_RenderView (void)
 	//johnfitz -- removed lcd code
 
 	R_RenderView ();
+
+	V_PolyBlend (); //johnfitz -- moved here from R_Renderview ();
 }
 
 /*

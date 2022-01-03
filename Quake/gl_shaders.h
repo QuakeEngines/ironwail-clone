@@ -67,6 +67,31 @@ static const char gui_fragment_shader[] =
 
 ////////////////////////////////////////////////////////////////
 //
+// View blend
+//
+////////////////////////////////////////////////////////////////
+
+static const char viewblend_vertex_shader[] =
+"void main()\n"
+"{\n"
+"	ivec2 v = ivec2(gl_VertexID & 1, gl_VertexID >> 1);\n"
+"	gl_Position = vec4(vec2(v) * 4.0 - 1.0, 0.0, 1.0);\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+
+static const char viewblend_fragment_shader[] =
+"layout(location=0) uniform vec4 Color;\n"
+"\n"
+"layout(location=0) out vec4 out_fragcolor;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	out_fragcolor = Color;\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+//
 // View warp/scale
 //
 ////////////////////////////////////////////////////////////////
