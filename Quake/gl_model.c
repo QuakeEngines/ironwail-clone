@@ -1591,7 +1591,15 @@ void Mod_LoadLeafs (lump_t *l, int bsp2)
 		Mod_ProcessLeafs_L1 ((dl1leaf_t *)in, l->filelen);
 	else
 		Mod_ProcessLeafs_S  ((dsleaf_t *) in, l->filelen);
+}
 
+/*
+=================
+Mod_AllocLeafEFrags
+=================
+*/
+static void Mod_AllocLeafEFrags (void)
+{
 	loadmodel->leaf_efrags = (efrag_t **) Hunk_AllocName (loadmodel->numleafs * sizeof (efrag_t *), "leaf efrags");
 }
 
@@ -2351,6 +2359,7 @@ visdone:
 	Mod_LoadEntities (&header->lumps[LUMP_ENTITIES]);
 	Mod_LoadSubmodels (&header->lumps[LUMP_MODELS]);
 
+	Mod_AllocLeafEFrags ();
 	Mod_PrepareSIMDData ();
 	Mod_MakeHull0 ();
 
