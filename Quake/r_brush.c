@@ -188,8 +188,14 @@ static int AllocBlock (int w, int h, int *x, int *y)
 			lightmap_count++;
 			lightmaps = (lightmap_t *) realloc(lightmaps, sizeof(*lightmaps)*lightmap_count);
 			memset(&lightmaps[texnum], 0, sizeof(lightmaps[texnum]));
-			//as we're only tracking one texture, we don't need multiple copies any more.
+			// as we're only tracking one texture, we don't need multiple copies any more.
 			Chart_Init (&lightmap_chart, LMBLOCK_WIDTH, LMBLOCK_HEIGHT);
+			// reserve 1 texel for unlit water surfaces in maps with lit water
+			if (lightmap_count == 1)
+			{
+				lightmap_chart.x = 1;
+				lightmap_chart.allocated[0] = 1;
+			}
 		}
 
 		if (!Chart_Add (&lightmap_chart, w, h, x, y))
@@ -463,6 +469,9 @@ void GL_BuildLightmaps (void)
 		lm->yofs = (i / xblocks) * LMBLOCK_HEIGHT;
 	}
 
+	// fill reserved texel
+	lightmap_layers[0][0] = 0xff808080u;
+
 	// fill lightmap samples
 	for (i = 0, j = VEC_SIZE (lit_surfs); i < j; i++)
 		GL_FillSurfaceLightmap (lit_surfs[i]);
@@ -599,9 +608,17 @@ void GL_BuildBModelVertexBuffer (void)
 			}
 			else
 			{
-				texscalex = 1.f / texture->width;
-				texscaley = 1.f / texture->height;
-				useofs = 1.f;
+				if (fa->flags & SURF_DRAWTURB)
+				{
+					texscaley = texscalex = 1.f / 128.f; //warp animation repeats every 128
+					useofs = 0.f;
+				}
+				else
+				{
+					texscalex = 1.f / texture->width;
+					texscaley = 1.f / texture->height;
+					useofs = 1.f;
+				}
 				lm = &lightmaps[fa->lightmaptexturenum];
 			}
 
@@ -664,6 +681,12 @@ void GL_BuildBModelVertexBuffer (void)
 
 					verts[5] = s;
 					verts[6] = t;
+				}
+				else
+				{
+					// first lightmap texel is fullbright
+					verts[5] = 0.5f / lightmap_width;
+					verts[6] = 0.5f / lightmap_height;
 				}
 			}
 		}

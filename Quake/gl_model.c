@@ -1225,7 +1225,14 @@ void Mod_LoadFaces (lump_t *l, qboolean bsp2)
 		}
 		else if (TEXTYPE_ISLIQUID (texture->type))
 		{
-			out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);
+			out->flags |= SURF_DRAWTURB;
+			if (out->texinfo->flags & TEX_SPECIAL)
+				out->flags |= SURF_DRAWTILED; 
+			else if (out->samples && !loadmodel->haslitwater)
+			{
+				Con_DPrintf ("Map has lit water\n");
+				loadmodel->haslitwater = true;
+			}
 
 			if (texture->type == TEXTYPE_LAVA)
 				out->flags |= SURF_DRAWLAVA;

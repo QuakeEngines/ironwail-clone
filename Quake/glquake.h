@@ -102,6 +102,7 @@ extern	cvar_t	r_wateralpha;
 extern	cvar_t	r_lavaalpha;
 extern	cvar_t	r_telealpha;
 extern	cvar_t	r_slimealpha;
+extern	cvar_t	r_litwater;
 extern	cvar_t	r_dynamic;
 extern	cvar_t	r_novis;
 extern	cvar_t	r_scale;
@@ -459,6 +460,9 @@ void GLMesh_DeleteVertexBuffers (void);
 
 int R_LightPoint (vec3_t p, lightcache_t *cache);
 
+#define WORLDSHADER_SOLID		0
+#define WORLDSHADER_ALPHATEST	1
+#define WORLDSHADER_WATER		2
 
 typedef struct glprogs_s {
 	/* 2d */
@@ -468,7 +472,7 @@ typedef struct glprogs_s {
 	GLuint		postprocess[3];	// [palettize:off/dithered/direct]
 
 	/* 3d */
-	GLuint		world[3][2];	// [dither][alpha test]
+	GLuint		world[3][3];	// [dither][mode:solid/alpha test/water]
 	GLuint		water[2];		// [dither]
 	GLuint		skystencil;
 	GLuint		skylayers[2];	// [dither]

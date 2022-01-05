@@ -252,7 +252,7 @@ GL_CreateShaders
 */
 void GL_CreateShaders (void)
 {
-	int palettize, dither, alphatest, warp;
+	int palettize, dither, mode, warp;
 
 	glprogs.gui = GL_CreateProgram (gui_vertex_shader, gui_fragment_shader, "gui");
 	glprogs.viewblend = GL_CreateProgram (viewblend_vertex_shader, viewblend_fragment_shader, "viewblend");
@@ -262,13 +262,13 @@ void GL_CreateShaders (void)
 		glprogs.postprocess[palettize] = GL_CreateProgram (postprocess_vertex_shader, postprocess_fragment_shader, "postprocess|PALETTIZE %d", palettize);
 
 	for (dither = 0; dither < 3; dither++)
-		for (alphatest = 0; alphatest < 2; alphatest++)
-			glprogs.world[dither][alphatest] = GL_CreateProgram (world_vertex_shader, world_fragment_shader, "world|DITHER %d; ALPHATEST %d", dither, alphatest);
+		for (mode = 0; mode < 3; mode++)
+			glprogs.world[dither][mode] = GL_CreateProgram (world_vertex_shader, world_fragment_shader, "world|DITHER %d; MODE %d", dither, mode);
 
 	for (dither = 0; dither < 2; dither++)
 	{
-		for (alphatest = 0; alphatest < 2; alphatest++)
-			glprogs.alias[dither][alphatest] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|DITHER %d; ALPHATEST %d", dither, alphatest);
+		for (mode = 0; mode < 2; mode++)
+			glprogs.alias[dither][mode] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|DITHER %d; ALPHATEST %d", dither, mode);
 		glprogs.water[dither] = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water|DITHER %d", dither);
 		glprogs.skylayers[dither] = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers|DITHER %d", dither);
 		glprogs.skycubemap[dither] = GL_CreateProgram (sky_cubemap_vertex_shader, sky_cubemap_fragment_shader, "sky cubemap|DITHER %d", dither);

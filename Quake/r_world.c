@@ -539,12 +539,12 @@ static void R_DrawBrushModels_Real (entity_t **ents, int count, brushpass_t pass
 	case BP_SOLID:
 		texbegin = 0;
 		texend = TEXTYPE_CUTOUT;
-		program = glprogs.world[q_max(0, (int)softemu - 1)][0];
+		program = glprogs.world[q_max(0, (int)softemu - 1)][WORLDSHADER_SOLID];
 		break;
 	case BP_ALPHATEST:
 		texbegin = TEXTYPE_CUTOUT;
 		texend = TEXTYPE_CUTOUT + 1;
-		program = glprogs.world[q_max(0, (int)softemu - 1)][1];
+		program = glprogs.world[q_max(0, (int)softemu - 1)][WORLDSHADER_ALPHATEST];
 		break;
 	case BP_SKYLAYERS:
 		texbegin = TEXTYPE_SKY;
@@ -653,7 +653,7 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 	int i, j;
 	int totalinst, baseinst;
 	unsigned state;
-	GLuint buf;
+	GLuint buf, program;
 	GLbyte *ofs;
 
 	if (count > countof(bmodel_instances))
@@ -679,7 +679,12 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 	else
 		state |= GLS_BLEND_OPAQUE;
 
-	R_ResetBModelCalls (glprogs.water[softemu == SOFTEMU_COARSE]);
+	if (cl.worldmodel->haslitwater && r_litwater.value)
+		program = glprogs.world[q_max(0, (int)softemu - 1)][WORLDSHADER_WATER];
+	else
+		program = glprogs.water[softemu == SOFTEMU_COARSE];
+
+	R_ResetBModelCalls (program);
 	GL_SetState (state);
 	GL_Bind (GL_TEXTURE2, r_fullbright_cheatsafe ? greytexture : lightmap_texture);
 
