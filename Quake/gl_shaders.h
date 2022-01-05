@@ -534,7 +534,7 @@ NOISE_FUNCTIONS
 "	vec3 fullbright = vec3(0.);\n"
 "	vec2 uv = in_uv;\n"
 "#if MODE == " QS_STRINGIFY (WORLDSHADER_WATER) "\n"
-"	uv = uv * 2.0 + 0.125 * sin(in_uv.yx * (3.14159265 * 2.0) + Time);\n"
+"	uv = uv * 2.0 + 0.125 * sin(uv.yx * (3.14159265 * 2.0) + Time);\n"
 "#endif\n"
 "#if BINDLESS\n"
 "	sampler2D Tex = sampler2D(in_samplers.xy);\n"
