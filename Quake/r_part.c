@@ -41,7 +41,7 @@ int			r_numparticles;
 gltexture_t *particletexture, *particletexture1, *particletexture2, *particletexture3, *particletexture4; //johnfitz
 float texturescalefactor; //johnfitz -- compensate for apparent size of different particle textures
 
-cvar_t	r_particles = {"r_particles","1", CVAR_ARCHIVE}; //johnfitz
+cvar_t	r_particles = {"r_particles","2", CVAR_ARCHIVE}; //johnfitz
 
 typedef struct particlevert_t {
 	vec3_t		pos;
@@ -118,10 +118,6 @@ void R_InitParticleTextures (void)
 			*dst++ = R_ParticleTextureLookup(x, y, 2);
 		}
 	particletexture3 = TexMgr_LoadImage (NULL, "particle3", 64, 64, SRC_RGBA, particle3_data, "", (src_offset_t)particle3_data, TEXPREF_PERSIST | TEXPREF_ALPHA | TEXPREF_LINEAR);
-
-	//set default
-	particletexture = particletexture1;
-	texturescalefactor = 1.27;
 }
 
 /*
@@ -173,10 +169,11 @@ void R_InitParticles (void)
 	particles = (particle_t *)
 			Hunk_AllocName (r_numparticles * sizeof(particle_t), "particles");
 
+	R_InitParticleTextures (); //johnfitz
+
 	Cvar_RegisterVariable (&r_particles); //johnfitz
 	Cvar_SetCallback (&r_particles, R_SetParticleTexture_f);
-
-	R_InitParticleTextures (); //johnfitz
+	R_SetParticleTexture_f (&r_particles); // set default
 }
 
 /*
