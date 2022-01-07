@@ -1988,7 +1988,7 @@ static const char *VID_Menu_GetSoftEmuDesc (void)
 {
 	switch (softemu)
 	{
-	case SOFTEMU_BANDED: return "Strong";
+	case SOFTEMU_BANDED: return "Raw";
 	case SOFTEMU_COARSE: return "Balanced";
 	case SOFTEMU_FINE: return "Subtle";
 	case SOFTEMU_OFF: return "Off";
