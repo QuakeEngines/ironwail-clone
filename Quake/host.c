@@ -247,6 +247,7 @@ void Host_Version_f (void)
 {
 	Con_Printf ("Quake Version %1.2f\n", VERSION);
 	Con_Printf ("QuakeSpasm Version " QUAKESPASM_VER_STRING "\n");
+	Con_Printf ("Ironwail Version " IRONWAIL_VER_STRING "\n");
 	Con_Printf ("Exe: " __TIME__ " " __DATE__ "\n");
 }
 

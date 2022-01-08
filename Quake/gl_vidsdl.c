@@ -394,7 +394,7 @@ static qboolean VID_SetMode (int width, int height, int refreshrate, int bpp, qb
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, depthbits);
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, stencilbits);
 
-	q_snprintf(caption, sizeof(caption), "QuakeSpasm " QUAKESPASM_VER_STRING);
+	q_snprintf(caption, sizeof(caption), WINDOW_TITLE_STRING);
 
 	/* Create the window if needed, hidden */
 	if (!draw_context)

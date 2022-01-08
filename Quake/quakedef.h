@@ -39,7 +39,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	QUAKESPASM_VERSION	0.94
 #define	QUAKESPASM_VER_PATCH	3	// helper to print a string like 0.94.3
 #ifndef	QUAKESPASM_VER_SUFFIX
-#define	QUAKESPASM_VER_SUFFIX		"-gl4" // optional version suffix string literal like "-beta1"
+#define	QUAKESPASM_VER_SUFFIX		// optional version suffix string literal like "-beta1"
+#endif
+
+#define IRONWAIL_VERSION		0.3
+#define IRONWAIL_VER_PATCH		0
+#ifndef IRONWAIL_VER_SUFFIX
+#define IRONWAIL_VER_SUFFIX			// optional version suffix string literal like "-beta1"
 #endif
 
 #define	QS_STRINGIFY_(x)	#x
@@ -47,6 +53,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // combined version string like "0.92.1-beta1"
 #define	QUAKESPASM_VER_STRING	QS_STRINGIFY(QUAKESPASM_VERSION) "." QS_STRINGIFY(QUAKESPASM_VER_PATCH) QUAKESPASM_VER_SUFFIX
+#define	IRONWAIL_VER_STRING		QS_STRINGIFY(IRONWAIL_VERSION) "." QS_STRINGIFY(IRONWAIL_VER_PATCH) IRONWAIL_VER_SUFFIX
+
+#define CONSOLE_TITLE_STRING	"Ironwail " IRONWAIL_VER_STRING
+#define WINDOW_TITLE_STRING		"IronWail Quake " IRONWAIL_VER_STRING
 
 //define	PARANOID			// speed sapping error checking
 
