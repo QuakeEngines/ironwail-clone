@@ -465,11 +465,7 @@ static void R_AddBModelCall (int index, int first_instance, int num_instances, t
 	if (!gl_zfix.value)
 		zfix = 0;
 
-	flags =
-		(t != NULL && t->type == TEXTYPE_CUTOUT)
-		| (zfix << 1)
-		| ((fb != NULL) << 2)
-	;
+	flags = zfix | ((fb != NULL) << 1);
 	alpha = t ? GL_WaterAlphaForTextureType (t->type) : 1.f;
 
 	if (gl_bindless_able)

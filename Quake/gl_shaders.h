@@ -361,9 +361,8 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 "#endif // BINDLESS\n"\
 "};\n"\
 "const uint\n"\
-"	CF_USE_ALPHA_TEST = 1u,\n"\
-"	CF_USE_POLYGON_OFFSET = 2u,\n"\
-"	CF_USE_FULLBRIGHT = 4u\n"\
+"	CF_USE_POLYGON_OFFSET = 1u,\n"\
+"	CF_USE_FULLBRIGHT = 2u\n"\
 ";\n"\
 "\n"\
 "layout(std430, binding=1) restrict readonly buffer CallBuffer\n"\
