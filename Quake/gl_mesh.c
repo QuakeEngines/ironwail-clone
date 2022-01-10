@@ -461,6 +461,9 @@ static void GLMesh_LoadVertexBuffer (qmodel_t *m, const aliashdr_t *hdr)
 	int f;
 	char name[256];
 
+	if (isDedicated)
+		return;
+
 // count the sizes we need
 	
 	// ericw -- RMQEngine stored these vbo*ofs values in aliashdr_t, but we must not
