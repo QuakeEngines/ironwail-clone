@@ -435,7 +435,7 @@ void M_ScanSaves (void)
 		strcpy (m_filenames[i], "--- UNUSED SLOT ---");
 		loadable[i] = false;
 		q_snprintf (name, sizeof(name), "%s/s%i.sav", com_gamedir, i);
-		f = fopen (name, "r");
+		f = Sys_fopen (name, "r");
 		if (!f)
 			continue;
 		fscanf (f, "%i\n", &version);

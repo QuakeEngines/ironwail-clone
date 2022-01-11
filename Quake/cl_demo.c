@@ -221,6 +221,7 @@ record <demoname> <map> [cd track]
 void CL_Record_f (void)
 {
 	int		c;
+	char	relname[MAX_OSPATH];
 	char	name[MAX_OSPATH];
 	int		track;
 
@@ -273,8 +274,6 @@ void CL_Record_f (void)
 		track = -1;
 	}
 
-	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, Cmd_Argv(1));
-
 // start the map up
 	if (c > 2)
 	{
@@ -284,13 +283,15 @@ void CL_Record_f (void)
 	}
 
 // open the demo file
-	COM_AddExtension (name, ".dem", sizeof(name));
+	q_strlcpy (relname, Cmd_Argv(1), sizeof(relname));
+	COM_AddExtension (relname, ".dem", sizeof(relname));
+	Con_Printf ("recording to %s.\n", relname);
 
-	Con_Printf ("recording to %s.\n", name);
-	cls.demofile = fopen (name, "wb");
+	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, relname);
+	cls.demofile = Sys_fopen (name, "wb");
 	if (!cls.demofile)
 	{
-		Con_Printf ("ERROR: couldn't create %s\n", name);
+		Con_Printf ("ERROR: couldn't create %s\n", relname);
 		return;
 	}
 

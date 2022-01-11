@@ -94,9 +94,15 @@ char *PL_GetClipboardData (void)
 	return data;
 }
 
+static wchar_t error_buffer[1024];
+
 void PL_ErrorDialog(const char *errorMsg)
 {
-	MessageBox (NULL, errorMsg, "Quake Error",
-			MB_OK | MB_SETFOREGROUND | MB_ICONSTOP);
+	wchar_t *msg;
+	if (!MultiByteToWideChar (CP_UTF8, 0, errorMsg, -1, error_buffer, countof (error_buffer)))
+		msg = L"An unknown error occurred";
+	else
+		msg = error_buffer;
+	MessageBoxW (NULL, msg, L"Quake Error", MB_OK | MB_SETFOREGROUND | MB_ICONSTOP);
 }
 

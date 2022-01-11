@@ -152,17 +152,18 @@ Con_Dump_f -- johnfitz -- adapted from quake2 source
 static void Con_Dump_f (void)
 {
 	int		l, x;
-	const char	*line;
+	const char	*line, *relname;
 	FILE	*f;
 	char	buffer[1024];
 	char	name[MAX_OSPATH];
 
-	q_snprintf (name, sizeof(name), "%s/condump.txt", com_gamedir);
+	relname = "condump.txt";
+	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, relname);
 	COM_CreatePath (name);
-	f = fopen (name, "w");
+	f = Sys_fopen (name, "w");
 	if (!f)
 	{
-		Con_Printf ("ERROR: couldn't open file %s.\n", name);
+		Con_Printf ("ERROR: couldn't open file %s.\n", relname);
 		return;
 	}
 
@@ -197,7 +198,7 @@ static void Con_Dump_f (void)
 	}
 
 	fclose (f);
-	Con_Printf ("Dumped console text to %s.\n", name);
+	Con_Printf ("Dumped console text to %s.\n", relname);
 }
 
 /*

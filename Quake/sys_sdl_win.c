@@ -64,6 +64,57 @@ static int findhandle (void)
 	return -1;
 }
 
+typedef struct {
+	wchar_t *ptr;
+	wchar_t buffer[MAX_PATH];
+} wpath_t;
+
+static void WPath_Alloc (wpath_t *path, size_t size)
+{
+	if (size <= countof (path->buffer))
+		path->ptr = path->buffer;
+	else
+		path->ptr = (wchar_t *) malloc (size);
+}
+
+static void WPath_Free (wpath_t *path)
+{
+	if (path->ptr != path->buffer)
+		free (path->ptr);
+}
+
+static void WPath_FromUTF8 (const char *src, wpath_t *dst)
+{
+	int len = MultiByteToWideChar (CP_UTF8, 0, src, -1, NULL, 0);
+	if (!len)
+		Sys_Error ("MultiByteToWideChar failed: %d", GetLastError ());
+	WPath_Alloc (dst, len);
+	if (MultiByteToWideChar (CP_UTF8, 0, src, -1, dst->ptr, len) != len)
+		Sys_Error ("MultiByteToWideChar failed: %d", GetLastError ());
+}
+
+FILE *Sys_fopen (const char *path, const char *mode)
+{
+	wpath_t	wpath;
+	wchar_t	wmode[8];
+	int		i;
+	FILE	*f;
+	
+	for (i = 0; mode[i]; i++)
+	{
+		if (i == countof (wmode) - 1)
+			Sys_Error ("Sys_fopen: invalid mode \"%s\"", mode);
+		wmode[i] = mode[i];
+	}
+	wmode[i] = 0;
+
+	WPath_FromUTF8 (path, &wpath);
+	f = _wfopen (wpath.ptr, wmode);
+	WPath_Free (&wpath);
+
+	return f;
+}
+
 long Sys_filelength (FILE *f)
 {
 	long		pos, end;
@@ -79,10 +130,10 @@ long Sys_filelength (FILE *f)
 int Sys_FileOpenRead (const char *path, int *hndl)
 {
 	FILE	*f;
-	int	i, retval;
+	int		i, retval;
 
 	i = findhandle ();
-	f = fopen(path, "rb");
+	f = Sys_fopen (path, "rb");
 
 	if (!f)
 	{
@@ -105,7 +156,7 @@ int Sys_FileOpenWrite (const char *path)
 	int		i;
 
 	i = findhandle ();
-	f = fopen(path, "wb");
+	f = Sys_fopen (path, "wb");
 
 	if (!f)
 		Sys_Error ("Error opening %s: %s", path, strerror(errno));
@@ -139,7 +190,7 @@ int Sys_FileTime (const char *path)
 {
 	FILE	*f;
 
-	f = fopen(path, "rb");
+	f = Sys_fopen (path, "rb");
 
 	if (f)
 	{
@@ -156,10 +207,24 @@ static void Sys_GetBasedir (char *argv0, char *dst, size_t dstsize)
 {
 	char *tmp;
 	size_t rc;
+	wpath_t wpath;
+	int len;
 
-	rc = GetCurrentDirectory(dstsize, dst);
-	if (rc == 0 || rc > dstsize)
-		Sys_Error ("Couldn't determine current directory");
+	rc = GetCurrentDirectoryW (0, NULL);
+	if (rc == 0)
+		Sys_Error ("Couldn't determine current directory name length (error %d)", GetLastError ());
+	WPath_Alloc (&wpath, rc);
+	if (!GetCurrentDirectoryW (rc, wpath.ptr))
+		Sys_Error ("Couldn't determine current directory (error %d)", GetLastError ());
+
+	len = WideCharToMultiByte (CP_UTF8, 0, wpath.ptr, -1, NULL, 0, NULL, NULL);
+	if (!len)
+		Sys_Error ("Couldn't determine UTF8 length of current directory (error %d)", GetLastError ());
+	if ((size_t)len > dstsize)
+		Sys_Error ("Current directory name too long (%" SDL_PRIu64 " > %" SDL_PRIu64  ")", (uint64_t)len, (uint64_t)dstsize);
+	if (WideCharToMultiByte (CP_UTF8, 0, wpath.ptr, -1, dst, len, NULL, NULL) != len)
+		Sys_Error ("Couldn't convert current directory name to UTF8 (error %d)", GetLastError ());
+	WPath_Free (&wpath);
 
 	tmp = dst;
 	while (*tmp != 0)
@@ -169,6 +234,72 @@ static void Sys_GetBasedir (char *argv0, char *dst, size_t dstsize)
 		--tmp;
 		if (tmp != dst && (*tmp == '/' || *tmp == '\\'))
 			*tmp = 0;
+	}
+}
+
+typedef struct winfindfile_s {
+	findfile_t			base;
+	WIN32_FIND_DATAW	data;
+	HANDLE				handle;
+} winfindfile_t;
+
+static void Sys_FillFindData (winfindfile_t *find)
+{
+	if (!WideCharToMultiByte (CP_UTF8, 0, find->data.cFileName, -1, find->base.name, countof (find->base.name), NULL, NULL))
+		Sys_Error ("Sys_FillFindData: WideCharToMultiByte failed (%d)", GetLastError ());
+	find->base.attribs = 0;
+	if (find->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+		find->base.attribs |= FA_DIRECTORY;
+}
+
+findfile_t *Sys_FindFirst (const char *dir, const char *ext)
+{
+	winfindfile_t		*ret;
+	char				pattern[MAX_OSPATH];
+	wpath_t				wpattern;
+	HANDLE				handle;
+	WIN32_FIND_DATAW	data;
+
+	if (!ext)
+		ext = "*";
+	else if (*ext == '.')
+		++ext;
+	q_snprintf (pattern, sizeof (pattern), "%s/*.%s", dir, ext);
+
+	WPath_FromUTF8 (pattern, &wpattern);
+	handle = FindFirstFileW (wpattern.ptr, &data);
+	WPath_Free (&wpattern);
+
+	if (handle == INVALID_HANDLE_VALUE)
+		return NULL;
+
+	ret = (winfindfile_t *) calloc (1, sizeof (winfindfile_t));
+	ret->handle = handle;
+	ret->data = data;
+	Sys_FillFindData (ret);
+
+	return (findfile_t *) ret;
+}
+
+findfile_t *Sys_FindNext (findfile_t *find)
+{
+	winfindfile_t *wfind = (winfindfile_t *) find;
+	if (!FindNextFileW (wfind->handle, &wfind->data))
+	{
+		Sys_FindClose (find);
+		return NULL;
+	}
+	Sys_FillFindData (wfind);
+	return find;
+}
+
+void Sys_FindClose (findfile_t *find)
+{
+	if (find)
+	{
+		winfindfile_t *wfind = (winfindfile_t *) find;
+		FindClose (wfind->handle);
+		free (wfind);
 	}
 }
 
@@ -254,20 +385,27 @@ void Sys_Init (void)
 
 void Sys_mkdir (const char *path)
 {
-	if (CreateDirectory(path, NULL) != 0)
+	wpath_t wpath;
+	BOOL result;
+
+	WPath_FromUTF8 (path, &wpath);
+	result = CreateDirectoryW (wpath.ptr, NULL);
+	WPath_Free (&wpath);
+	if (result)
 		return;
+
 	if (GetLastError() != ERROR_ALREADY_EXISTS)
-		Sys_Error("Unable to create directory %s", path);
+		Sys_Error ("Unable to create directory %s", path);
 }
 
-static const char errortxt1[] = "\nERROR-OUT BEGIN\n\n";
-static const char errortxt2[] = "\nQUAKE ERROR: ";
+static const wchar_t errortxt1[] = L"\nERROR-OUT BEGIN\n\n";
+static const wchar_t errortxt2[] = L"\nQUAKE ERROR: ";
 
 void Sys_Error (const char *error, ...)
 {
 	va_list		argptr;
 	char		text[1024];
-	DWORD		dummy;
+	wchar_t		wtext[1024];
 
 	host_parms->errstate++;
 
@@ -275,22 +413,25 @@ void Sys_Error (const char *error, ...)
 	q_vsnprintf (text, sizeof(text), error, argptr);
 	va_end (argptr);
 
+	if (!MultiByteToWideChar (CP_UTF8, 0, text, -1, wtext, countof (wtext)))
+		wcscpy (wtext, L"An unknown error has occurred");
+
 	if (isDedicated)
-		WriteFile (houtput, errortxt1, strlen(errortxt1), &dummy, NULL);
+		WriteConsoleW (houtput, errortxt1, wcslen(errortxt1), NULL, NULL);
 	/* SDL will put these into its own stderr log,
 	   so print to stderr even in graphical mode. */
-	fputs (errortxt1, stderr);
+	fputws (errortxt1, stderr);
 	Host_Shutdown ();
-	fputs (errortxt2, stderr);
-	fputs (text, stderr);
-	fputs ("\n\n", stderr);
+	fputws (errortxt2, stderr);
+	fputws (wtext, stderr);
+	fputws (L"\n\n", stderr);
 	if (!isDedicated)
-		PL_ErrorDialog(text);
+		PL_ErrorDialog (text);
 	else
 	{
-		WriteFile (houtput, errortxt2, strlen(errortxt2), &dummy, NULL);
-		WriteFile (houtput, text,      strlen(text),      &dummy, NULL);
-		WriteFile (houtput, "\r\n",    2,		  &dummy, NULL);
+		WriteConsoleW (houtput, errortxt2, wcslen(errortxt2), NULL, NULL);
+		WriteConsoleW (houtput, wtext,     wcslen(wtext),     NULL, NULL);
+		WriteConsoleW (houtput, L"\r\n",   2,		          NULL, NULL);
 		SDL_Delay (3000);	/* show the console 3 more seconds */
 	}
 
@@ -301,22 +442,27 @@ void Sys_Printf (const char *fmt, ...)
 {
 	va_list		argptr;
 	char		text[1024];
-	DWORD		dummy;
+	wchar_t		wtext[1024];
+	int			len;
 
 	va_start (argptr,fmt);
 	q_vsnprintf (text, sizeof(text), fmt, argptr);
 	va_end (argptr);
 
+	len = MultiByteToWideChar (CP_UTF8, 0, text, -1, wtext, countof (wtext)); 
+	if (!len)
+		return;
+
 	if (isDedicated)
 	{
-		WriteFile(houtput, text, strlen(text), &dummy, NULL);
+		WriteConsoleW (houtput, wtext, len, NULL, NULL);
 	}
 	else
 	{
 	/* SDL will put these into its own stdout log,
 	   so print to stdout even in graphical mode. */
-		fputs (text, stdout);
-		OutputDebugStringA(text);
+		fputws (wtext, stdout);
+		OutputDebugStringW (wtext);
 	}
 }
 

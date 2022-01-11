@@ -22,9 +22,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "quakedef.h"
-#ifndef _WIN32
-#include <dirent.h>
-#endif
 
 extern cvar_t	pausable;
 
@@ -115,14 +112,6 @@ static void ExtraMaps_Add (const char *name)
 
 void ExtraMaps_Init (void)
 {
-#ifdef _WIN32
-	WIN32_FIND_DATA	fdat;
-	HANDLE		fhnd;
-#else
-	DIR		*dir_p;
-	struct dirent	*dir_t;
-#endif
-	char		filestring[MAX_OSPATH];
 	char		mapname[32];
 	char		ignorepakdir[32];
 	searchpath_t	*search;
@@ -137,31 +126,17 @@ void ExtraMaps_Init (void)
 	{
 		if (*search->filename) //directory
 		{
-#ifdef _WIN32
-			q_snprintf (filestring, sizeof(filestring), "%s/maps/*.bsp", search->filename);
-			fhnd = FindFirstFile(filestring, &fdat);
-			if (fhnd == INVALID_HANDLE_VALUE)
-				continue;
-			do
+			char		dir[MAX_OSPATH];
+			findfile_t	*find;
+
+			q_snprintf (dir, sizeof (dir), "%s/maps", search->filename);
+			for (find = Sys_FindFirst (dir, "bsp"); find; find = Sys_FindNext (find))
 			{
-				COM_StripExtension(fdat.cFileName, mapname, sizeof(mapname));
-				ExtraMaps_Add (mapname);
-			} while (FindNextFile(fhnd, &fdat));
-			FindClose(fhnd);
-#else
-			q_snprintf (filestring, sizeof(filestring), "%s/maps/", search->filename);
-			dir_p = opendir(filestring);
-			if (dir_p == NULL)
-				continue;
-			while ((dir_t = readdir(dir_p)) != NULL)
-			{
-				if (q_strcasecmp(COM_FileGetExtension(dir_t->d_name), "bsp") != 0)
+				if (find->attribs & FA_DIRECTORY)
 					continue;
-				COM_StripExtension(dir_t->d_name, mapname, sizeof(mapname));
+				COM_StripExtension (find->name, mapname, sizeof (mapname));
 				ExtraMaps_Add (mapname);
 			}
-			closedir(dir_p);
-#endif
 		}
 		else //pakfile
 		{
@@ -224,63 +199,26 @@ static void Modlist_Add (const char *name)
 	FileList_Add(name, &modlist);
 }
 
-#ifdef _WIN32
 void Modlist_Init (void)
 {
-	WIN32_FIND_DATA	fdat;
-	HANDLE		fhnd;
-	DWORD		attribs;
-	char		dir_string[MAX_OSPATH], mod_string[MAX_OSPATH];
+	findfile_t	*find;
+	char		mod_string[MAX_OSPATH];
 
-	q_snprintf (dir_string, sizeof(dir_string), "%s/*", com_basedir);
-	fhnd = FindFirstFile(dir_string, &fdat);
-	if (fhnd == INVALID_HANDLE_VALUE)
-		return;
-
-	do
+	for (find = Sys_FindFirst (com_basedir, NULL); find; find = Sys_FindNext (find))
 	{
-		if (!strcmp(fdat.cFileName, ".") || !strcmp(fdat.cFileName, ".."))
+		if (!(find->attribs & FA_DIRECTORY))
 			continue;
-		q_snprintf (mod_string, sizeof(mod_string), "%s/%s", com_basedir, fdat.cFileName);
-		attribs = GetFileAttributes (mod_string);
-		if (attribs != INVALID_FILE_ATTRIBUTES && (attribs & FILE_ATTRIBUTE_DIRECTORY)) {
-			/* don't bother testing for pak files / progs.dat */
-			Modlist_Add(fdat.cFileName);
-		}
-	} while (FindNextFile(fhnd, &fdat));
-
-	FindClose(fhnd);
-}
-#else
-void Modlist_Init (void)
-{
-	DIR		*dir_p, *mod_dir_p;
-	struct dirent	*dir_t;
-	char		dir_string[MAX_OSPATH], mod_string[MAX_OSPATH];
-
-	q_snprintf (dir_string, sizeof(dir_string), "%s/", com_basedir);
-	dir_p = opendir(dir_string);
-	if (dir_p == NULL)
-		return;
-
-	while ((dir_t = readdir(dir_p)) != NULL)
-	{
-		if (!strcmp(dir_t->d_name, ".") || !strcmp(dir_t->d_name, ".."))
+		if (!strcmp (find->name, ".") || !strcmp (find->name, ".."))
 			continue;
-		if (!q_strcasecmp (COM_FileGetExtension (dir_t->d_name), "app")) // skip .app bundles on macOS
+#ifndef _WIN32
+		if (!q_strcasecmp (COM_FileGetExtension (find->name), "app")) // skip .app bundles on macOS
 			continue;
-		q_snprintf(mod_string, sizeof(mod_string), "%s%s/", dir_string, dir_t->d_name);
-		mod_dir_p = opendir(mod_string);
-		if (mod_dir_p == NULL)
-			continue;
-		/* don't bother testing for pak files / progs.dat */
-		Modlist_Add(dir_t->d_name);
-		closedir(mod_dir_p);
-	}
-
-	closedir(dir_p);
-}
 #endif
+		q_snprintf (mod_string, sizeof (mod_string), "%s/%s", com_basedir, find->name);
+		/* don't bother testing for pak files / progs.dat */
+		Modlist_Add (find->name);
+	}
+}
 
 //==============================================================================
 //ericw -- demo list management
@@ -302,14 +240,6 @@ void DemoList_Rebuild (void)
 // TODO: Factor out to a general-purpose file searching function
 void DemoList_Init (void)
 {
-#ifdef _WIN32
-	WIN32_FIND_DATA	fdat;
-	HANDLE		fhnd;
-#else
-	DIR		*dir_p;
-	struct dirent	*dir_t;
-#endif
-	char		filestring[MAX_OSPATH];
 	char		demname[32];
 	char		ignorepakdir[32];
 	searchpath_t	*search;
@@ -318,37 +248,20 @@ void DemoList_Init (void)
 
 	// we don't want to list the demos in id1 pakfiles,
 	// because these are not "add-on" demos
-	q_snprintf (ignorepakdir, sizeof(ignorepakdir), "/%s/", GAMENAME);
+	q_snprintf (ignorepakdir, sizeof (ignorepakdir), "/%s/", GAMENAME);
 	
 	for (search = com_searchpaths; search; search = search->next)
 	{
 		if (*search->filename) //directory
 		{
-#ifdef _WIN32
-			q_snprintf (filestring, sizeof(filestring), "%s/*.dem", search->filename);
-			fhnd = FindFirstFile(filestring, &fdat);
-			if (fhnd == INVALID_HANDLE_VALUE)
-				continue;
-			do
+			findfile_t *find;
+			for (find = Sys_FindFirst (search->filename, "dem"); find; find = Sys_FindNext (find))
 			{
-				COM_StripExtension(fdat.cFileName, demname, sizeof(demname));
-				FileList_Add (demname, &demolist);
-			} while (FindNextFile(fhnd, &fdat));
-			FindClose(fhnd);
-#else
-			q_snprintf (filestring, sizeof(filestring), "%s/", search->filename);
-			dir_p = opendir(filestring);
-			if (dir_p == NULL)
-				continue;
-			while ((dir_t = readdir(dir_p)) != NULL)
-			{
-				if (q_strcasecmp(COM_FileGetExtension(dir_t->d_name), "dem") != 0)
+				if (find->attribs & FA_DIRECTORY)
 					continue;
-				COM_StripExtension(dir_t->d_name, demname, sizeof(demname));
+				COM_StripExtension (find->name, demname, sizeof (demname));
 				FileList_Add (demname, &demolist);
 			}
-			closedir(dir_p);
-#endif
 		}
 		else //pakfile
 		{
@@ -356,9 +269,9 @@ void DemoList_Init (void)
 			{ //don't list standard id demos
 				for (i = 0, pak = search->pack; i < pak->numfiles; i++)
 				{
-					if (!strcmp(COM_FileGetExtension(pak->files[i].name), "dem"))
+					if (!strcmp (COM_FileGetExtension (pak->files[i].name), "dem"))
 					{
-						COM_StripExtension(pak->files[i].name, demname, sizeof(demname));
+						COM_StripExtension (pak->files[i].name, demname, sizeof (demname));
 						FileList_Add (demname, &demolist);
 					}
 				}
@@ -1029,6 +942,7 @@ Host_Savegame_f
 */
 static void Host_Savegame_f (void)
 {
+	char	relname[MAX_OSPATH];
 	char	name[MAX_OSPATH];
 	FILE	*f;
 	int	i;
@@ -1076,11 +990,13 @@ static void Host_Savegame_f (void)
 		}
 	}
 
-	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, Cmd_Argv(1));
-	COM_AddExtension (name, ".sav", sizeof(name));
+	q_strlcpy (relname, Cmd_Argv(1), sizeof(relname));
+	COM_AddExtension (relname, ".sav", sizeof(relname));
+	Con_Printf ("Saving game to %s...\n", relname);
 
-	Con_Printf ("Saving game to %s...\n", name);
-	f = fopen (name, "w");
+	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, relname);
+
+	f = Sys_fopen (name, "w");
 	if (!f)
 	{
 		Con_Printf ("ERROR: couldn't open.\n");
@@ -1125,6 +1041,7 @@ static void Host_Loadgame_f (void)
 	static char	*start;
 	
 	char	name[MAX_OSPATH];
+	char	relname[MAX_OSPATH];
 	char	mapname[MAX_QPATH];
 	float	time, tfloat;
 	const char	*data;
@@ -1151,14 +1068,15 @@ static void Host_Loadgame_f (void)
 
 	cls.demonum = -1;		// stop demo loop in case this fails
 
-	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, Cmd_Argv(1));
-	COM_AddExtension (name, ".sav", sizeof(name));
+	q_strlcpy (relname, Cmd_Argv(1), sizeof(relname));
+	COM_AddExtension (relname, ".sav", sizeof(relname));
+	Con_Printf ("Loading game from %s...\n", relname);
 
 // we can't call SCR_BeginLoadingPlaque, because too much stack space has
 // been used.  The menu calls it before stuffing loadgame command
 //	SCR_BeginLoadingPlaque ();
 
-	Con_Printf ("Loading game from %s...\n", name);
+	q_snprintf (name, sizeof(name), "%s/%s", com_gamedir, relname);
 	
 // avoid leaking if the previous Host_Loadgame_f failed with a Host_Error
 	if (start != NULL)

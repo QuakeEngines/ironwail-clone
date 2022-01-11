@@ -1690,7 +1690,7 @@ static int COM_FindFile (const char *filename, int *handle, FILE **file,
 				}
 				else if (file)
 				{ /* open a new file on the pakfile */
-					*file = fopen (pak->filename, "rb");
+					*file = Sys_fopen (pak->filename, "rb");
 					if (*file)
 						fseek (*file, pak->files[i].filepos, SEEK_SET);
 					return com_filesize;
@@ -1724,7 +1724,7 @@ static int COM_FindFile (const char *filename, int *handle, FILE **file,
 			}
 			else if (file)
 			{
-				*file = fopen (netpath, "rb");
+				*file = Sys_fopen (netpath, "rb");
 				com_filesize = (*file == NULL) ? -1 : COM_filelength (*file);
 				return com_filesize;
 			}
@@ -1934,7 +1934,7 @@ byte *COM_LoadMallocFile_TextMode_OSPath (const char *path, long *len_out)
 	// othewise multiline messages have a garbage character at the end of each line.
 	// TODO: could handle in a way that allows loading CRLF savegames on mac/linux
 	// without the junk characters appearing.
-	f = fopen (path, "rt");
+	f = Sys_fopen (path, "rt");
 	if (f == NULL)
 		return NULL;
 	
@@ -2626,7 +2626,7 @@ void LOC_LoadFile (const char *file)
 		{
 fail:			mz_zip_reader_end(&archive);
 			if (rw) SDL_RWclose(rw);
-			Con_Printf("Couldn't load '%s'\nfrom '%s'\n", file, com_basedir);
+			Con_Printf("Couldn't load '%s'\n", file);
 			return;
 		}
 		SDL_RWread(rw, localization.text, 1, sz);
