@@ -423,12 +423,12 @@ DRAW_ELEMENTS_INDIRECT_COMMAND \
 ////////////////////////////////////////////////////////////////
 
 static const char world_vertex_shader[] =
+BINDLESS_VERTEX_HEADER
 FRAMEDATA_BUFFER
 LIGHT_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-BINDLESS_VERTEX_HEADER
 "\n"
 "layout(binding=3) uniform sampler2D LightmapStyles;\n"
 "\n"
@@ -646,11 +646,11 @@ NOISE_FUNCTIONS
 ////////////////////////////////////////////////////////////////
 
 static const char water_vertex_shader[] =
+BINDLESS_VERTEX_HEADER
 FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) flat out float out_alpha;"
 "layout(location=1) out vec2 out_uv;\n"
@@ -721,11 +721,11 @@ NOISE_FUNCTIONS
 ////////////////////////////////////////////////////////////////
 
 static const char skystencil_vertex_shader[] =
+BINDLESS_VERTEX_HEADER
 FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-BINDLESS_VERTEX_HEADER
 "\n"
 "void main()\n"
 "{\n"
@@ -742,11 +742,11 @@ BINDLESS_VERTEX_HEADER
 ////////////////////////////////////////////////////////////////
 
 static const char sky_layers_vertex_shader[] =
+BINDLESS_VERTEX_HEADER
 FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) out vec3 out_dir;\n"
 "#if BINDLESS\n"
@@ -808,11 +808,11 @@ FRAMEDATA_BUFFER
 ////////////////////////////////////////////////////////////////
 
 static const char sky_cubemap_vertex_shader[] =
+BINDLESS_VERTEX_HEADER
 FRAMEDATA_BUFFER
 WORLD_CALLDATA_BUFFER
 WORLD_INSTANCEDATA_BUFFER
 WORLD_VERTEX_BUFFER
-BINDLESS_VERTEX_HEADER
 "\n"
 "layout(location=0) out vec3 out_dir;\n"
 "\n"
