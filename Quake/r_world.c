@@ -705,6 +705,8 @@ void R_DrawBrushModels_Water (entity_t **ents, int count, qboolean translucent)
 		for (j = model->texofs[TEXTYPE_FIRSTLIQUID]; j < model->texofs[TEXTYPE_LASTLIQUID+1]; j++)
 		{
 			texture_t *t = model->textures[model->usedtextures[j]];
+			if ((GL_WaterAlphaForEntityTextureType (e, t->type) < 1.f) != translucent)
+				continue;
 			R_AddBModelCall (model->firstcmd + j, baseinst, numinst, R_TextureAnimation (t, frame), !isworld);
 		}
 
