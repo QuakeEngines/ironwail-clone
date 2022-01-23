@@ -771,8 +771,17 @@ void Draw_FadeScreen (void)
 	if (softemu >= SOFTEMU_BANDED)
 	{
 		Draw_SetTexture (whitetexture);
+		/* first pass */
 		Draw_SetBlending (GLS_BLEND_MULTIPLY);
-		GL_SetCanvasColor (0.5f, 0.4f, 0.05f, 1.f);
+		GL_SetCanvasColor (0.56f, 0.43f, 0.13f, 1.f);
+		verts = Draw_AllocQuad ();
+		Draw_SetVertex (verts++, 0,       0,        0.f,  0.f);
+		Draw_SetVertex (verts++, glwidth, 0,        smax, 0.f);
+		Draw_SetVertex (verts++, glwidth, glheight, smax, tmax);
+		Draw_SetVertex (verts++, 0,       glheight, 0.f,  tmax);
+		/* second pass */
+		Draw_SetBlending (GLS_BLEND_ALPHA);
+		GL_SetCanvasColor (0.095f, 0.08f, 0.045f, 0.6f);
 	}
 	else if (softemu == SOFTEMU_COARSE)
 	{
