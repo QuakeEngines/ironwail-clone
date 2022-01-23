@@ -463,6 +463,10 @@ int R_LightPoint (vec3_t p, lightcache_t *cache);
 #define WORLDSHADER_ALPHATEST	1
 #define WORLDSHADER_WATER		2
 
+#define ALIASSHADER_STANDARD	0
+#define ALIASSHADER_DITHER		1
+#define ALIASSHADER_NOPERSP		2
+
 typedef struct glprogs_s {
 	/* 2d */
 	GLuint		gui;
@@ -477,7 +481,7 @@ typedef struct glprogs_s {
 	GLuint		skylayers[2];	// [dither]
 	GLuint		skycubemap[2];	// [dither]
 	GLuint		skyboxside[2];	// [dither]
-	GLuint		alias[2][2];	// [dither][alpha test]
+	GLuint		alias[3][2];	// [mode:standard/dithered/noperspective][alpha test]
 	GLuint		sprites[2];		// [dither]
 	GLuint		particles[2];	// [dither]
 

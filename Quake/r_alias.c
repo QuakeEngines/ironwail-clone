@@ -298,6 +298,8 @@ void R_FlushAliasInstances (void)
 {
 	qmodel_t	*model;
 	aliashdr_t	*paliashdr;
+	qboolean	alphatest;
+	GLuint		program;
 	unsigned	state;
 	GLuint		buf;
 	GLbyte		*ofs;
@@ -314,7 +316,20 @@ void R_FlushAliasInstances (void)
 
 	GL_BeginGroup (model->name);
 
-	GL_UseProgram (glprogs.alias[softemu == SOFTEMU_COARSE][model->flags & MF_HOLEY ? 1 : 0]);
+	alphatest = model->flags & MF_HOLEY ? 1 : 0;
+	switch (softemu)
+	{
+	case SOFTEMU_BANDED:
+		program = glprogs.alias[ALIASSHADER_NOPERSP][alphatest];
+		break;
+	case SOFTEMU_COARSE:
+		program = glprogs.alias[ALIASSHADER_DITHER][alphatest];
+		break;
+	default:
+		program = glprogs.alias[ALIASSHADER_STANDARD][alphatest];
+		break;
+	}
+	GL_UseProgram (program);
 
 	state = GLS_CULL_BACK | GLS_ATTRIBS(0);
 	if (ENTALPHA_DECODE(ibuf.ent->alpha) == 1.f)

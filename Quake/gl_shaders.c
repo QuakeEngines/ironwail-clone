@@ -252,7 +252,7 @@ GL_CreateShaders
 */
 void GL_CreateShaders (void)
 {
-	int palettize, dither, mode, warp;
+	int palettize, dither, mode, alphatest, warp;
 
 	glprogs.gui = GL_CreateProgram (gui_vertex_shader, gui_fragment_shader, "gui");
 	glprogs.viewblend = GL_CreateProgram (viewblend_vertex_shader, viewblend_fragment_shader, "viewblend");
@@ -267,8 +267,6 @@ void GL_CreateShaders (void)
 
 	for (dither = 0; dither < 2; dither++)
 	{
-		for (mode = 0; mode < 2; mode++)
-			glprogs.alias[dither][mode] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|DITHER %d; ALPHATEST %d", dither, mode);
 		glprogs.water[dither] = GL_CreateProgram (water_vertex_shader, water_fragment_shader, "water|DITHER %d", dither);
 		glprogs.skylayers[dither] = GL_CreateProgram (sky_layers_vertex_shader, sky_layers_fragment_shader, "sky layers|DITHER %d", dither);
 		glprogs.skycubemap[dither] = GL_CreateProgram (sky_cubemap_vertex_shader, sky_cubemap_fragment_shader, "sky cubemap|DITHER %d", dither);
@@ -277,6 +275,10 @@ void GL_CreateShaders (void)
 		glprogs.particles[dither] = GL_CreateProgram (particles_vertex_shader, particles_fragment_shader, "particles|DITHER %d", dither);
 	}
 	glprogs.skystencil = GL_CreateProgram (skystencil_vertex_shader, NULL, "sky stencil");
+
+	for (mode = 0; mode < 3; mode++)
+		for (alphatest = 0; alphatest < 2; alphatest++)
+			glprogs.alias[mode][alphatest] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|MODE %d; ALPHATEST %d", mode, alphatest);
 
 	glprogs.clear_indirect = GL_CreateComputeProgram (clear_indirect_compute_shader, "clear indirect draw params");
 	glprogs.gather_indirect = GL_CreateComputeProgram (gather_indirect_compute_shader, "indirect draw gather");
