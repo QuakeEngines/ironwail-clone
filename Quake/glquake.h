@@ -484,6 +484,7 @@ typedef struct glprogs_s {
 	GLuint		alias[3][2];	// [mode:standard/dithered/noperspective][alpha test]
 	GLuint		sprites[2];		// [dither]
 	GLuint		particles[2];	// [dither]
+	GLuint		debug3d;
 
 	/* compute */
 	GLuint		clear_indirect;

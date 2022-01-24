@@ -280,6 +280,8 @@ void GL_CreateShaders (void)
 		for (alphatest = 0; alphatest < 2; alphatest++)
 			glprogs.alias[mode][alphatest] = GL_CreateProgram (alias_vertex_shader, alias_fragment_shader, "alias|MODE %d; ALPHATEST %d", mode, alphatest);
 
+	glprogs.debug3d = GL_CreateProgram (debug3d_vertex_shader, debug3d_fragment_shader, "debug3d");
+
 	glprogs.clear_indirect = GL_CreateComputeProgram (clear_indirect_compute_shader, "clear indirect draw params");
 	glprogs.gather_indirect = GL_CreateComputeProgram (gather_indirect_compute_shader, "indirect draw gather");
 	glprogs.cull_mark = GL_CreateComputeProgram (cull_mark_compute_shader, "cull/mark");

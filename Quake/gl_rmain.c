@@ -936,6 +936,179 @@ void R_DrawViewModel (void)
 	GL_EndGroup ();
 }
 
+typedef struct debugvert_s {
+	vec3_t		pos;
+	uint32_t	color;
+} debugvert_t;
+
+static debugvert_t	debugverts[4096];
+static uint16_t		debugidx[8192];
+static int			numdebugverts = 0;
+static int			numdebugidx = 0;
+
+/*
+================
+R_FlushDebugGeometry
+================
+*/
+static void R_FlushDebugGeometry (void)
+{
+	if (numdebugverts && numdebugidx)
+	{
+		GLuint	buf;
+		GLbyte	*ofs;
+
+		GL_UseProgram (glprogs.debug3d);
+		GL_SetState (GLS_BLEND_OPAQUE | GLS_NO_ZTEST | GLS_NO_ZWRITE | GLS_CULL_NONE | GLS_ATTRIBS(2));
+
+		GL_Upload (GL_ARRAY_BUFFER, debugverts, sizeof (debugverts[0]) * numdebugverts, &buf, &ofs);
+		GL_BindBuffer (GL_ARRAY_BUFFER, buf);
+		GL_VertexAttribPointerFunc (0, 3, GL_FLOAT, GL_FALSE, sizeof (debugverts[0]), ofs + offsetof (debugvert_t, pos));
+		GL_VertexAttribPointerFunc (1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof (debugverts[0]), ofs + offsetof (debugvert_t, color));
+
+		GL_Upload (GL_ELEMENT_ARRAY_BUFFER, debugidx, sizeof (debugidx[0]) * numdebugidx, &buf, &ofs);
+		GL_BindBuffer (GL_ELEMENT_ARRAY_BUFFER, buf);
+		glDrawElements (GL_LINES, numdebugidx, GL_UNSIGNED_SHORT, ofs);
+	}
+
+	numdebugverts = 0;
+	numdebugidx = 0;
+}
+
+/*
+================
+R_AddDebugGeometry
+================
+*/
+static void R_AddDebugGeometry (const debugvert_t verts[], int numverts, const uint16_t idx[], int numidx)
+{
+	int i;
+
+	if (numdebugverts + numverts > countof (debugverts) ||
+		numdebugidx + numidx > countof (debugidx))
+		R_FlushDebugGeometry ();
+
+	for (i = 0; i < numidx; i++)
+		debugidx[numdebugidx + i] = idx[i] + numdebugverts;
+	numdebugidx += numidx;
+
+	for (i = 0; i < numverts; i++)
+		debugverts[numdebugverts + i] = verts[i];
+	numdebugverts += numverts;
+}
+
+/*
+================
+R_EmitLine
+================
+*/
+static void R_EmitLine (const vec3_t a, const vec3_t b, uint32_t color)
+{
+	debugvert_t verts[2];
+	uint16_t idx[2];
+
+	VectorCopy (a, verts[0].pos);
+	VectorCopy (b, verts[1].pos);
+	verts[0].color = color;
+	verts[1].color = color;
+	idx[0] = 0;
+	idx[1] = 1;
+
+	R_AddDebugGeometry (verts, 2, idx, 2);
+}
+
+/*
+================
+R_EmitWirePoint -- johnfitz -- draws a wireframe cross shape for point entities
+================
+*/
+static void R_EmitWirePoint (const vec3_t origin)
+{
+	const float Size = 8.f;
+	int i;
+	for (i = 0; i < 3; i++)
+	{
+		vec3_t a, b;
+		VectorCopy (origin, a);
+		VectorCopy (origin, b);
+		a[i] -= Size;
+		b[i] += Size;
+		R_EmitLine (a, b, -1);
+	}
+}
+
+/*
+================
+R_EmitWireBox -- johnfitz -- draws one axis aligned bounding box
+================
+*/
+static const uint16_t boxidx[12*2] = { 0,1, 0,2, 0,4, 1,3, 1,5, 2,3, 2,6, 3,7, 4,5, 4,6, 5,7, 6,7, };
+
+static void R_EmitWireBox (const vec3_t mins, const vec3_t maxs)
+{
+	int i;
+	debugvert_t v[8];
+
+	for (i = 0; i < 8; i++)
+	{
+		v[i].pos[0] = i & 1 ? mins[0] : maxs[0];
+		v[i].pos[1] = i & 2 ? mins[1] : maxs[1];
+		v[i].pos[2] = i & 4 ? mins[2] : maxs[2];
+		v[i].color = -1;
+	}
+
+	R_AddDebugGeometry (v, countof (v), boxidx, countof (boxidx));
+}
+
+/*
+================
+R_ShowBoundingBoxes -- johnfitz
+
+draw bounding boxes -- the server-side boxes, not the renderer cullboxes
+================
+*/
+static void R_ShowBoundingBoxes (void)
+{
+	extern		edict_t *sv_player;
+	vec3_t		mins,maxs;
+	edict_t		*ed;
+	int			i;
+
+	if (!r_showbboxes.value || cl.maxclients > 1 || !r_drawentities.value || !sv.active)
+		return;
+
+	GL_BeginGroup ("Show bounding boxes");
+
+	for (i=0, ed=NEXT_EDICT(sv.edicts) ; i<sv.num_edicts ; i++, ed=NEXT_EDICT(ed))
+	{
+		if (ed == sv_player)
+			continue; //don't draw player's own bbox
+
+//		if (r_showbboxes.value != 2)
+//			if (!SV_VisibleToClient (sv_player, ed, sv.worldmodel))
+//				continue; //don't draw if not in pvs
+
+		if (ed->v.mins[0] == ed->v.maxs[0] && ed->v.mins[1] == ed->v.maxs[1] && ed->v.mins[2] == ed->v.maxs[2])
+		{
+			//point entity
+			R_EmitWirePoint (ed->v.origin);
+		}
+		else
+		{
+			//box entity
+			VectorAdd (ed->v.mins, ed->v.origin, mins);
+			VectorAdd (ed->v.maxs, ed->v.origin, maxs);
+			R_EmitWireBox (mins, maxs);
+		}
+	}
+
+	R_FlushDebugGeometry ();
+
+	Sbar_Changed (); //so we don't get dots collecting on the statusbar
+
+	GL_EndGroup ();
+}
+
 /*
 ================
 R_ShowTris -- johnfitz
@@ -1022,6 +1195,8 @@ void R_RenderScene (void)
 	R_DrawParticles ();
 
 	R_ShowTris (); //johnfitz
+
+	R_ShowBoundingBoxes (); //johnfitz
 }
 
 /*

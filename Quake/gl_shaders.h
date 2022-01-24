@@ -1144,6 +1144,39 @@ NOISE_FUNCTIONS
 
 ////////////////////////////////////////////////////////////////
 //
+// Debug 3D
+//
+////////////////////////////////////////////////////////////////
+
+static const char debug3d_vertex_shader[] =
+FRAMEDATA_BUFFER
+"\n"
+"layout(location=0) in vec4 in_pos;\n"
+"layout(location=1) in vec4 in_color;\n"
+"\n"
+"layout(location=0) out vec4 out_color;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	gl_Position = ViewProj * in_pos;\n"
+"	out_color = in_color;\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+
+static const char debug3d_fragment_shader[] =
+"\n"
+"layout(location=0) in vec4 in_color;\n"
+"\n"
+"layout(location=0) out vec4 out_fragcolor;\n"
+"\n"
+"void main()\n"
+"{\n"
+"	out_fragcolor = in_color;\n"
+"}\n";
+
+////////////////////////////////////////////////////////////////
+//
 // COMPUTE SHADERS
 //
 ////////////////////////////////////////////////////////////////
