@@ -183,6 +183,35 @@ static void PR_InitHashTables (void)
 		PR_HashAdd (&ht_globals, pr_globaldefs[i].s_name, i);
 }
 
+/*
+=================
+ED_AddToFreeList
+=================
+*/
+static void ED_AddToFreeList (edict_t *ed)
+{
+	ed->free = true;
+	if ((byte *)ed <= (byte *)sv.edicts + q_max (svs.maxclients, 1) * pr_edict_size)
+		return;
+	if (ed->freechain.prev)
+		RemoveLink (&ed->freechain);
+	InsertLinkBefore (&ed->freechain, &sv.free_edicts);
+}
+
+/*
+=================
+ED_RemoveFromFreeList
+=================
+*/
+static void ED_RemoveFromFreeList (edict_t *ed)
+{
+	ed->free = false;
+	if (ed->freechain.prev)
+	{
+		RemoveLink (&ed->freechain);
+		ed->freechain.prev = ed->freechain.next = NULL;
+	}
+}
 
 /*
 =================
@@ -194,7 +223,7 @@ Sets everything to NULL
 void ED_ClearEdict (edict_t *e)
 {
 	memset (&e->v, 0, progs->entityfields * 4);
-	e->free = 0;
+	ED_RemoveFromFreeList (e);
 }
 
 /*
@@ -212,16 +241,15 @@ edict_t *ED_Alloc (void)
 {
 	edict_t		*e;
 
-	if (sv.first_free_edict)
+	if (sv.free_edicts.next != sv.free_edicts.prev)
 	{
-		e = EDICT_NUM(sv.first_free_edict);
+		e = STRUCT_FROM_LINK (sv.free_edicts.next, edict_t, freechain);
+		if (!e->free)
+			Host_Error ("ED_Alloc: free list entity still in use");
 		// the first couple seconds of server time can involve a lot of
 		// freeing and allocating, so relax the replacement policy
-		if (e->free && ( e->freetime < 2 || sv.time - e->freetime > 0.5 ) )
+		if (e->freetime < 2 || sv.time - e->freetime > 0.5)
 		{
-			sv.first_free_edict = e->free;
-			if (sv.first_free_edict < 0)
-				sv.first_free_edict = sv.last_free_edict = 0;
 			ED_ClearEdict (e);
 			return e;
 		}
@@ -238,28 +266,6 @@ edict_t *ED_Alloc (void)
 
 /*
 =================
-ED_AddToFreeList
-=================
-*/
-void ED_AddToFreeList (edict_t *ed, int idx)
-{
-	if (idx <= q_max (svs.maxclients, 1))
-		return;
-
-	if (ed->free && ed->free != ED_FREE_UNCHAINED)
-		Sys_Error ("ED_AddToFreeList: edict already chained");
-
-	if (sv.last_free_edict)
-		EDICT_NUM(sv.last_free_edict)->free = idx;
-	else
-		sv.first_free_edict = idx;
-	sv.last_free_edict = idx;
-
-	ed->free = ED_FREE_LASTCHAINED;
-}
-
-/*
-=================
 ED_Free
 
 Marks the edict as free
@@ -269,12 +275,8 @@ FIXME: walk all entities and NULL out references to this entity
 void ED_Free (edict_t *ed)
 {
 	SV_UnlinkEdict (ed);		// unlink from world bsp
+	ED_AddToFreeList (ed);
 
-	if (!ed->free || ed->free == ED_FREE_UNCHAINED)
-	{
-		ed->free = ED_FREE_UNCHAINED;
-		ED_AddToFreeList (ed, NUM_FOR_EDICT(ed));
-	}
 	ed->v.model = 0;
 	ed->v.takedamage = 0;
 	ed->v.modelindex = 0;
@@ -1099,7 +1101,7 @@ const char *ED_ParseEdict (const char *data, edict_t *ent)
 	}
 
 	if (!init)
-		ent->free = ED_FREE_UNCHAINED;
+		ED_AddToFreeList (ent);
 
 	return data;
 }

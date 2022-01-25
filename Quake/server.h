@@ -59,8 +59,7 @@ typedef struct
 	const char	*lightstyles[MAX_LIGHTSTYLES];
 	int			num_edicts;
 	int			max_edicts;
-	int			first_free_edict;	// index of first freed edict, 0 if none chained
-	int			last_free_edict;	// index of last freed edict, 0 if none chained
+	link_t		free_edicts;		// linked list of free edicts
 	edict_t		*edicts;			// can NOT be array indexed, because
 									// edict_t is variable sized, but can
 									// be used to reference the world ent

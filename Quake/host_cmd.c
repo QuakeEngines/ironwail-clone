@@ -1151,19 +1151,15 @@ static void Host_Loadgame_f (void)
 		else
 		{	// parse an edict
 			ent = EDICT_NUM(entnum);
-			if (entnum < sv.num_edicts) {
-				ent->free = 0;
-				memset (&ent->v, 0, progs->entityfields * 4);
-			}
-			else {
+			if (entnum < sv.num_edicts)
+				ED_ClearEdict (ent);
+			else
 				memset (ent, 0, pr_edict_size);
-			}
 			data = ED_ParseEdict (data, ent);
 
+			// link it into the bsp tree
 			if (!ent->free)
-				SV_LinkEdict (ent, false); // link it into the bsp tree
-			else
-				ED_AddToFreeList (ent, entnum); // mark for reuse
+				SV_LinkEdict (ent, false);
 		}
 
 		entnum++;

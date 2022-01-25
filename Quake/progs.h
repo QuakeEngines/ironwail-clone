@@ -36,15 +36,11 @@ typedef union eval_s
 	int		edict;
 } eval_t;
 
-enum {
-	ED_FREE_UNCHAINED = -2,
-	ED_FREE_LASTCHAINED = -1,
-};
-
 #define	MAX_ENT_LEAFS	32
 typedef struct edict_s
 {
-	int			free;			/* -2 if free and unchained; -1 if free and last chained; 0 if not free; index of prev free otherwise */
+	qboolean	free;			/* don't modify directly, use ED_AddToFreeList/ED_RemoveFromFreeList */
+	link_t		freechain;
 	link_t		area;			/* linked to a division node or leaf */
 
 	int		num_leafs;
@@ -86,7 +82,7 @@ void PR_Profile_f (void);
 
 edict_t *ED_Alloc (void);
 void ED_Free (edict_t *ed);
-void ED_AddToFreeList (edict_t *ed, int idx);
+void ED_ClearEdict (edict_t *e);
 
 void ED_Print (edict_t *ed);
 void ED_Write (FILE *f, edict_t *ed);

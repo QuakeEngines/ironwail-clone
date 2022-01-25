@@ -1381,6 +1381,7 @@ void SV_SpawnServer (const char *server)
 	/* Host_ClearMemory() called above already cleared the whole sv structure */
 	sv.max_edicts = CLAMP (MIN_EDICTS,(int)max_edicts.value,MAX_EDICTS); //johnfitz -- max_edicts cvar
 	sv.edicts = (edict_t *) malloc (sv.max_edicts*pr_edict_size); // ericw -- sv.edicts switched to use malloc()
+	ClearLink (&sv.free_edicts);
 
 	sv.datagram.maxsize = sizeof(sv.datagram_buf);
 	sv.datagram.cursize = 0;
@@ -1438,7 +1439,6 @@ void SV_SpawnServer (const char *server)
 //
 	ent = EDICT_NUM(0);
 	memset (&ent->v, 0, progs->entityfields * 4);
-	ent->free = 0;
 	ent->v.model = PR_SetEngineString(sv.worldmodel->name);
 	ent->v.modelindex = 1;		// world model
 	ent->v.solid = SOLID_BSP;
