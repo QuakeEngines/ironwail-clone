@@ -273,6 +273,7 @@ void Host_InitLocal (void)
 	Cvar_RegisterVariable (&host_speeds);
 	Cvar_RegisterVariable (&host_maxfps); //johnfitz
 	Cvar_SetCallback (&host_maxfps, Max_Fps_f);
+	Max_Fps_f (&host_maxfps);
 	Cvar_RegisterVariable (&host_timescale); //johnfitz
 
 	Cvar_RegisterVariable (&max_edicts); //johnfitz
