@@ -387,6 +387,7 @@ void Sys_mkdir (const char *path)
 {
 	wpath_t wpath;
 	BOOL result;
+	DWORD err;
 
 	WPath_FromUTF8 (path, &wpath);
 	result = CreateDirectoryW (wpath.ptr, NULL);
@@ -394,8 +395,9 @@ void Sys_mkdir (const char *path)
 	if (result)
 		return;
 
-	if (GetLastError() != ERROR_ALREADY_EXISTS)
-		Sys_Error ("Unable to create directory %s", path);
+	err = GetLastError ();
+	if (err != ERROR_ALREADY_EXISTS)
+		Sys_Error ("Unable to create directory %s (error %lu)", path, err);
 }
 
 static const wchar_t errortxt1[] = L"\nERROR-OUT BEGIN\n\n";
