@@ -177,6 +177,9 @@ COMMON_LIBS:= -lm -lGL
 
 LIBS := $(COMMON_LIBS) $(NET_LIBS) $(CODECLIBS)
 
+# name of this makefile, so we can use it as a dependency
+MAKEFILE := $(lastword $(MAKEFILE_LIST))
+
 # ---------------------------
 # targets
 # ---------------------------
@@ -189,7 +192,11 @@ DEFAULT_TARGET := quakespasm
 # rules
 # ---------------------------
 
-%.o:	%.c
+%.d:	%.c $(MAKEFILE)
+	@echo "Generating dependencies for $<" && \
+	$(CC) $(DFLAGS) -c $(CFLAGS) $(SDL_CFLAGS) -MM $< -MF $@ -MT $@
+%.o:	%.c %.d $(MAKEFILE)
+	@echo "Compiling $<" && \
 	$(CC) $(DFLAGS) -c $(CFLAGS) $(SDL_CFLAGS) -o $@ $<
 
 # ----------------------------------------------------------------------------
@@ -280,24 +287,37 @@ OBJS := strlcat.o \
 	sv_user.o \
 	world.o \
 	zone.o \
-	$(SYSOBJ_SYS) $(SYSOBJ_MAIN) $(SYSOBJ_RES)
+	$(SYSOBJ_SYS) $(SYSOBJ_MAIN)
+
+OBJDEPS := $(OBJS:%.o=%.d)
+OBJS += $(SYSOBJ_RES)
 
 # ------------------------
 # Linux build rules
 # ------------------------
 
-quakespasm:	$(OBJS)
-	$(LINKER) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@
+quakespasm:	$(OBJS) $(MAKEFILE)
+	@echo "Linking $@" && \
+	$(LINKER) $(OBJS) $(LDFLAGS) $(LIBS) $(SDL_LIBS) -o $@ && \
+	echo "Stripping $@" && \
 	$(call do_strip,$@)
-
-image.o: lodepng.c lodepng.h stb_image_write.h
 
 release:	quakespasm
 debug:
 	$(error Use "make DEBUG=1")
 
-clean:
-	rm -f $(shell find . \( -name '*~' -o -name '#*#' -o -name '*.o' -o -name '*.res' -o -name $(DEFAULT_TARGET) \) -print)
+clean: $(MAKEFILE)
+	rm -f $(shell find . \( -name '*~' -o -name '#*#' -o -name '*.o' -o -name '*.d' -o -name '*.res' -o -name $(DEFAULT_TARGET) \) -print)
 
 install:	quakespasm
 	cp quakespasm /usr/local/games/quake
+
+#---------------------------------------------------------------
+# include dependencies (if not running 'clean' target)
+#---------------------------------------------------------------
+
+ifneq ($(strip $(MAKECMDGOALS)),clean)
+ifneq ($(strip $(OBJDEPS)),)
+-include $(OBJDEPS)
+endif
+endif
