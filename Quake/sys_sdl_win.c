@@ -87,10 +87,10 @@ static void WPath_FromUTF8 (const char *src, wpath_t *dst)
 {
 	int len = MultiByteToWideChar (CP_UTF8, 0, src, -1, NULL, 0);
 	if (!len)
-		Sys_Error ("MultiByteToWideChar failed: %d", GetLastError ());
+		Sys_Error ("MultiByteToWideChar failed: %lu", GetLastError ());
 	WPath_Alloc (dst, len);
 	if (MultiByteToWideChar (CP_UTF8, 0, src, -1, dst->ptr, len) != len)
-		Sys_Error ("MultiByteToWideChar failed: %d", GetLastError ());
+		Sys_Error ("MultiByteToWideChar failed: %lu", GetLastError ());
 }
 
 FILE *Sys_fopen (const char *path, const char *mode)
@@ -212,18 +212,18 @@ static void Sys_GetBasedir (char *argv0, char *dst, size_t dstsize)
 
 	rc = GetCurrentDirectoryW (0, NULL);
 	if (rc == 0)
-		Sys_Error ("Couldn't determine current directory name length (error %d)", GetLastError ());
+		Sys_Error ("Couldn't determine current directory name length (error %lu)", GetLastError ());
 	WPath_Alloc (&wpath, rc);
 	if (!GetCurrentDirectoryW (rc, wpath.ptr))
-		Sys_Error ("Couldn't determine current directory (error %d)", GetLastError ());
+		Sys_Error ("Couldn't determine current directory (error %lu)", GetLastError ());
 
 	len = WideCharToMultiByte (CP_UTF8, 0, wpath.ptr, -1, NULL, 0, NULL, NULL);
 	if (!len)
-		Sys_Error ("Couldn't determine UTF8 length of current directory (error %d)", GetLastError ());
+		Sys_Error ("Couldn't determine UTF8 length of current directory (error %lu)", GetLastError ());
 	if ((size_t)len > dstsize)
 		Sys_Error ("Current directory name too long (%" SDL_PRIu64 " > %" SDL_PRIu64  ")", (uint64_t)len, (uint64_t)dstsize);
 	if (WideCharToMultiByte (CP_UTF8, 0, wpath.ptr, -1, dst, len, NULL, NULL) != len)
-		Sys_Error ("Couldn't convert current directory name to UTF8 (error %d)", GetLastError ());
+		Sys_Error ("Couldn't convert current directory name to UTF8 (error %lu)", GetLastError ());
 	WPath_Free (&wpath);
 
 	tmp = dst;
@@ -246,7 +246,7 @@ typedef struct winfindfile_s {
 static void Sys_FillFindData (winfindfile_t *find)
 {
 	if (!WideCharToMultiByte (CP_UTF8, 0, find->data.cFileName, -1, find->base.name, countof (find->base.name), NULL, NULL))
-		Sys_Error ("Sys_FillFindData: WideCharToMultiByte failed (%d)", GetLastError ());
+		Sys_Error ("Sys_FillFindData: WideCharToMultiByte failed (%lu)", GetLastError ());
 	find->base.attribs = 0;
 	if (find->data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 		find->base.attribs |= FA_DIRECTORY;
