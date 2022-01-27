@@ -281,6 +281,16 @@ void *VID_GetWindow (void)
 
 /*
 ====================
+VID_SetWindowTitle
+====================
+*/
+void VID_SetWindowTitle (const char *title)
+{
+	SDL_SetWindowTitle (draw_context, title);
+}
+
+/*
+====================
 VID_HasMouseOrInputFocus
 ====================
 */

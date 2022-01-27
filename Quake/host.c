@@ -702,6 +702,79 @@ void Host_ServerFrame (void)
 	SV_SendClientMessages ();
 }
 
+typedef struct summary_s {
+	struct {
+		int		skill;
+		int		monsters;
+		int		total_monsters;
+		int		secrets;
+		int		total_secrets;
+	}			stats;
+	char		map[countof (cl.mapname)];
+} summary_t;
+
+/*
+==================
+GetGameSummary
+==================
+*/
+static void GetGameSummary (summary_t *s)
+{
+	if (cls.state != ca_connected || cls.signon != SIGNONS)
+	{
+		s->map[0] = 0;
+		memset (&s->stats, 0, sizeof (s->stats));
+	}
+	else
+	{
+		q_strlcpy (s->map, cl.mapname, countof (s->map));
+		s->stats.skill          = (int) skill.value;
+		s->stats.monsters       = cl.stats[STAT_MONSTERS];
+		s->stats.total_monsters = cl.stats[STAT_TOTALMONSTERS];
+		s->stats.secrets        = cl.stats[STAT_SECRETS];
+		s->stats.total_secrets  = cl.stats[STAT_TOTALSECRETS];
+	}
+}
+
+/*
+==================
+UpdateWindowTitle
+==================
+*/
+static void UpdateWindowTitle (void)
+{
+	static float timeleft = 0.f;
+	static summary_t last;
+	summary_t current;
+
+	timeleft -= host_frametime;
+	if (timeleft > 0.f)
+		return;
+	timeleft = 0.125f;
+
+	GetGameSummary (&current);
+	if (!strcmp (current.map, last.map) && !memcmp (&current.stats, &last.stats, sizeof (current.stats)))
+		return;
+	last = current;
+
+	if (current.map[0])
+	{
+		char title[1024];
+		q_snprintf (title, sizeof (title),
+			"%s (%s)  |  skill %d  |  %d/%d kills  |  %d/%d secrets  -  " WINDOW_TITLE_STRING,
+			cl.levelname, current.map,
+			current.stats.skill,
+			current.stats.monsters, current.stats.total_monsters,
+			current.stats.secrets, current.stats.total_secrets
+		);
+		VID_SetWindowTitle (title);
+	}
+	else
+	{
+		VID_SetWindowTitle (WINDOW_TITLE_STRING);
+	}
+}
+
 /*
 ==================
 Host_Frame
@@ -796,6 +869,7 @@ void _Host_Frame (double time)
 		S_Update (vec3_origin, vec3_origin, vec3_origin, vec3_origin);
 
 	CDAudio_Update();
+	UpdateWindowTitle();
 
 	if (host_speeds.value)
 	{
