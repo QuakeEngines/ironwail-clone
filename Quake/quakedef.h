@@ -57,6 +57,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define CONSOLE_TITLE_STRING	"Ironwail " IRONWAIL_VER_STRING
 #define WINDOW_TITLE_STRING		"Quake/Ironwail " IRONWAIL_VER_STRING
+#define CONFIG_NAME				"ironwail.cfg"
 
 //define	PARANOID			// speed sapping error checking
 

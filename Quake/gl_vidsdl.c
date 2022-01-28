@@ -1419,7 +1419,7 @@ void	VID_Init (void)
 
 	Cvar_SetValueQuick (&vid_bpp, (float)display_bpp);
 
-	if (CFG_OpenConfig("config.cfg") == 0)
+	if (CFG_OpenConfig(CONFIG_NAME) == 0 || CFG_OpenConfig("config.cfg") == 0)
 	{
 		CFG_ReadCvars(read_vars, num_readvars);
 		CFG_CloseConfig();

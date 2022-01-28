@@ -311,7 +311,7 @@ void Host_InitLocal (void)
 ===============
 Host_WriteConfiguration
 
-Writes key bindings and archived cvars to config.cfg
+Writes key bindings and archived cvars to engine config file
 ===============
 */
 void Host_WriteConfiguration (void)
@@ -322,10 +322,10 @@ void Host_WriteConfiguration (void)
 // config.cfg cvars
 	if (host_initialized && !isDedicated && !host_parms->errstate)
 	{
-		f = Sys_fopen (va("%s/config.cfg", com_gamedir), "w");
+		f = Sys_fopen (va("%s/" CONFIG_NAME, com_gamedir), "w");
 		if (!f)
 		{
-			Con_Printf ("Couldn't write config.cfg.\n");
+			Con_Printf ("Couldn't write " CONFIG_NAME ".\n");
 			return;
 		}
 

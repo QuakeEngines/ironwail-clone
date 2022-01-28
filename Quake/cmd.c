@@ -261,26 +261,43 @@ Cmd_Exec_f
 */
 void Cmd_Exec_f (void)
 {
-	char	*f;
-	int		mark;
+	const char *path;
+	char		*f;
+	int			mark;
 
-	if (Cmd_Argc () != 2)
+	if (Cmd_Argc () < 2)
 	{
-		Con_Printf ("exec <filename> : execute a script file\n");
+		Con_Printf ("exec <filename> [pls] : execute a script file\n");
 		return;
 	}
 
 	mark = Hunk_LowMark ();
-	f = (char *)COM_LoadHunkFile (Cmd_Argv(1), NULL);
+	path = Cmd_Argv (1);
+
+	// HACK:
+	// "exec config.cfg" will execute ironwail.cfg
+	// "exec config.cfg pls" will execute config.cfg
+	if (Cmd_Argc () == 2 && !strcmp (path, "config.cfg"))
+	{
+		f = (char *)COM_LoadHunkFile (CONFIG_NAME, NULL);
+		if (f)
+		{
+			path = CONFIG_NAME;
+			goto exec;
+		}
+	}
+
+	f = (char *)COM_LoadHunkFile (path, NULL);
 	if (!f && !strcmp(Cmd_Argv(1), "default.cfg")) {
 		f = default_cfg;	/* see above.. */
 	}
 	if (!f)
 	{
-		Con_Printf ("couldn't exec %s\n",Cmd_Argv(1));
+		Con_Printf ("couldn't exec %s\n", path);
 		return;
 	}
-	Con_Printf ("execing %s\n",Cmd_Argv(1));
+exec:
+	Con_Printf ("execing %s\n", path);
 
 	Cbuf_InsertText (f);
 	Hunk_FreeToLowMark (mark);
