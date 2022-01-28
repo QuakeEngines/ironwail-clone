@@ -168,6 +168,7 @@ extern cvar_t gl_texture_anisotropy;
 extern cvar_t gl_texturemode;
 extern cvar_t r_particles;
 extern cvar_t r_dynamic;
+extern cvar_t host_maxfps;
 extern cvar_t scr_showfps;
 
 //==========================================================================
@@ -1623,6 +1624,7 @@ enum {
 	VID_OPT_WATERWARP,
 	VID_OPT_DLIGHTS,
 	VID_OPT_SOFTEMU,
+	VID_OPT_FPSLIMIT,
 	VID_OPT_SHOWFPS,
 	VID_OPT_TEST,
 	VID_OPT_APPLY,
@@ -1992,6 +1994,33 @@ static const char *VID_Menu_GetTexFilterDesc (void)
 
 /*
 ================
+VID_Menu_ChooseNextFPSLimit
+
+chooses next fps limit in order, then updates host_maxfps cvar
+================
+*/
+static void VID_Menu_ChooseNextFPSLimit (int dir)
+{
+	static const int values[] = {0, 60, 72, 100, 120, 144, 165, 180, 200, 240, 300, 360, 500};
+	int i, current = (int)host_maxfps.value;
+
+	if (dir < 0)
+		for (i = 0; i < countof (values) && values[i] <= current; i++)
+			;
+	else
+		for (i = countof (values) - 1; i >= 0 && values[i] >= current; i--)
+			;
+
+	if (i < 0)
+		i = countof (values) - 1;
+	else if (i == countof (values))
+		i = 0;
+
+	Cvar_SetValueQuick (&host_maxfps, values[i]);
+}
+
+/*
+================
 VID_Menu_GetSoftEmuDesc
 ================
 */
@@ -2112,6 +2141,9 @@ static void VID_MenuKey (int key)
 		case VID_OPT_SOFTEMU:
 			Cbuf_AddText ("cycle r_softemu 3 2 1 0 0\n");
 			break;
+		case VID_OPT_FPSLIMIT:
+			VID_Menu_ChooseNextFPSLimit (1);
+			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");
 			break;
@@ -2162,6 +2194,9 @@ static void VID_MenuKey (int key)
 			break;
 		case VID_OPT_SOFTEMU:
 			Cbuf_AddText ("cycle r_softemu 0 1 2 3 3\n");
+			break;
+		case VID_OPT_FPSLIMIT:
+			VID_Menu_ChooseNextFPSLimit (-1);
 			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");
@@ -2215,6 +2250,9 @@ static void VID_MenuKey (int key)
 			break;
 		case VID_OPT_SOFTEMU:
 			Cbuf_AddText ("cycle r_softemu 0 1 2 3 3\n");
+			break;
+		case VID_OPT_FPSLIMIT:
+			VID_Menu_ChooseNextFPSLimit (-1);
 			break;
 		case VID_OPT_SHOWFPS:
 			Cbuf_AddText ("toggle scr_showfps\n");
@@ -2329,6 +2367,10 @@ static void VID_MenuDraw (void)
 		case VID_OPT_SOFTEMU:
 			M_Print (x0, y, "        8-bit mode");
 			M_Print (x1, y, VID_Menu_GetSoftEmuDesc ());
+			break;
+		case VID_OPT_FPSLIMIT:
+			M_Print (x0, y, "         FPS Limit");
+			M_Print (x1, y, host_maxfps.value ? va("%i", (int)host_maxfps.value): "Off");
 			break;
 		case VID_OPT_SHOWFPS:
 			M_Print (x0, y, "          Show FPS");
