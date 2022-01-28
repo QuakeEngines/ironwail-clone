@@ -42,7 +42,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	QUAKESPASM_VER_SUFFIX		// optional version suffix string literal like "-beta1"
 #endif
 
-#define IRONWAIL_VERSION		0.3
+#define IRONWAIL_VERSION		0.4
 #define IRONWAIL_VER_PATCH		0
 #ifndef IRONWAIL_VER_SUFFIX
 #define IRONWAIL_VER_SUFFIX			// optional version suffix string literal like "-beta1"
