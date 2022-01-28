@@ -823,7 +823,7 @@ void SCR_ScreenShot_f (void)
 // find a file name to save it to
 	for (i=0; i<10000; i++)
 	{
-		q_snprintf (imagename, sizeof(imagename), "spasm%04i.%s", i, ext);	// "fitz%04i.tga"
+		q_snprintf (imagename, sizeof(imagename), SCREENSHOT_PREFIX "%04i.%s", i, ext);
 		q_snprintf (checkname, sizeof(checkname), "%s/%s", com_gamedir, imagename);
 		if (Sys_FileTime(checkname) == -1)
 			break;	// file doesn't exist
