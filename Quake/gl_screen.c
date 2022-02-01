@@ -788,7 +788,7 @@ void SCR_ScreenShot_f (void)
 {
 	byte	*buffer;
 	char	ext[4];
-	char	imagename[16];  //johnfitz -- was [80]
+	char	imagename[80];
 	char	checkname[MAX_OSPATH];
 	int	i, quality;
 	qboolean	ok;
