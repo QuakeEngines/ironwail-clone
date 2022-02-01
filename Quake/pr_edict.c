@@ -241,7 +241,7 @@ edict_t *ED_Alloc (void)
 {
 	edict_t		*e;
 
-	if (sv.free_edicts.next != sv.free_edicts.prev)
+	if (sv.free_edicts.next != &sv.free_edicts)
 	{
 		e = STRUCT_FROM_LINK (sv.free_edicts.next, edict_t, freechain);
 		if (!e->free)
