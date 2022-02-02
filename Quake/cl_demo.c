@@ -88,7 +88,7 @@ static void CL_WriteDemoMessage (void)
 
 static int CL_GetDemoMessage (void)
 {
-	int	r, i;
+	int		i;
 	float	f;
 
 	if (cls.demopaused)
@@ -114,20 +114,22 @@ static int CL_GetDemoMessage (void)
 	}
 
 // get the next message
-	fread (&net_message.cursize, 4, 1, cls.demofile);
+	if (fread (&net_message.cursize, 4, 1, cls.demofile) != 1)
+		goto readerror;
 	VectorCopy (cl.mviewangles[0], cl.mviewangles[1]);
 	for (i = 0 ; i < 3 ; i++)
 	{
-		r = fread (&f, 4, 1, cls.demofile);
+		if (fread (&f, 4, 1, cls.demofile) != 1)
+			goto readerror;
 		cl.mviewangles[0][i] = LittleFloat (f);
 	}
 
 	net_message.cursize = LittleLong (net_message.cursize);
 	if (net_message.cursize > MAX_MSGLEN)
 		Sys_Error ("Demo message > MAX_MSGLEN");
-	r = fread (net_message.data, net_message.cursize, 1, cls.demofile);
-	if (r != 1)
+	if (fread (net_message.data, net_message.cursize, 1, cls.demofile) != 1)
 	{
+	readerror:
 		CL_StopPlayback ();
 		return 0;
 	}

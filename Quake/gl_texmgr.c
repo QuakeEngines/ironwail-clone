@@ -569,7 +569,8 @@ void TexMgr_LoadPalette (void)
 
 	mark = Hunk_LowMark ();
 	pal = (byte *) Hunk_Alloc (768);
-	fread (pal, 1, 768, f);
+	if (fread (pal, 768, 1, f) != 1)
+		Sys_Error ("TexMgr_LoadPalette: read error");
 	fclose(f);
 
 	//standard palette, 255 is transparent
@@ -1433,7 +1434,11 @@ void TexMgr_ReloadImage (gltexture_t *glt, int shirt, int pants)
 			size *= lightmap_bytes;
 		}
 		data = (byte *) Hunk_Alloc (size);
-		fread (data, 1, size, f);
+		if (fread (data, size, 1, f) != 1)
+		{
+			fclose (f);
+			goto invalid;
+		}
 		fclose (f);
 	}
 	else if (glt->source_file[0] && !glt->source_offset) {

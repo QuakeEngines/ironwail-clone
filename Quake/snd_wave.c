@@ -34,10 +34,10 @@
 FGetLittleLong
 =================
 */
-static int FGetLittleLong (FILE *f)
+static int FGetLittleLong (FILE *f, qboolean *ok)
 {
 	int		v;
-	fread(&v, 1, sizeof(v), f);
+	*ok &= fread(&v, sizeof(v), 1, f) == 1;
 	return LittleLong(v);
 }
 
@@ -46,10 +46,10 @@ static int FGetLittleLong (FILE *f)
 FGetLittleShort
 =================
 */
-static short FGetLittleShort(FILE *f)
+static short FGetLittleShort(FILE *f, qboolean *ok)
 {
 	short	v;
-	fread(&v, 1, sizeof(v), f);
+	*ok &= fread(&v, sizeof(v), 1, f) == 1;
 	return LittleShort(v);
 }
 
@@ -61,6 +61,7 @@ WAV_ReadChunkInfo
 static int WAV_ReadChunkInfo(FILE *f, char *name)
 {
 	int len, r;
+	qboolean ok = true;
 
 	name[4] = 0;
 
@@ -68,7 +69,13 @@ static int WAV_ReadChunkInfo(FILE *f, char *name)
 	if (r != 4)
 		return -1;
 
-	len = FGetLittleLong(f);
+	len = FGetLittleLong(f, &ok);
+	if (!ok)
+	{
+		Con_Printf("WAV: couldn't read chunk length\n");
+		return -1;
+	}
+
 	if (len < 0)
 	{
 		Con_Printf("WAV: Negative chunk length\n");
@@ -114,6 +121,7 @@ static qboolean WAV_ReadRIFFHeader(const char *name, FILE *file, snd_info_t *inf
 	char dump[16];
 	int wav_format;
 	int fmtlen = 0;
+	qboolean ok = true;
 
 	if (fread(dump, 1, 12, file) < 12 ||
 	    strncmp(dump, "RIFF", 4) != 0 ||
@@ -131,18 +139,23 @@ static qboolean WAV_ReadRIFFHeader(const char *name, FILE *file, snd_info_t *inf
 	}
 
 	/* Save the parameters */
-	wav_format = FGetLittleShort(file);
-	if (wav_format != WAV_FORMAT_PCM)
+	wav_format = FGetLittleShort(file, &ok);
+	if (!ok || wav_format != WAV_FORMAT_PCM)
 	{
 		Con_Printf("%s is not Microsoft PCM format\n", name);
 		return false;
 	}
 
-	info->channels = FGetLittleShort(file);
-	info->rate = FGetLittleLong(file);
-	FGetLittleLong(file);
-	FGetLittleShort(file);
-	info->bits = FGetLittleShort(file);
+	info->channels = FGetLittleShort(file, &ok);
+	info->rate = FGetLittleLong(file, &ok);
+	FGetLittleLong(file, &ok);
+	FGetLittleShort(file, &ok);
+	info->bits = FGetLittleShort(file, &ok);
+	if (!ok)
+	{
+		Con_Printf("%s is missing chunk info\n", name);
+		return false;
+	}
 
 	if (info->bits != 8 && info->bits != 16)
 	{
@@ -224,7 +237,8 @@ int S_WAV_CodecReadStream(snd_stream_t *stream, int bytes, void *buffer)
 	if (bytes > remaining)
 		bytes = remaining;
 	stream->fh.pos += bytes;
-	fread(buffer, 1, bytes, stream->fh.file);
+	if (fread(buffer, 1, bytes, stream->fh.file) != bytes)
+		Sys_Error ("S_WAV_CodecReadStream: read error on %d bytes (%s)", bytes, stream->name);
 	if (stream->info.width == 2)
 	{
 		samples = bytes / 2;
