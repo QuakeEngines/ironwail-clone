@@ -192,8 +192,8 @@ typedef struct areanode_s
 	link_t	solid_edicts;
 } areanode_t;
 
-#define	AREA_DEPTH	4
-#define	AREA_NODES	32
+#define	AREA_DEPTH	7
+#define	AREA_NODES	(2<<AREA_DEPTH)
 
 static	areanode_t	sv_areanodes[AREA_NODES];
 static	int			sv_numareanodes;
@@ -326,7 +326,7 @@ SV_AreaTriggerEdicts ( edict_t *ent, areanode_t *node, edict_t **list, int *list
 ====================
 SV_TouchLinks
 
-ericw -- copy the touching edicts to an array (on the hunk) so we can avoid
+ericw -- copy the touching edicts to an array so we can avoid
 iteating the trigger_edicts linked list while calling PR_ExecuteProgram
 which could potentially corrupt the list while it's being iterated.
 Based on code from Spike.
@@ -338,11 +338,9 @@ void SV_TouchLinks (edict_t *ent)
 	edict_t		*touch;
 	int		old_self, old_other;
 	int		i, listcount;
-	int		mark;
-	
-	mark = Hunk_LowMark ();
-	list = (edict_t **) Hunk_Alloc (sv.num_edicts*sizeof(edict_t *));
-	
+
+	list = alloca (sv.num_edicts*sizeof(edict_t *));
+
 	listcount = 0;
 	SV_AreaTriggerEdicts (ent, sv_areanodes, list, &listcount, sv.num_edicts);
 
@@ -373,9 +371,6 @@ void SV_TouchLinks (edict_t *ent)
 		pr_global_struct->self = old_self;
 		pr_global_struct->other = old_other;
 	}
-
-// free hunk-allocated edicts array
-	Hunk_FreeToLowMark (mark);
 }
 
 
